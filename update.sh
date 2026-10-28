@@ -11,7 +11,8 @@ get docker-compose.yml
 get www/index.html
 
 docker compose --env-file .env up -d
-docker compose exec -T web caddy validate --config /etc/caddy/Caddyfile
-docker compose exec -T web caddy reload --config /etc/caddy/Caddyfile
+# File cau hinh duoc thay bang file moi, nen phai khoi dong lai web de doc (database khong bi anh huong)
+docker compose run --rm --no-deps web caddy validate --config /etc/caddy/Caddyfile
+docker compose restart web
 docker compose ps
 echo "XONG cap nhat."
