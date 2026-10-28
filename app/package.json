@@ -1,0 +1,14 @@
+{
+  "name": "vmt-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VMT Console admin: khong dung thu vien ngoai (Node 22: http, crypto, sqlite co san)",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

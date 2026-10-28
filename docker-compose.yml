@@ -10,6 +10,18 @@ services:
       - ./www:/srv/www:ro
       - ./caddy_data:/data
       - ./caddy_config:/config
+    depends_on:
+      - app
+
+  # Trang admin VMT Console (Node 22, du lieu trong ./appdata)
+  app:
+    build: ./app
+    restart: unless-stopped
+    environment:
+      COOKIE_SECURE: "1"
+    volumes:
+      - ./appdata:/data
+    # Khong mo cong ra ngoai: chi Caddy goi vao
 
   db:
     image: postgres:16

@@ -1,0 +1,5 @@
+# Giao dien dung template Lineone (ThemeForest, giay phep khong cho phat tan cong khai):
+# chi day ban da ma hoa app/ui.tar.gz.enc, may chu giai nen bang ma trong /opt/vmt/.uikey
+app/public/
+app/data/
+node_modules/

@@ -1,22 +1,24 @@
-(common) {
-	root * /srv/www
-	file_server
+(security) {
 	encode gzip
 	header {
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
 		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=31536000"
 		-Server
 	}
 }
 
 # Trang admin (nhan vien). Caddy tu xin chung chi HTTPS.
 saas.7zone.net {
-	import common
-	header Strict-Transport-Security "max-age=31536000"
+	import security
+	request_body {
+		max_size 80MB
+	}
+	reverse_proxy app:3000
 }
 
-# Truy cap bang IP (tam thoi, de kiem tra)
+# Vao bang IP thi chuyen ve ten mien (dang nhap can HTTPS)
 :80 {
-	import common
+	redir https://saas.7zone.net{uri} permanent
 }

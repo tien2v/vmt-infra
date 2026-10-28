@@ -1,18 +1,56 @@
 #!/usr/bin/env bash
-# Cap nhat cau hinh web tu GitHub va nap lai (khong mat du lieu).
-# Chay: bash update.sh  (quyen root)
+# Cap nhat VMT Console tu GitHub va chay lai (khong mat du lieu).
+# Chay tren may chu (root):
+#   curl --location -o u github.com/tien2v/vmt-infra/raw/main/update.sh
+#   bash u
 set -euo pipefail
-REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/tien2v/vmt-infra/main}"
 cd /opt/vmt
 
-get(){ curl -fsSL "$REPO_RAW/$1" -o "$1.tmp" && mv "$1.tmp" "$1"; }
-get Caddyfile
-get docker-compose.yml
-get www/index.html
+echo "==> 1/4 Tai ban moi tu GitHub"
+rm -rf /tmp/vmt-src && mkdir -p /tmp/vmt-src
+curl -fsSL https://codeload.github.com/tien2v/vmt-infra/tar.gz/refs/heads/main | tar -xz -C /tmp/vmt-src --strip-components=1
+cp /tmp/vmt-src/Caddyfile /tmp/vmt-src/docker-compose.yml .
+mkdir -p www && cp /tmp/vmt-src/www/index.html www/index.html
+rm -rf app.new && cp -r /tmp/vmt-src/app app.new
 
-docker compose --env-file .env up -d
-# File cau hinh duoc thay bang file moi, nen phai khoi dong lai web de doc (database khong bi anh huong)
+# Giao dien (template Lineone mua ban quyen) duoc ma hoa tren GitHub -> giai nen bang ma luu o .uikey
+if [ ! -s .uikey ]; then
+  read -r -p "Nhap ma giao dien (20 chu thuong, anh co trong tin nhan cua Claude): " UIKEY
+  printf '%s' "$UIKEY" > .uikey && chmod 600 .uikey
+fi
+if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in app.new/ui.tar.gz.enc -pass file:.uikey | tar -xz -C app.new; then
+  rm -f .uikey
+  echo "MA GIAO DIEN SAI. Chay lai: bash u"
+  exit 1
+fi
+rm -f app.new/ui.tar.gz.enc
+rm -rf app && mv app.new app
+mkdir -p appdata && chown 1000:1000 appdata && chmod 700 appdata
+
+echo "==> 2/4 Kiem tra cau hinh web"
 docker compose run --rm --no-deps web caddy validate --config /etc/caddy/Caddyfile
+
+echo "==> 3/4 Dung lai app va chay"
+docker compose --env-file .env up -d --build --remove-orphans
+# File cau hinh Caddy duoc thay bang file moi -> khoi dong lai web de doc
 docker compose restart web
+
+echo "==> 4/4 Doi app san sang"
+ok=0
+for i in $(seq 1 30); do
+  if docker compose exec -T app wget -qO- http://127.0.0.1:3000/healthz >/dev/null 2>&1; then ok=1; break; fi
+  sleep 2
+done
 docker compose ps
-echo "XONG cap nhat."
+if [ "$ok" != "1" ]; then echo "APP CHUA CHAY. Xem loi: docker compose logs --tail 50 app"; exit 1; fi
+
+if [ -f appdata/admin-password.txt ]; then
+  echo
+  echo "=============================================="
+  echo " TAI KHOAN QUAN TRI (chi hien 1 lan, chup lai):"
+  cat appdata/admin-password.txt
+  echo "=============================================="
+  rm -f appdata/admin-password.txt
+fi
+echo
+echo "XONG. Mo trinh duyet: https://saas.7zone.net"
