@@ -1,6 +1,4 @@
-# Tam thoi chay bang IP (http). Khi co ten mien se doi thanh:
-# console.vmtglobal.com, console.vominhthien.com { ... } de tu dong co HTTPS.
-:80 {
+(common) {
 	root * /srv/www
 	file_server
 	encode gzip
@@ -10,4 +8,15 @@
 		Referrer-Policy strict-origin-when-cross-origin
 		-Server
 	}
+}
+
+# Trang admin (nhan vien). Caddy tu xin chung chi HTTPS.
+saas.7zone.net {
+	import common
+	header Strict-Transport-Security "max-age=31536000"
+}
+
+# Truy cap bang IP (tam thoi, de kiem tra)
+:80 {
+	import common
 }
