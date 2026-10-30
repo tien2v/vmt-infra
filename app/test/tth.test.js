@@ -56,7 +56,7 @@ test('luong day du', () => { const db = mk(); T.setCost(db, PLA, 'admin'); asser
 });
 test('bang gia mac dinh, uy quyen, VIP, deal', () => { const db = mk(); T.setCost(db, PLA, 'a');
   assert.equal(T.quote(db, { type: 'alipay_cn', cny: 500 }).rate, 3977 + 120);
-  assert.equal(T.quote(db, { type: 'auth', cny: 500 }).rate, 3977 + 140);
+  assert.equal(T.quote(db, { type: 'auth', cny: 500 }).rate, 3977 + 140); // Alipay Viet 1K = 3977
   assert.equal(T.quote(db, { type: 'bank', cny: 60000 }).rate, 3944 + 25);
   assert.ok(T.setCustPrice(db, 'vip', -30, 'khach lon', 'admin').ok);
   assert.equal(T.quote(db, { type: 'bank', cny: 60000, owner: 'vip' }).rate, 3944 - 5);

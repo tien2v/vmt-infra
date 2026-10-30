@@ -38,7 +38,7 @@ const TYPES = {
   alipay_vn: { label: 'Alipay VN', cost: 'alipay_vn' },
   wechat: { label: 'WeChat', cost: 'wechat' },
   bank: { label: 'Chuyển khoản ngân hàng TQ', cost: 'bank' },
-  auth: { label: 'Uỷ quyền', cost: 'alipay_cn' }, // anh chot 31/10: cao hon 20d so voi gia hien tai (tinh tren von Alipay Trung)
+  auth: { label: 'Uỷ quyền', cost: 'alipay_vn' }, // anh chot 31/10: Alipay Viet + 20d (don uy quyen deu tra bang Alipay Viet)
 };
 const STATUSES = ['UNPAID', 'NEED_PAY', 'QUEUED', 'PROCESSING', 'DONE', 'CANCELLED'];
 const LABEL_KHACH = { UNPAID: 'Chờ thanh toán', NEED_PAY: 'Cần thanh toán thêm', QUEUED: 'Chờ xử lý', PROCESSING: 'Đang xử lý', DONE: 'Thành công', CANCELLED: 'Đã huỷ' };
