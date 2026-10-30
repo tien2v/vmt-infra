@@ -8,6 +8,7 @@
             </div>
             <div class="flex flex-wrap gap-2">
               <button x-show="cnNotifyCan()" @click="cnNotifyAsk()" class="btn space-x-2 rounded-full border border-slate-300 font-medium text-slate-800 hover:bg-slate-150 dark:border-navy-450 dark:text-navy-50 dark:hover:bg-navy-500"><i class="fa-regular fa-bell"></i><span>Bật thông báo</span></button>
+              <button @click="nfOpen()" class="btn space-x-2 rounded-full bg-primary font-medium text-white hover:bg-primary-focus dark:bg-accent"><i class="fa-solid fa-plus"></i><span>Tạo đơn giùm khách</span></button>
               <button @click="cnLoad()" class="btn space-x-2 rounded-full border border-slate-300 font-medium text-slate-800 hover:bg-slate-150 dark:border-navy-450 dark:text-navy-50 dark:hover:bg-navy-500"><i class="fa-solid fa-rotate"></i><span>Làm mới</span></button>
               <button @click="cnCsv()" class="btn space-x-2 rounded-full border border-slate-300 font-medium text-slate-800 hover:bg-slate-150 dark:border-navy-450 dark:text-navy-50 dark:hover:bg-navy-500"><i class="fa-solid fa-file-arrow-down"></i><span>Xuất Excel</span></button>
             </div>
@@ -193,6 +194,12 @@
                       <div class="flex justify-between border-b border-dashed border-slate-150 py-2 text-xs-plus dark:border-navy-500"><span x-text="it.name"></span><span x-text="'SL ' + it.qty + (money() && it.price!=null ? ' × ' + vnd(it.price) : '')"></span></div>
                     </template>
 
+                    <template x-for="g in [['Ảnh sản phẩm', (cnDetail.photos||{}).prod], ['Ảnh kiện hàng', (cnDetail.photos||{}).pkg]]" :key="g[0]">
+                      <div x-show="(g[1]||[]).length"><p class="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400" x-text="g[0]"></p>
+                        <div class="mt-2 flex flex-wrap gap-2"><template x-for="id in (g[1]||[])" :key="id"><a :href="cnImg(id)" target="_blank" rel="noopener" class="block size-20 overflow-hidden rounded-lg bg-slate-150"><img :src="cnImg(id)" loading="lazy" class="size-full object-cover"></a></template></div></div>
+                    </template>
+                    <p x-show="cnDetail.createdBy" class="mt-3 text-xs text-info" x-text="'Đơn do ' + cnWho(cnDetail.createdBy) + ' tạo giùm khách'"></p>
+
                     <!-- Cập nhật -->
                     <div x-show="cnCan.length" class="mt-5 rounded-lg border border-slate-150 p-3 dark:border-navy-500">
                       <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Cập nhật</p>
@@ -311,4 +318,68 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <!-- ===== TAO DON SHIP TO CHINA GIUM KHACH ===== -->
+        <section x-show="page==='cnnew'" style="display:none" x-init="nfNew()">
+          <div class="flex flex-wrap items-end justify-between gap-3 py-5 lg:py-6">
+            <div><h2 class="text-xl font-medium text-slate-800 dark:text-navy-50 lg:text-2xl">Tạo đơn Ship to China giùm khách</h2>
+              <p class="mt-1 text-xs-plus text-slate-400">Tạo xong hệ thống báo cho khách. Khách tự thanh toán bằng mã PIN / khuôn mặt, nhân viên không thanh toán thay.</p></div>
+            <button @click="page='cn'; location.hash='cn'" class="btn space-x-2 rounded-full border border-slate-300 font-medium dark:border-navy-450"><i class="fa-solid fa-arrow-left"></i><span>Danh sách</span></button>
+          </div>
+          <template x-if="nf && nfDone">
+            <div class="card p-6 text-center"><i class="fa-solid fa-circle-check text-4xl text-success"></i><p class="mt-3 text-lg font-medium text-slate-700 dark:text-navy-100">Đã tạo đơn <span x-text="nfDone.code"></span></p>
+              <p class="mt-1 text-xs-plus text-slate-400" x-text="'Đã gửi thông báo cho khách ' + (nfDone.gobiz||'')"></p>
+              <div class="mt-4 flex justify-center gap-2"><button @click="cnOpen(nfDone); page='cn'; location.hash='cn'" class="btn rounded-full border border-slate-300 dark:border-navy-450">Xem đơn</button><button @click="nfNew()" class="btn rounded-full bg-primary text-white dark:bg-accent">Tạo đơn khác</button></div></div>
+          </template>
+          <template x-if="nf && !nfDone">
+          <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div class="card space-y-4 p-4 sm:p-5 lg:col-span-2 text-xs-plus">
+              <div><span class="font-medium text-slate-600 dark:text-navy-100">1. Khách hàng <i class="text-error">*</i></span>
+                <div x-show="nf.cust" class="mt-1 flex items-center justify-between rounded-lg bg-slate-100 p-3 dark:bg-navy-600"><span><b x-text="nf.cust && nf.cust.u"></b> · <span x-text="nf.cust && (nf.cust.code + ' ' + nf.cust.fn)"></span></span><button @click="nf.cust=null; nfCos=[]" class="text-error">Đổi</button></div>
+                <div x-show="!nf.cust" class="relative"><input x-model="nfQ" @input.debounce.300ms="nfSearch()" placeholder="Gõ tên đăng nhập, mã khách hoặc tên khách" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent">
+                  <div x-show="nfCands.length" class="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-150 bg-white shadow dark:border-navy-500 dark:bg-navy-700"><template x-for="c in nfCands" :key="c.u"><button type="button" @click="nfPick(c)" class="block w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-navy-600"><b x-text="c.u"></b> · <span x-text="c.code + ' ' + c.fn"></span></button></template></div></div></div>
+              <div class="grid grid-cols-2 gap-3">
+                <label class="col-span-2 block"><span class="text-slate-500">Tên lô <i class="text-error">*</i></span><input x-model="nf.lot" maxlength="80" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent"></label>
+                <label class="block"><span class="text-slate-500">Loại hàng</span><select x-model="nf.cat" class="form-select mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-navy-450 dark:bg-navy-700"><option value="thuong">Hàng thường</option><option value="kho">Hàng khó</option><option value="yen">Yến sào</option><option value="thu">Thư, chứng từ</option><option value="rieng">Báo giá riêng</option></select></label>
+                <label class="block"><span class="text-slate-500">Kho gửi</span><select x-model="nf.wh" class="form-select mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-navy-450 dark:bg-navy-700"><option value="HN">Hà Nội</option><option value="HCM">TP.HCM (+5%)</option></select></label>
+                <label x-show="nf.cat==='kho'" class="col-span-2 block"><span class="text-slate-500">Tốc độ (hàng khó)</span><select x-model="nf.method" class="form-select mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-navy-450 dark:bg-navy-700"><option value="express_shipping">Nhanh</option><option value="standard_shipping">Thường</option><option value="eco_shipping">Chậm</option></select></label>
+                <label class="block"><span class="text-slate-500">Người nhận TQ <i class="text-error">*</i></span><input x-model="nf.rname" maxlength="60" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent"></label>
+                <label class="block"><span class="text-slate-500">SĐT người nhận <i class="text-error">*</i></span><input x-model="nf.rphone" maxlength="20" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent"></label>
+                <label class="col-span-2 block"><span class="text-slate-500">Địa chỉ nhận TQ <i class="text-error">*</i></span><input x-model="nf.raddr" maxlength="300" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent"></label>
+              </div>
+              <div><span class="font-medium text-slate-600 dark:text-navy-100">2. Sản phẩm <i class="text-error">*</i></span>
+                <template x-for="(it,i) in nf.items" :key="i"><div class="mt-2 flex gap-2"><input x-model="it.name" placeholder="Tên hàng" maxlength="120" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent !mt-0 grow"><input x-model="it.qty" inputmode="numeric" placeholder="SL" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent !mt-0 !w-20"><input x-model="it.price" inputmode="numeric" placeholder="Giá khai (đ)" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent !mt-0 !w-32"><button @click="nf.items.length>1 ? nf.items.splice(i,1) : null" class="btn size-9 shrink-0 rounded-full p-0 text-error"><i class="fa-solid fa-xmark"></i></button></div></template>
+                <button @click="nf.items.push({name:'',qty:1,price:''})" class="btn mt-2 rounded-full border border-slate-300 px-3 py-1 dark:border-navy-450"><i class="fa-solid fa-plus mr-1"></i>Thêm dòng</button></div>
+              <div class="grid grid-cols-2 gap-3">
+                <label class="col-span-2 block"><span class="text-slate-500">Mã vận đơn gửi tới kho (nhiều mã cách nhau dấu phẩy)</span><input x-model="nf.wb" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent"></label>
+                <label class="block"><span class="text-slate-500">Cân ước tính (kg)</span><input x-model="nf.estW" inputmode="decimal" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent"></label>
+                <div class="flex items-end gap-4 pb-2"><label class="inline-flex items-center gap-2"><input type="checkbox" x-model="nf.insurance" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary dark:border-navy-400 dark:checked:border-accent dark:checked:bg-accent">Bảo hiểm 6%</label><label class="inline-flex items-center gap-2"><input type="checkbox" x-model="nf.reinforce" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary dark:border-navy-400 dark:checked:border-accent dark:checked:bg-accent">Gia cố</label></div>
+                <label class="col-span-2 block"><span class="text-slate-500">Ghi chú</span><textarea x-model="nf.note" rows="2" maxlength="500" class="form-textarea mt-1 w-full rounded-lg border border-slate-300 bg-transparent p-2.5 dark:border-navy-450"></textarea></label>
+              </div>
+              <div><label class="inline-flex items-center gap-2 font-medium text-slate-600 dark:text-navy-100"><input type="checkbox" x-model="nf.vat" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary dark:border-navy-400 dark:checked:border-accent dark:checked:bg-accent">Khách lấy hoá đơn VAT (+10%)</label>
+                <div x-show="nf.vat" class="mt-2 grid grid-cols-2 gap-3">
+                  <label class="col-span-2 block"><span class="text-slate-500">Công ty của khách</span><select x-model="nf.companyId" class="form-select mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-navy-450 dark:bg-navy-700"><template x-for="c in nfCos" :key="c.id"><option :value="String(c.id)" x-text="c.name + ' · MST ' + c.taxId"></option></template><option value="new">+ Nhập công ty khác</option></select></label>
+                  <template x-if="nf.companyId==='new'"><div class="col-span-2 grid grid-cols-2 gap-3">
+                    <label class="col-span-2 block"><span class="text-slate-500">Tên công ty *</span><input x-model="nf.invCompany" maxlength="200" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent"></label>
+                    <label class="block"><span class="text-slate-500">Mã số thuế *</span><input x-model="nf.invTax" maxlength="14" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent"></label>
+                    <label class="block"><span class="text-slate-500">Email hoá đơn *</span><input x-model="nf.invEmail" maxlength="120" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent"></label>
+                    <label class="col-span-2 block"><span class="text-slate-500">Địa chỉ *</span><input x-model="nf.invAddr" maxlength="300" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent"></label></div></template>
+                </div></div>
+              <template x-for="g in [['prod','Ảnh sản phẩm'],['pkg','Ảnh kiện hàng']]" :key="g[0]">
+                <div><span class="font-medium text-slate-600 dark:text-navy-100" x-text="g[1] + ' (tối đa 10)'"></span>
+                  <div class="mt-2 flex flex-wrap gap-2"><template x-for="(p,i) in nfPh[g[0]]" :key="p.url"><div class="relative size-20 overflow-hidden rounded-lg bg-slate-150" :class="p.id?'':'opacity-50'"><img :src="p.url" class="size-full object-cover"><button @click="nfPh[g[0]].splice(i,1)" class="absolute right-1 top-1 size-5 rounded-full bg-black/60 text-xs text-white">×</button></div></template>
+                    <label class="flex size-20 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-400 dark:border-navy-450"><i class="fa-solid fa-camera text-lg"></i><span class="text-tiny">Thêm</span><input type="file" accept="image/*" multiple class="hidden" @change="nfAddPh(g[0], [...$event.target.files]); $event.target.value=''"></label></div></div>
+              </template>
+            </div>
+            <div class="card h-fit space-y-3 p-4 sm:p-5 text-xs-plus lg:sticky lg:top-24">
+              <p class="font-medium text-slate-700 dark:text-navy-100">Xác nhận</p>
+              <p class="text-slate-500">Khách: <b x-text="nf.cust ? nf.cust.u : 'chưa chọn'"></b></p>
+              <p class="text-slate-500">Sản phẩm: <b x-text="nf.items.filter(i=>i.name).length + ' dòng'"></b> · Ảnh: <b x-text="nfPh.prod.length + nfPh.pkg.length"></b></p>
+              <p class="text-slate-400">Phí tính khi kho cân. Đơn ghi lại tên nhân viên tạo.</p>
+              <p x-show="nfErr" class="text-error" x-text="nfErr"></p>
+              <button @click="nfSubmit()" :disabled="nfBusy" class="btn w-full bg-primary font-medium text-white hover:bg-primary-focus disabled:opacity-60 dark:bg-accent" x-text="nfBusy ? 'Đang tạo...' : 'Tạo đơn & báo khách'"></button>
+            </div>
+          </div>
+          </template>
         </section>

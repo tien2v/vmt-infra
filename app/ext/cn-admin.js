@@ -63,7 +63,7 @@
           if (d.id === 'kho') { const j = d.menu.findIndex((m) => m.p === 'kho'); d.menu.splice(j >= 0 ? j + 1 : 0, 0, Object.assign({}, MENU_SCAN)); }
         }
         if (origInit) origInit.call(this);
-        const h = () => { const x = location.hash.slice(1); if ((x === 'cn' || x === 'cnscan') && this.canSee(x)) { this.desk = this.deskOfPage(x) || this.desk; this.page = x; } };
+        const h = () => { const x = location.hash.slice(1); if ((x === 'cn' || x === 'cnscan') && this.canSee(x)) { this.desk = this.deskOfPage(x) || this.desk; this.page = x; } else if (x === 'cnnew' && this.canSee('cn')) { this.desk = this.deskOfPage('cn') || this.desk; this.page = 'cnnew'; } };
         h(); window.addEventListener('hashchange', h);
         this.$watch('page', (p) => { if (p !== 'cnscan' && this.camOn) this.camStop(); if (p === 'cn') this.cnLoad(); if (p === 'cnscan') this.$nextTick(() => { const el = document.getElementById('cnScanInput'); if (el) el.focus(); }); });
         if (this.page === 'cn') this.cnLoad();
@@ -134,6 +134,56 @@
         a.href = URL.createObjectURL(new Blob(['﻿' + [head].concat(rows).map((l) => l.map(csvCell).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' }));
         a.download = 'ship-to-china.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
       },
+
+      // ---- nhan vien tao don gium khach ----
+      nf: null, nfQ: '', nfCands: [], nfCos: [], nfErr: '', nfBusy: false, nfDone: null, nfPh: { prod: [], pkg: [] }, nfUp: 0,
+      nfNew() {
+        this.nf = { cust: null, lot: '', cat: 'thuong', rname: '', rphone: '', raddr: '', items: [{ name: '', qty: 1, price: '' }], wb: '', wh: 'HN', method: 'standard_shipping', insurance: false, reinforce: false, estW: '', note: '', vat: false, companyId: '', invCompany: '', invTax: '', invAddr: '', invEmail: '' };
+        this.nfQ = ''; this.nfCands = []; this.nfCos = []; this.nfErr = ''; this.nfDone = null; this.nfPh = { prod: [], pkg: [] };
+      },
+      nfOpen() { this.nfNew(); this.page = 'cnnew'; location.hash = 'cnnew'; },
+      async nfSearch() {
+        const q = this.nfQ.trim(); if (q.length < 2) { this.nfCands = []; return; }
+        try { const r = await fetch('/api/cn/customers?q=' + encodeURIComponent(q)); const j = await r.json(); if (this.nfQ.trim() === q) this.nfCands = j.items || []; } catch (e) {}
+      },
+      async nfPick(c) {
+        this.nf.cust = c; this.nfCands = []; this.nfQ = '';
+        try { const r = await fetch('/api/cn/customers/' + encodeURIComponent(c.u) + '/companies'); const j = await r.json(); this.nfCos = j.items || []; const d = this.nfCos.find((x) => x.isDefault) || this.nfCos[0]; this.nf.companyId = d ? String(d.id) : 'new'; } catch (e) { this.nfCos = []; this.nf.companyId = 'new'; }
+      },
+      async nfAddPh(k, files) {
+        for (const f of files) {
+          if (this.nfPh[k].length >= 10) { this.nfErr = 'Tối đa 10 ảnh mỗi loại'; break; }
+          const p = { id: null, url: URL.createObjectURL(f) }; this.nfPh[k].push(p); this.nfUp++;
+          try {
+            const url = p.url; const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('Không đọc được ảnh')); i.src = url; });
+            const m = 1600, sc = Math.min(1, m / Math.max(img.naturalWidth, img.naturalHeight)); const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * sc); c.height = Math.round(img.naturalHeight * sc); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+            let q = 0.82, b; do { b = await new Promise((r) => c.toBlob(r, 'image/jpeg', q)); q -= 0.12; } while (b && b.size > 2.8e6 && q > 0.3);
+            const r = await fetch('/api/cn/upload', { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: b }); const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j.error || 'Không tải được ảnh');
+            const i = this.nfPh[k].indexOf(p); if (i >= 0) this.nfPh[k].splice(i, 1, Object.assign({}, p, { id: j.id }));
+          } catch (e) { this.nfPh[k] = this.nfPh[k].filter((x) => x.url !== p.url); this.nfErr = e.message; }
+          this.nfUp--;
+        }
+      },
+      async nfSubmit() {
+        const f = this.nf; this.nfErr = '';
+        if (!f.cust) { this.nfErr = 'Chọn khách hàng trước'; return; }
+        if (this.nfUp) { this.nfErr = 'Đang tải ảnh, chờ chút'; return; }
+        const items = f.items.filter((i) => String(i.name).trim()).map((i) => ({ name: String(i.name).trim(), qty: Number(i.qty) || 0, price: Number(String(i.price).replace(/\D/g, '')) || 0 }));
+        const b = { customer: f.cust.u, lot: f.lot.trim(), cat: f.cat, rname: f.rname.trim(), rphone: f.rphone.trim(), raddr: f.raddr.trim(), items, wb: f.wb.split(/[\s,;]+/).filter(Boolean).map((x) => x.toUpperCase()), wh: f.wh, method: f.cat === 'kho' ? f.method : 'standard_shipping',
+          svcs: [f.insurance && 'insurance', f.reinforce && 'reinforce'].filter(Boolean), estW: String(f.estW).replace(',', '.'), note: f.note.trim(), vat: f.vat,
+          companyId: f.vat && f.companyId && f.companyId !== 'new' ? Number(f.companyId) : null, invCompany: f.invCompany.trim(), invTax: f.invTax.trim(), invAddr: f.invAddr.trim(), invEmail: f.invEmail.trim(),
+          photos: { prod: this.nfPh.prod.map((p) => p.id), pkg: this.nfPh.pkg.map((p) => p.id) } };
+        this.nfBusy = true;
+        try {
+          const r = await fetch('/api/cn/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) this.nfErr = j.error || 'Không tạo được đơn';
+          else { this.nfDone = j.order; this.cnLoad(); window.dispatchEvent(new CustomEvent('vmt-toast', { detail: 'Đã tạo đơn ' + j.order.code + ' và báo cho khách' })); }
+        } catch (e) { this.nfErr = 'Mất kết nối'; }
+        this.nfBusy = false;
+      },
+      cnImg: (id) => '/cnimg/' + id + '.jpg',
 
       // ---- quet ma tai kho ----
       scMode: 'in', scCode: '', scBusy: false, scLog: [], scCur: null, scMsg: '', scErr: '', scMissing: [], scWaitRef: '', scAutoPrint: true,

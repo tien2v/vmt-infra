@@ -2,6 +2,8 @@
 // Don Ship to China (SCN) do khach tao tren trang khach, luu o khach.db (/khach). Trang admin doc + cap nhat.
 const fs = require('node:fs');
 const price = require('./price');
+const path = require('node:path');
+const shared = require('./cnshared');
 const { DatabaseSync } = require('node:sqlite');
 
 const KHACH_DB = process.env.KHACH_DB || '/khach/khach.db';
@@ -11,6 +13,7 @@ function open() {
   if (!fs.existsSync(KHACH_DB)) return null;
   db = new DatabaseSync(KHACH_DB);
   db.exec('PRAGMA busy_timeout = 5000');
+  shared.initUploads(db);
   db.exec("CREATE TABLE IF NOT EXISTS notif (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, code TEXT, text TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))");
   return db;
 }
@@ -241,4 +244,48 @@ function summary() {
 }
 function log(code) { const d = open(); return d ? d.prepare('SELECT * FROM cn_log WHERE code = ? ORDER BY ts').all(code) : []; }
 
-module.exports = { list, counts, update, log, summary, scan, track, event, autoDeliver, missingOf, LABEL, STATUSES, CAN_EDIT };
+// ===== Nhan vien tao don gium khach =====
+const KDIR = path.dirname(KHACH_DB);
+function uploadSave(staff, buf) { const d = open(); if (!d) return { error: 'Chưa có dữ liệu trang khách' }; return shared.saveUpload(d, KDIR, null, 'staff:' + staff, buf); }
+const uploadPath = (id) => shared.uploadFile(KDIR, id);
+function uploadExists(id) { const d = open(); return !!(d && d.prepare('SELECT 1 FROM uploads WHERE id = ?').get(id)); }
+// Tai khoan trang khach gan voi ma Gobiz nay (neu khach da co tai khoan), khong thi dung ten Gobiz
+function khachUser(gobiz) {
+  const d = open(); if (!d) return String(gobiz).toLowerCase();
+  try { const r = d.prepare('SELECT username FROM users WHERE lower(gobiz) = lower(?) AND active = 1 ORDER BY created_at LIMIT 1').get(gobiz); if (r) return r.username; } catch (e) {}
+  return String(gobiz).toLowerCase();
+}
+function companiesOf(gobiz) {
+  const d = open(); if (!d) return [];
+  try { return d.prepare('SELECT id, name, tax_id AS taxId, addr, email, is_default AS isDefault FROM companies WHERE username = ? AND deleted = 0 ORDER BY is_default DESC, id').all(khachUser(gobiz)); } catch (e) { return []; }
+}
+// cust = { u: ten Gobiz, code, fn } da kiem tra co trong snapshot
+function create(staff, cust, b, ip) {
+  const d = open(); if (!d) return { code: 503, error: 'Chưa có dữ liệu trang khách' };
+  const username = khachUser(cust.u);
+  if (b.vat && b.companyId) {
+    const co = d.prepare('SELECT * FROM companies WHERE id = ? AND username = ? AND deleted = 0').get(Number(b.companyId) || 0, username);
+    if (!co) return { code: 400, error: 'Công ty xuất VAT không có trong danh sách của khách' };
+    Object.assign(b, { invCompany: co.name, invTax: co.tax_id, invAddr: co.addr, invEmail: co.email });
+  }
+  const v = shared.validateCn(b);
+  if (v.error) return { code: 400, error: v.error };
+  if (v.data.vat && b.companyId) v.data.inv.coId = Number(b.companyId);
+  const by = 'staff:' + staff;
+  const chk = shared.checkUploads(d, by, v.data.photos);
+  if (chk.error) return { code: 400, error: chk.error };
+  v.data.createdBy = by; v.data.ms[0].by = 'NV ' + staff;
+  d.exec('BEGIN IMMEDIATE');
+  try {
+    const r = d.prepare('INSERT INTO cn_orders (code, username, gobiz, test, data) VALUES (?, ?, ?, 0, ?)').run('tmp-' + require('node:crypto').randomUUID(), username, cust.u, JSON.stringify(v.data));
+    const seq = Number(r.lastInsertRowid); const code = 'SCN' + seq;
+    d.prepare('UPDATE cn_orders SET code = ? WHERE seq = ?').run(code, seq);
+    shared.claimUploads(d, username, v.data.photos, code);
+    writeLog(d, code, by, 'Nhân viên tạo đơn giùm khách', [], { ip: ip || null, gobiz: cust.u, khach: cust.code + ' ' + (cust.fn || ''), photos: v.data.photos.pkg.length + v.data.photos.prod.length });
+    d.prepare('INSERT INTO notif (username, code, text) VALUES (?, ?, ?)').run(username, code, 'VMT đã tạo giùm anh/chị đơn Ship to China ' + code + ' (' + v.data.note + '). Anh/chị kiểm tra lại thông tin; khi kho cân xong sẽ báo phí để thanh toán.');
+    d.exec('COMMIT');
+    return { order: row(d.prepare('SELECT * FROM cn_orders WHERE seq = ?').get(seq), 'admin') };
+  } catch (e) { try { d.exec('ROLLBACK'); } catch {} throw e; }
+}
+
+module.exports = { create, companiesOf, uploadSave, uploadPath, uploadExists, list, counts, update, log, summary, scan, track, event, autoDeliver, missingOf, LABEL, STATUSES, CAN_EDIT };

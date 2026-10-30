@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
+const shared = require('./cnshared');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const ADMIN_DB = process.env.ADMIN_DB || '/admin/vmt.db';
@@ -35,6 +36,7 @@ function init() {
     CREATE TABLE IF NOT EXISTS co_log (ts TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), username TEXT, co_id INTEGER, action TEXT, detail TEXT);
     CREATE TABLE IF NOT EXISTS cn_log (ts TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), code TEXT, username TEXT, action TEXT, detail TEXT);
   `);
+  shared.initUploads(db);
   // Ma don SCN bat dau tu 100001
   if (!db.prepare("SELECT 1 FROM sqlite_sequence WHERE name = 'cn_orders'").get()) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('cn_orders', 100000)").run();
 }
@@ -89,16 +91,31 @@ function cnRow(r) {
   return Object.assign(d, { code: r.code, status: ({ CN_WAREHOUSE: 'CLEARED', DISPATCHED: 'CLEARED' })[r.status] || r.status, created: r.created_at, modified: r.updated_at || r.created_at });
 }
 function cnCreate(username, gobiz, test, data, ip) {
+  const by = 'khach:' + username;
+  const chk = shared.checkUploads(db, by, data.photos || { pkg: [], prod: [] });
+  if (chk.error) return chk;
+  db.exec('BEGIN IMMEDIATE');
+  try {
   const r = db.prepare('INSERT INTO cn_orders (code, username, gobiz, test, data) VALUES (?, ?, ?, ?, ?)').run('tmp-' + crypto.randomUUID(), username, gobiz, test ? 1 : 0, JSON.stringify(data));
   const seq = Number(r.lastInsertRowid); const code = 'SCN' + seq;
   db.prepare('UPDATE cn_orders SET code = ? WHERE seq = ?').run(code, seq);
-  db.prepare('INSERT INTO cn_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, 'khach:' + username, 'Khách tạo đơn', JSON.stringify({ changes: [], ip: ip || null, gobiz }));
-  return cnRow(db.prepare('SELECT * FROM cn_orders WHERE seq = ?').get(seq));
+  shared.claimUploads(db, username, data.photos || { pkg: [], prod: [] }, code);
+  const np = (data.photos ? data.photos.pkg.length + data.photos.prod.length : 0);
+  db.prepare('INSERT INTO cn_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, by, 'Khách tạo đơn', JSON.stringify({ changes: [], ip: ip || null, gobiz, photos: np }));
+  db.exec('COMMIT');
+  return { order: cnRow(db.prepare('SELECT * FROM cn_orders WHERE seq = ?').get(seq)) };
+  } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
 }
-function cnList(username) { return db.prepare('SELECT * FROM cn_orders WHERE username = ? ORDER BY seq DESC LIMIT 500').all(username).map(cnRow); }
+function uploadSave(username, buf) { return shared.saveUpload(db, DATA_DIR, username, 'khach:' + username, buf); }
+// Khach xem duoc anh minh tai, hoac anh gan vao don cua minh (ke ca don nhan vien tao gium)
+function uploadCanSee(username, gobiz, id) {
+  return !!db.prepare('SELECT 1 FROM uploads u LEFT JOIN cn_orders o ON o.code = u.code WHERE u.id = ? AND (u.by = ? OR o.username = ? OR (o.gobiz IS NOT NULL AND lower(o.gobiz) = lower(?)))').get(id, 'khach:' + username, username, gobiz || '');
+}
+const uploadPath = (id) => shared.uploadFile(DATA_DIR, id);
+function cnList(username, gobiz) { return db.prepare('SELECT * FROM cn_orders WHERE username = ? OR (gobiz IS NOT NULL AND lower(gobiz) = lower(?)) ORDER BY seq DESC LIMIT 500').all(username, gobiz || '').map(cnRow); }
 function cnCountRecent(username) { return db.prepare("SELECT COUNT(*) AS n FROM cn_orders WHERE username = ? AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hour')").get(username).n; }
-function cnCancel(username, code, ip) {
-  const r = db.prepare('SELECT * FROM cn_orders WHERE code = ? AND username = ?').get(code, username);
+function cnCancel(username, code, ip, gobiz) {
+  const r = db.prepare('SELECT * FROM cn_orders WHERE code = ? AND (username = ? OR (gobiz IS NOT NULL AND lower(gobiz) = lower(?)))').get(code, username, gobiz || '');
   if (!r) return { error: 'Không tìm thấy đơn', code: 404 };
   if (r.status !== 'PENDING') return { error: 'Đơn đã được kho tiếp nhận, không huỷ được. Vui lòng liên hệ nhân viên.', code: 409 };
   const d = JSON.parse(r.data); d.ms = (d.ms || []).concat([{ t: new Date().toISOString(), s: 'CANCELLED', by: 'khách' }]);
@@ -151,4 +168,4 @@ function coDelete(username, id, ip) {
 }
 function notifList(username) { return db.prepare('SELECT id, code, text, read, created_at FROM notif WHERE username = ? ORDER BY id DESC LIMIT 50').all(username); }
 function notifRead(username) { db.prepare('UPDATE notif SET read = 1 WHERE username = ? AND read = 0').run(username); }
-module.exports = { coList, coGet, coSave, coDelete, notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };
+module.exports = { uploadSave, uploadCanSee, uploadPath, coList, coGet, coSave, coDelete, notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };

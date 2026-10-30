@@ -102,6 +102,18 @@ function dataFor(role) {
   return cache.byRole[role];
 }
 
+// Danh sach khach tu snapshot Gobiz (de nhan vien chon khi tao don gium)
+const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+let custCache = { id: null, list: [] };
+function customers() {
+  const snap = store.latestSnapshot(); if (!snap) return [];
+  if (custCache.id !== snap.id) {
+    const raw = JSON.parse(snap.data);
+    custCache = { id: snap.id, list: (raw.customers || []).filter((c) => c.u).map((c) => ({ u: c.u, code: c.code || '', fn: c.fn || '', _q: norm([c.u, c.code, c.fn].join(' ')) })) };
+  }
+  return custCache.list;
+}
+
 // ---------- file tinh ----------
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
 function serveFile(req, res, rel, cacheable) {
@@ -237,6 +249,38 @@ async function handle(req, res) {
     const r = cn.scan(String(b.code || ''), String(b.mode || ''), user.role, user.username, !!b.force, b.ref ? String(b.ref) : '');
     if (r.error) return json(req, res, r.code, { error: r.error, missing: r.missing || null, order: r.order || null });
     return json(req, res, 200, { ok: true, order: r.order, result: r.result, missing: r.missing || [], warn: !!r.warn, needRef: !!r.needRef });
+  }
+  if (p === '/api/cn/customers') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    const q = norm(url.searchParams.get('q') || ''); if (q.length < 2) return json(req, res, 200, { items: [] });
+    const items = customers().filter((c) => c._q.includes(q)).slice(0, 20).map((c) => ({ u: c.u, code: c.code, fn: c.fn }));
+    return json(req, res, 200, { items });
+  }
+  const mcc = p.match(/^\/api\/cn\/customers\/([^/]{1,80})\/companies$/);
+  if (mcc) { if (!user) return json(req, res, 401, { error: 'login' }); return json(req, res, 200, { items: cn.companiesOf(decodeURIComponent(mcc[1])) }); }
+  if (p === '/api/cn/create' && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!['admin', 'sale', 'tc', 'kho'].includes(user.role)) return json(req, res, 403, { error: 'Không có quyền tạo đơn' });
+    if (!sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 50000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const c = customers().find((x) => String(x.u).toLowerCase() === String(b.customer || '').toLowerCase());
+    if (!c) return json(req, res, 400, { error: 'Chọn khách hàng trong danh sách' });
+    const r = cn.create(user.username, c, b, clientIp(req));
+    if (r.error) return json(req, res, r.code, { error: r.error });
+    return json(req, res, 200, { ok: true, order: r.order });
+  }
+  if (p === '/api/cn/upload' && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req) || req.headers['content-type'] !== 'image/jpeg') return json(req, res, 403, { error: 'origin' });
+    let buf; try { buf = await readBody(req, 3 * 1024 * 1024); } catch { return json(req, res, 413, { error: 'Ảnh phải nhỏ hơn 3MB' }); }
+    const r = cn.uploadSave(user.username, buf);
+    if (r.error) return json(req, res, 400, { error: r.error });
+    return json(req, res, 200, { ok: true, id: r.id });
+  }
+  const mimg = p.match(/^\/cnimg\/([a-f0-9]{32})\.jpg$/);
+  if (mimg) {
+    if (!user || !cn.uploadExists(mimg[1])) return send(res, 404, 'Not found');
+    return fs.readFile(cn.uploadPath(mimg[1]), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' }));
   }
   if (p === '/api/cn/summary') {
     if (!user) return json(req, res, 401, { error: 'login' });
