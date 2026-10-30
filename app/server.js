@@ -160,11 +160,15 @@ const KH_SEG = {
   all: () => true, mine: (r, me) => r.sale === me || r.cskh === me, due: (r) => r.due, active: (r) => r.seg === 'active', risk: (r) => r.seg === 'risk',
   lost: (r) => r.seg === 'lost', none: (r) => r.seg === 'none', isNew: (r) => r.isNew, debt: (r) => r.debt, vip: (r) => (Number(r.v90) || 0) >= 100e6,
 };
+function khBase(sp, all) {
+  const q = norm(String(sp.get('q') || '').trim());
+  const grp = String(sp.get('grp') || ''), owner = String(sp.get('owner') || '');
+  return all.filter((r) => (!q || r._q.includes(q)) && (!grp || r.grp === grp) && (!owner || (owner === '-' ? !r.sale && !r.cskh : r.sale === owner || r.cskh === owner)));
+}
 function khList(sp, user) {
   const all = khRows(), me = user.username;
-  const q = norm(String(sp.get('q') || '').trim()), seg = KH_SEG[sp.get('seg')] ? sp.get('seg') : 'all';
-  const grp = String(sp.get('grp') || ''), owner = String(sp.get('owner') || '');
-  const base = all.filter((r) => (!q || r._q.includes(q)) && (!grp || r.grp === grp) && (!owner || (owner === '-' ? !r.sale && !r.cskh : r.sale === owner || r.cskh === owner)));
+  const seg = KH_SEG[sp.get('seg')] ? sp.get('seg') : 'all';
+  const base = khBase(sp, all);
   const counts = {}; for (const k in KH_SEG) counts[k] = base.filter((r) => KH_SEG[k](r, me)).length;
   let list = base.filter((r) => KH_SEG[seg](r, me));
   const sort = String(sp.get('sort') || 'last');
@@ -179,6 +183,39 @@ function khList(sp, user) {
   const groups = [...new Set(all.map((r) => r.grp).filter(Boolean))].sort();
   const staff = store.listUsers().filter((x) => x.active && ['admin', 'sale'].includes(x.role)).map((x) => ({ u: x.username, n: x.name }));
   return { total: list.length, all: all.length, p: pg, size, rows, counts, groups, staff, me, full: extra.custCount() > 0 };
+}
+const khStaffList = () => store.listUsers().filter((x) => x.active && ['admin', 'sale'].includes(x.role)).map((x) => ({ u: x.username, n: x.name, role: x.role }));
+extra.setActiveStaff(() => new Set(khStaffList().map((x) => x.u)));
+// Gan phu trach hang loat (chi admin). b = { users:[k] | filter:{q,seg,grp,owner}, sale:{mode,u}, cskh:{mode,u}, onlyEmpty, dry }
+function khAssign(b, user) {
+  const all = khRows(), me = user.username;
+  let rows;
+  if (Array.isArray(b.users)) { const set = new Set(b.users.map((x) => String(x).toLowerCase())); rows = all.filter((r) => set.has(r.k)); }
+  else { const f = b.filter || {}; const sp = new URLSearchParams({ q: f.q || '', grp: f.grp || '', owner: f.owner || '' }); const seg = KH_SEG[f.seg] ? f.seg : 'all'; rows = khBase(sp, all).filter((r) => KH_SEG[seg](r, me)); }
+  const act = new Set(khStaffList().map((x) => x.u));
+  const plans = {}, miss = new Set(), out = {};
+  for (const fld of ['sale', 'cskh']) {
+    const m = (b[fld] || {}).mode || 'keep';
+    if (m === 'keep') continue;
+    let target = rows;
+    if (b.onlyEmpty) target = rows.filter((r) => !r[fld]);
+    if (m === 'set') { const u = String((b[fld] || {}).u || ''); if (!act.has(u)) return { error: 'Nhân viên ' + (u || '?') + ' không còn hoạt động', code: 400 }; plans[fld] = new Map(target.map((r) => [r.k, u])); }
+    else if (m === 'clear') plans[fld] = new Map(target.map((r) => [r.k, null]));
+    else if (m === 'split') {
+      const sorted = target.slice().sort((x, y) => (Number(y.v90) || 0) - (Number(x.v90) || 0)); // chia luot theo gia tri -> moi nguoi nhan khach lon / nho deu nhau
+      const r = extra.splitPlan(sorted, fld, act); plans[fld] = r.plan; r.miss.forEach((x) => miss.add(x));
+    } else return { error: 'Cách gán không hợp lệ', code: 400 };
+  }
+  if (!Object.keys(plans).length) return { error: 'Chưa chọn gán Sale hay CSKH', code: 400 };
+  const per = {};
+  const byK = new Map(rows.map((r) => [r.k, r]));
+  for (const fld in plans) for (const [k, u] of plans[fld]) { const r = byK.get(k); if (r && r[fld] !== u) { const key = fld + ':' + (u || '-'); per[key] = (per[key] || 0) + 1; } }
+  out.n = rows.length; out.per = per; out.miss = [...miss];
+  if (b.dry) return out;
+  if (rows.length > 20000) return { error: 'Quá nhiều khách một lần', code: 400 };
+  out.changed = extra.bulk(() => { let c = 0; for (const r of rows) { const v = {}; for (const fld in plans) if (plans[fld].has(r.k)) v[fld] = plans[fld].get(r.k); if (Object.keys(v).length && extra.assign(r.k, v, me)) c++; } return c; });
+  khCache.at = 0;
+  return out;
 }
 function khDetail(u, user) {
   const r = khRows().find((x) => x.k === u);
@@ -345,6 +382,21 @@ async function handle(req, res) {
     if (!['admin', 'sale', 'tc'].includes(user.role)) return json(req, res, 403, { error: 'forbidden' });
     const by = user.username;
     if (req.method === 'GET' && p === '/api/kh') return json(req, res, 200, khList(url.searchParams, user));
+    if (p === '/api/kh/staffcfg' && req.method === 'GET') return json(req, res, 200, { cfg: extra.staffCfg(), staff: khStaffList(), groups: [...new Set(khRows().map((r) => r.grp).filter(Boolean))].sort(), canEdit: user.role === 'admin' });
+    if ((p === '/api/kh/staffcfg' || p === '/api/kh/assign') && req.method === 'POST') {
+      if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+      if (user.role !== 'admin') return json(req, res, 403, { error: 'Chỉ anh (admin) được gán khách hàng loạt / đổi phân công brand' });
+      let b = {}; try { b = JSON.parse((await readBody(req, 2e6)).toString() || '{}'); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+      if (p === '/api/kh/staffcfg') {
+        const act = new Set(khStaffList().map((x) => x.u)), st = {};
+        for (const u in (b.staff || {})) { if (!act.has(u)) continue; const x = b.staff[u] || {}; const brands = (Array.isArray(x.brands) ? x.brands : []).map(String).slice(0, 10); const kind = ['sale', 'cskh', 'both'].includes(x.kind) ? x.kind : 'sale'; if (brands.length) st[u] = { brands, kind }; }
+        const old = extra.staffCfg(); extra.setStaffCfg({ staff: st, auto: !!b.auto, by: user.username, at: new Date().toISOString() });
+        console.log('kh staffcfg by', user.username, JSON.stringify(old), '->', JSON.stringify(st));
+        return json(req, res, 200, { ok: true, cfg: extra.staffCfg() });
+      }
+      const r = khAssign(b, user);
+      return json(req, res, r.error ? r.code : 200, r.error ? { error: r.error } : r);
+    }
     if (req.method === 'GET' && p === '/api/kh/todo') {
       const vn = (d) => new Date(Date.now() + 7 * 3600e3 + d * 86400e3).toISOString().slice(0, 10);
       const today = vn(0), me = user.username;

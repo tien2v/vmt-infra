@@ -8,7 +8,9 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 let db;
-let ver = 0; // tang moi khi du lieu ky gui bo sung doi -> server lam moi cache /api/data
+let ver = 0;
+let activeStaff = null; // ham tra Set username nhan vien dang hoat dong (server gan)
+function setActiveStaff(f) { activeStaff = f; } // tang moi khi du lieu ky gui bo sung doi -> server lam moi cache /api/data
 
 function init(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -30,7 +32,7 @@ const N = (v) => (v === null || v === undefined || v === '' || !isFinite(Number(
 // d = { ships: [{ code, wb:[..], pr:[[ten, anh, sl, don gia, link, thuoc tinh]], pk:[[ma, kg, quy doi, D, R, C, trang thai, gio, anh]] }], cust: [...] }
 function ingest(d) {
   const now = Date.now();
-  let ns = 0, nc = 0;
+  let ns = 0, nc = 0; const fresh = [];
   db.exec('BEGIN');
   try {
     const up = db.prepare('INSERT INTO gz_ship_x (code, wb, pr, pk, ts) VALUES (?, ?, ?, ?, ?) ON CONFLICT(code) DO UPDATE SET wb = excluded.wb, pr = excluded.pr, pk = excluded.pk, ts = excluded.ts');
@@ -42,14 +44,28 @@ function ingest(d) {
       up.run(S(s.code, 60), JSON.stringify(wb), JSON.stringify(pr), JSON.stringify(pk), now); ns++;
     }
     const uc = db.prepare('INSERT INTO gz_cust (u, code, d, ts) VALUES (?, ?, ?, ?) ON CONFLICT(u) DO UPDATE SET code = excluded.code, d = excluded.d, ts = excluded.ts');
+    const had = db.prepare('SELECT 1 FROM gz_cust WHERE u = ?');
+    const recent = new Date(Date.now() + 7 * 3600e3 - 3 * 86400e3).toISOString().slice(0, 10);
     for (const c of (Array.isArray(d.cust) ? d.cust : []).slice(0, 50000)) {
       if (!c || !c.u) continue;
-      uc.run(String(c.u).toLowerCase().slice(0, 80), S(c.code, 30), JSON.stringify(c), now); nc++;
+      const k = String(c.u).toLowerCase().slice(0, 80);
+      if (!had.get(k) && String(c.ca || '') >= recent) fresh.push({ k, grp: c.grp || 'default' });
+      uc.run(k, S(c.code, 30), JSON.stringify(c), now); nc++;
     }
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   if (ns) ver = now;
-  return { ships: ns, cust: nc };
+  let auto = 0;
+  if (fresh.length && staffCfg().auto && activeStaff) {
+    try {
+      const act = activeStaff();
+      bulk(() => {
+        const ps = splitPlan(fresh, 'sale', act).plan, pc = splitPlan(fresh, 'cskh', act).plan;
+        for (const r of fresh) { const v = {}; if (ps.get(r.k)) v.sale = ps.get(r.k); if (pc.get(r.k)) v.cskh = pc.get(r.k); if (Object.keys(v).length && !db.prepare('SELECT 1 FROM cust_owner WHERE u = ? AND (sale IS NOT NULL OR cskh IS NOT NULL)').get(r.k) && assign(r.k, v, 'he-thong', 'Tự chia khách mới theo brand')) auto++; }
+      });
+    } catch (e) { console.error('auto split', e); }
+  }
+  return { ships: ns, cust: nc, auto };
 }
 
 function version() { return ver; }
@@ -114,4 +130,40 @@ function reminders(until) {
   });
 }
 
-module.exports = { reminders, init, ingest, version, attachShips, allCust, custCount, getCust, owners, noteStats, notes, log, addNote, doneNote, setOwner };
+// Gan phu trach 1 phan (chi doi truong duoc truyen: sale / cskh; null = bo trong). Tra ve true neu co doi.
+function assign(u, v, by, why) {
+  u = String(u).toLowerCase();
+  const old = db.prepare('SELECT * FROM cust_owner WHERE u = ?').get(u) || {};
+  const sale = 'sale' in v ? (v.sale || null) : (old.sale || null), cskh = 'cskh' in v ? (v.cskh || null) : (old.cskh || null);
+  const ch = [['Sale phụ trách', old.sale || null, sale], ['CSKH phụ trách', old.cskh || null, cskh]].filter((x) => x[1] !== x[2]);
+  if (!ch.length) return false;
+  db.prepare("INSERT INTO cust_owner (u, sale, cskh, tags, by, ts) VALUES (?, ?, ?, ?, ?, datetime('now', '+7 hours')) ON CONFLICT(u) DO UPDATE SET sale = excluded.sale, cskh = excluded.cskh, by = excluded.by, ts = excluded.ts").run(u, sale, cskh, old.tags || null, by);
+  db.prepare('INSERT INTO cust_log (u, by, action, detail) VALUES (?, ?, ?, ?)').run(u, by, why || 'Gán phụ trách hàng loạt', JSON.stringify({ changes: ch }));
+  return true;
+}
+function bulk(fn) { db.exec('BEGIN'); try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; } }
+// Cau hinh nhan vien <-> brand: { username: { brands: ['default','vmtglobal'], kind: 'sale'|'cskh'|'both' } }, auto: tu chia khach moi
+function kvGet(k) { const r = db.prepare('SELECT v FROM kv WHERE k = ?').get(k); return r ? r.v : null; }
+function kvSet(k, v) { db.prepare('INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v').run(k, v); }
+function staffCfg() { try { return JSON.parse(kvGet('kh_staff_brand') || '{}'); } catch { return {}; } }
+function setStaffCfg(c) { kvSet('kh_staff_brand', JSON.stringify(c)); }
+// Nhan vien cua 1 brand cho 1 viec (sale / cskh), xep theo ten de chia deu on dinh
+function staffOf(brand, field, active) {
+  const c = staffCfg().staff || {};
+  return Object.keys(c).filter((u) => active.has(u) && (c[u].brands || []).includes(brand) && (c[u].kind === 'both' || c[u].kind === field)).sort();
+}
+// Chia deu: moi nhan vien nhan luot ke tiep, bat dau tu nguoi dang it khach nhat
+function splitPlan(rows, field, active) {
+  const load = {}; for (const r of db.prepare('SELECT ' + (field === 'sale' ? 'sale' : 'cskh') + ' AS x, COUNT(*) n FROM cust_owner WHERE x IS NOT NULL GROUP BY x').all()) load[r.x] = r.n;
+  const plan = new Map(), byBrand = {};
+  for (const r of rows) (byBrand[r.grp || 'default'] = byBrand[r.grp || 'default'] || []).push(r);
+  const miss = [];
+  for (const b in byBrand) {
+    const st = staffOf(b, field, active);
+    if (!st.length) { miss.push(b); continue; }
+    for (const r of byBrand[b]) { st.sort((x, y) => (load[x] || 0) - (load[y] || 0) || x.localeCompare(y)); plan.set(r.k, st[0]); load[st[0]] = (load[st[0]] || 0) + 1; }
+  }
+  return { plan, miss };
+}
+
+module.exports = { setActiveStaff, assign, bulk, staffCfg, setStaffCfg, splitPlan, reminders, init, ingest, version, attachShips, allCust, custCount, getCust, owners, noteStats, notes, log, addNote, doneNote, setOwner };

@@ -3,6 +3,7 @@
           .kh-own{align-items:end}@media (min-width:640px){.kh-own{grid-template-columns:1fr 1fr 1.4fr auto}.sm\:max-w-2xl{max-width:42rem}}
           .max-w-\[9rem\]{max-width:9rem}.max-w-\[11rem\]{max-width:11rem}.max-w-\[13rem\]{max-width:13rem}.gap-1\.5{gap:.375rem}.whitespace-pre-line{white-space:pre-line}
           .dark .dark\:bg-accent\/15{background-color:color-mix(in oklab,var(--color-accent) 15%,transparent)}
+          .kh-modal{z-index:110}.kh-selrow{background-color:color-mix(in oklab,var(--color-primary) 6%,transparent)}
         </style>
         <!-- ===== KHACH HANG (ban Sale / CSKH) ===== -->
         <section x-show="page==='kh'" style="display:none">
@@ -11,7 +12,11 @@
               <h2 class="text-xl font-medium text-slate-800 dark:text-navy-50 lg:text-2xl">Khách hàng</h2>
               <p class="mt-1 text-xs-plus text-slate-400 dark:text-navy-300"><span x-text="(kh.total||0).toLocaleString('vi-VN')"></span> khách đang lọc · tổng <span x-text="(kh.all||0).toLocaleString('vi-VN')"></span><span x-show="!kh.full"> · đang chờ đồng bộ đủ danh sách khách từ Gobiz (tạm hiện khách có đơn 30 ngày)</span></p>
             </div>
-            <button @click="khLoad()" class="btn space-x-2 rounded-full border border-slate-300 font-medium text-slate-800 hover:bg-slate-150 dark:border-navy-450 dark:text-navy-50 dark:hover:bg-navy-500"><i class="fa-solid fa-rotate" :class="khBusy ? 'animate-spin' : ''"></i><span>Làm mới</span></button>
+            <div class="flex flex-wrap items-center gap-2">
+              <button x-show="khIsAdmin()" @click="khCfgOpen()" class="btn space-x-2 rounded-full border border-slate-300 font-medium text-slate-800 hover:bg-slate-150 dark:border-navy-450 dark:text-navy-50 dark:hover:bg-navy-500"><i class="fa-solid fa-sitemap"></i><span>Phân công theo brand</span></button>
+              <button x-show="khIsAdmin()" @click="khAsOpen()" class="btn space-x-2 rounded-full bg-primary font-medium text-white hover:bg-primary-focus dark:bg-accent"><i class="fa-solid fa-user-plus"></i><span x-text="khSelN() ? 'Gán phụ trách (' + khSelN() + ' khách)' : 'Gán phụ trách'"></span></button>
+              <button @click="khLoad()" class="btn size-10 rounded-full border border-slate-300 p-0 dark:border-navy-450" title="Làm mới"><i class="fa-solid fa-rotate" :class="khBusy ? 'animate-spin' : ''"></i></button>
+            </div>
           </div>
 
           <div class="card">
@@ -52,13 +57,15 @@
             <div class="is-scrollbar-hidden hidden min-w-full overflow-x-auto sm:block">
               <table class="is-hoverable w-full text-left">
                 <thead><tr>
+                  <th x-show="khIsAdmin()" class="vmt-th w-8"><input type="checkbox" :checked="khAllChecked()" @change="khSelAll($event.target.checked)" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary dark:checked:bg-accent" title="Chọn cả trang" /></th>
                   <th class="vmt-th">Khách hàng</th><th class="vmt-th">Liên hệ</th><th class="vmt-th">Nhóm</th><th class="vmt-th">Đơn gần nhất</th>
                   <th class="vmt-th text-center">Đơn 90 ngày</th><th x-show="money()" class="vmt-th text-right">Chi tiêu 90 ngày</th><th x-show="money()" class="vmt-th text-right">Số dư / Còn thiếu</th>
                   <th class="vmt-th">Phụ trách</th><th class="vmt-th">Chăm sóc</th><th class="vmt-th"></th>
                 </tr></thead>
                 <tbody>
                   <template x-for="c in kh.rows" :key="c.k">
-                    <tr class="cursor-pointer border-y border-transparent border-b-slate-200 dark:border-b-navy-500" @click="khOpen(c.u)">
+                    <tr class="cursor-pointer border-y border-transparent border-b-slate-200 dark:border-b-navy-500" :class="khSel[c.k] ? 'kh-selrow' : ''" @click="khOpen(c.u)">
+                      <td x-show="khIsAdmin()" class="vmt-td" @click.stop><input type="checkbox" :checked="!!khSel[c.k]" @change="khSel[c.k]=$event.target.checked" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary dark:checked:bg-accent" /></td>
                       <td class="vmt-td">
                         <div class="flex items-center space-x-3">
                           <div class="avatar size-9 shrink-0"><div class="is-initial rounded-full bg-info/10 text-xs uppercase text-info" x-text="(c.fn||c.u||'?').trim().split(/\s+/).pop().slice(0,2)"></div></div>
@@ -127,6 +134,75 @@
           </div>
 
         </section>
+
+          <!-- Popup gan phu trach hang loat -->
+          <template x-if="khAs">
+            <div class="fixed inset-0 kh-modal flex items-start justify-center overflow-y-auto bg-slate-900/60 p-3 sm:items-center" @click.self="khAs=null">
+              <div class="w-full max-w-lg rounded-lg bg-white p-5 dark:bg-navy-700">
+                <div class="flex items-center justify-between"><h3 class="text-base font-semibold text-slate-700 dark:text-navy-100">Gán phụ trách hàng loạt</h3><button @click="khAs=null" class="btn size-8 rounded-full p-0"><i class="fa-solid fa-xmark"></i></button></div>
+                <div class="mt-4 space-y-2 text-xs-plus">
+                  <p class="font-medium">Khách cần gán</p>
+                  <label class="flex items-center space-x-2" :class="khSelN() ? '' : 'opacity-50'"><input type="radio" value="sel" x-model="khAs.scope" @change="khAsRes=null" :disabled="!khSelN()" class="form-radio is-basic size-4 rounded-full border-slate-400/70 checked:border-primary checked:bg-primary" /><span x-text="'Các khách đã tick (' + khSelN() + ')'"></span></label>
+                  <label class="flex items-center space-x-2"><input type="radio" value="filter" x-model="khAs.scope" @change="khAsRes=null" class="form-radio is-basic size-4 rounded-full border-slate-400/70 checked:border-primary checked:bg-primary" /><span x-text="'Tất cả ' + (kh.total||0).toLocaleString('vi-VN') + ' khách đang lọc (' + (khSegs().find(x=>x[0]===khF.seg)||['',''])[1] + (khF.grp ? ' · ' + khGrp(khF.grp) : '') + (khF.q ? ' · “' + khF.q + '”' : '') + ')'"></span></label>
+                </div>
+                <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                  <template x-for="f in [['sale','Sale phụ trách'],['cskh','CSKH phụ trách']]" :key="f[0]">
+                    <label class="text-xs-plus"><span class="font-medium" x-text="f[1]"></span>
+                      <select x-model="khAs[f[0]]" @change="khAsRes=null" class="form-select mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 dark:border-navy-450 dark:bg-navy-700">
+                        <option value="keep">Giữ nguyên</option><option value="split">Chia đều cho NV của brand</option><option value="clear">Bỏ trống</option>
+                        <template x-for="s in (kh.staff||[])" :key="s.u"><option :value="s.u" x-text="'Giao hết cho ' + s.n"></option></template>
+                      </select></label>
+                  </template>
+                </div>
+                <label class="mt-3 flex items-center space-x-2 text-xs-plus"><input type="checkbox" x-model="khAs.onlyEmpty" @change="khAsRes=null" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary" /><span>Chỉ gán khách chưa có người phụ trách (không đè người đang chăm)</span></label>
+                <p class="mt-2 text-xs text-slate-400">"Chia đều" dùng bảng Phân công theo brand: khách brand nào chia cho nhân viên của brand đó, ai đang ít khách thì nhận trước, khách chi nhiều và chi ít được rải đều.</p>
+                <div x-show="khAsRes" class="mt-3 rounded-lg bg-slate-100 p-3 text-xs-plus dark:bg-navy-600">
+                  <p>Phạm vi: <b x-text="((khAsRes||{}).n||0).toLocaleString('vi-VN') + ' khách'"></b></p>
+                  <template x-for="x in khAsPer()" :key="x.f+x.who"><p x-text="x.f + ' → ' + x.who + ': ' + x.n.toLocaleString('vi-VN') + ' khách'"></p></template>
+                  <p x-show="!khAsPer().length" class="text-slate-500">Không có khách nào thay đổi.</p>
+                  <p x-show="(khAsRes||{}).miss && khAsRes.miss.length" class="mt-1 text-warning" x-text="'Brand chưa có nhân viên nên không chia: ' + (khAsRes||{miss:[]}).miss.map(g=>khGrp(g)).join(', ') + ' (vào Phân công theo brand để thêm)'"></p>
+                </div>
+                <p x-show="khAsErr" class="mt-2 text-error" x-text="khAsErr"></p>
+                <div class="mt-4 flex justify-end gap-2">
+                  <button @click="khAsRun(true)" :disabled="khBusy" class="btn rounded-lg border border-slate-300 px-4 font-medium dark:border-navy-450">Xem trước</button>
+                  <button @click="khAsRun(false)" :disabled="khBusy || !khAsRes || !khAsPer().length" class="btn rounded-lg bg-primary px-4 font-medium text-white disabled:opacity-60 dark:bg-accent">Gán</button>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Popup phan cong theo brand -->
+          <template x-if="khCfg && khCfg.show">
+            <div class="fixed inset-0 kh-modal flex items-start justify-center overflow-y-auto bg-slate-900/60 p-3 sm:items-center" @click.self="khCfg.show=false">
+              <div class="w-full max-w-2xl rounded-lg bg-white p-5 dark:bg-navy-700">
+                <div class="flex items-center justify-between"><h3 class="text-base font-semibold text-slate-700 dark:text-navy-100">Phân công nhân viên theo brand</h3><button @click="khCfg.show=false" class="btn size-8 rounded-full p-0"><i class="fa-solid fa-xmark"></i></button></div>
+                <p class="mt-1 text-xs text-slate-400">Tick brand mỗi người phụ trách và vai trò. Dùng khi "Chia đều" và khi tự chia khách mới.</p>
+                <div class="is-scrollbar-hidden mt-3 overflow-x-auto">
+                  <table class="w-full text-left text-xs-plus">
+                    <thead><tr><th class="vmt-th">Nhân viên</th><th class="vmt-th">Làm</th><template x-for="g in khCfg.groups" :key="g"><th class="vmt-th text-center" x-text="khGrp(g)"></th></template></tr></thead>
+                    <tbody>
+                      <template x-for="(x,u) in khCfg.staff" :key="u">
+                        <tr class="border-b border-slate-150 dark:border-navy-500">
+                          <td class="px-3 py-2"><b x-text="x.n"></b> <span class="text-xs text-slate-400" x-text="u"></span></td>
+                          <td class="px-3 py-2"><select x-model="x.kind" class="form-select rounded-lg border border-slate-300 bg-white px-2 py-1 dark:border-navy-450 dark:bg-navy-700"><option value="sale">Sale</option><option value="cskh">CSKH</option><option value="both">Sale + CSKH</option></select></td>
+                          <template x-for="g in khCfg.groups" :key="u+g"><td class="px-3 py-2 text-center"><input type="checkbox" x-model="x.b[g]" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary dark:checked:bg-accent" /></td></template>
+                        </tr>
+                      </template>
+                      <tr class="text-xs text-slate-500"><td class="px-3 py-2" colspan="2">Số người · Sale / CSKH</td><template x-for="g in khCfg.groups" :key="'c'+g"><td class="px-3 py-2 text-center" :class="!khCfgCount(g,'sale') ? 'text-warning' : ''" x-text="khCfgCount(g,'sale') + ' / ' + khCfgCount(g,'cskh')"></td></template></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p x-show="!Object.keys(khCfg.staff).length" class="py-4 text-center text-slate-400">Chưa có tài khoản sale nào. Tạo tài khoản nhân viên vai trò sale trước.</p>
+                <label class="mt-3 flex items-center space-x-2 text-xs-plus"><input type="checkbox" x-model="khCfg.auto" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary" /><span>Tự chia khách mới đăng ký cho nhân viên của brand (ai ít khách nhận trước)</span></label>
+                <p x-show="khCfg.at" class="mt-1 text-xs text-slate-400" x-text="'Sửa lần cuối: ' + (khCfg.by||'') + ' · ' + String(khCfg.at||'').slice(0,16).replace('T',' ')"></p>
+                <p x-show="khCfgErr" class="mt-2 text-error" x-text="khCfgErr"></p>
+                <div class="mt-4 flex justify-end gap-2">
+                  <button @click="khCfg.show=false" class="btn rounded-lg border border-slate-300 px-4 font-medium dark:border-navy-450">Huỷ</button>
+                  <button x-show="khCfg.canEdit" @click="khCfgSave()" :disabled="khBusy" class="btn rounded-lg bg-primary px-4 font-medium text-white disabled:opacity-60 dark:bg-accent">Lưu</button>
+                </div>
+              </div>
+            </div>
+          </template>
 
           <!-- Ngan chi tiet khach (dung chung trang Khach hang + Viec can lam ban Sale) -->
           <div x-show="khShow" @keydown.window.escape="khShow=false" style="display:none">

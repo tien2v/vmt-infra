@@ -33,6 +33,55 @@
         this.$watch('khShow', (v) => { if (!v && this.page === 'sale') this.tdLoad(); });
       },
 
+      // ---- Gan phu trach hang loat + phan cong theo brand (chi admin) ----
+      khSel: {}, khAs: null, khAsRes: null, khAsErr: '', khCfg: null, khCfgErr: '',
+      khIsAdmin() { return this.role === 'admin' && (this.me || {}).role === 'admin'; },
+      khSelN() { return Object.keys(this.khSel).filter((k) => this.khSel[k]).length; },
+      khSelAll(on) { for (const c of this.kh.rows) this.khSel[c.k] = on; },
+      khAllChecked() { return this.kh.rows.length > 0 && this.kh.rows.every((c) => this.khSel[c.k]); },
+      khAsOpen() { this.khAs = { scope: this.khSelN() ? 'sel' : 'filter', sale: 'split', cskh: 'keep', onlyEmpty: true }; this.khAsRes = null; this.khAsErr = ''; if (!this.khCfg) this.khCfgLoad(); },
+      khAsBody(dry) {
+        const a = this.khAs, b = { onlyEmpty: !!a.onlyEmpty, dry };
+        if (a.scope === 'sel') b.users = Object.keys(this.khSel).filter((k) => this.khSel[k]);
+        else b.filter = { q: this.khF.q, seg: this.khF.seg, grp: this.khF.grp, owner: this.khF.owner };
+        for (const f of ['sale', 'cskh']) { const v = a[f]; b[f] = ['keep', 'split', 'clear'].includes(v) ? { mode: v } : { mode: 'set', u: v }; }
+        return b;
+      },
+      async khAsRun(dry) {
+        this.khAsErr = '';
+        if (!dry) { const n = this.khAsRes ? this.khAsRes.n : 0; if (!confirm('Gán phụ trách cho ' + n.toLocaleString('vi-VN') + ' khách?')) return; }
+        this.khBusy = true;
+        try {
+          const r = await fetch('/api/kh/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.khAsBody(dry)) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) this.khAsErr = j.error || 'Lỗi'; else if (dry) this.khAsRes = j;
+          else { this.khAs = null; this.khSel = {}; window.dispatchEvent(new CustomEvent('vmt-toast', { detail: 'Đã gán phụ trách cho ' + (j.changed || 0).toLocaleString('vi-VN') + ' khách' })); this.khLoad(); this.tdLoad && this.tdLoad(); }
+        } catch (e) { this.khAsErr = 'Mất kết nối'; }
+        this.khBusy = false;
+      },
+      khAsPer() { const p = (this.khAsRes || {}).per || {}; return Object.keys(p).sort().map((k) => { const [f, u] = k.split(':'); return { f: f === 'sale' ? 'Sale' : 'CSKH', who: u === '-' ? 'Bỏ trống' : this.khStaff(u), n: p[k] }; }); },
+      async khCfgLoad() {
+        try {
+          const r = await fetch('/api/kh/staffcfg', { cache: 'no-store' }); const j = await r.json();
+          if (!r.ok) { this.khCfgErr = j.error || 'Lỗi'; return; }
+          const st = {}; for (const x of j.staff) { const c = (j.cfg.staff || {})[x.u] || {}; st[x.u] = { n: x.n, role: x.role, kind: c.kind || 'sale', b: Object.fromEntries(j.groups.map((g) => [g, (c.brands || []).includes(g)])) }; }
+          this.khCfg = { show: this.khCfg ? this.khCfg.show : false, groups: j.groups, staff: st, auto: !!j.cfg.auto, canEdit: j.canEdit, by: j.cfg.by, at: j.cfg.at };
+          if (!(this.kh.staff || []).length) this.kh.staff = j.staff;
+        } catch (e) { this.khCfgErr = 'Mất kết nối'; }
+      },
+      async khCfgOpen() { this.khCfgErr = ''; await this.khCfgLoad(); if (this.khCfg) this.khCfg.show = true; },
+      khCfgCount(g, kind) { if (!this.khCfg) return 0; return Object.values(this.khCfg.staff).filter((x) => x.b[g] && (x.kind === 'both' || x.kind === kind)).length; },
+      async khCfgSave() {
+        const st = {}; for (const u in this.khCfg.staff) { const x = this.khCfg.staff[u]; const brands = Object.keys(x.b).filter((g) => x.b[g]); if (brands.length) st[u] = { brands, kind: x.kind }; }
+        this.khBusy = true; this.khCfgErr = '';
+        try {
+          const r = await fetch('/api/kh/staffcfg', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ staff: st, auto: this.khCfg.auto }) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) this.khCfgErr = j.error || 'Lỗi lưu'; else { this.khCfg.show = false; await this.khCfgLoad(); window.dispatchEvent(new CustomEvent('vmt-toast', { detail: 'Đã lưu phân công theo brand' })); }
+        } catch (e) { this.khCfgErr = 'Mất kết nối'; }
+        this.khBusy = false;
+      },
+
       // ---- Viec can lam ban Sale / CSKH ----
       async tdLoad() {
         try {
@@ -85,7 +134,7 @@
         } catch (e) { this.khErr = 'Mất kết nối'; }
         this.khBusy = false;
       },
-      khSet(k, v) { this.khF[k] = v; this.khF.p = 1; this.khLoad(); },
+      khSet(k, v) { this.khF[k] = v; this.khF.p = 1; this.khSel = {}; this.khLoad(); },
       khPages() { return Math.max(1, Math.ceil((this.kh.total || 0) / this.khF.size)); },
       khGo(p) { p = Math.min(this.khPages(), Math.max(1, p)); if (p !== this.khF.p) { this.khF.p = p; this.khLoad(); } },
 
