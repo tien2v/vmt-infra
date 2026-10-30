@@ -321,7 +321,7 @@
         </section>
 
         <!-- ===== TAO DON SHIP TO CHINA GIUM KHACH ===== -->
-        <section x-show="page==='cnnew'" style="display:none" x-init="nfNew()">
+        <section x-show="page==='cnnew'" style="display:none" x-init="nfNew()" @paste.window="nfPaste($event)">
           <div class="flex flex-wrap items-end justify-between gap-3 py-5 lg:py-6">
             <div><h2 class="text-xl font-medium text-slate-800 dark:text-navy-50 lg:text-2xl">Tạo đơn Ship to China giùm khách</h2>
               <p class="mt-1 text-xs-plus text-slate-400">Tạo xong hệ thống báo cho khách. Khách tự thanh toán bằng mã PIN / khuôn mặt, nhân viên không thanh toán thay.</p></div>
@@ -367,7 +367,8 @@
                     <label class="col-span-2 block"><span class="text-slate-500">Địa chỉ *</span><input x-model="nf.invAddr" maxlength="300" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent"></label></div></template>
                 </div></div>
               <template x-for="g in [['prod','Ảnh sản phẩm'],['pkg','Ảnh kiện hàng']]" :key="g[0]">
-                <div><span class="font-medium text-slate-600 dark:text-navy-100" x-text="g[1] + ' (tối đa 10)'"></span>
+                <div @click="nfZone=g[0]" @dragover.prevent="nfZone=g[0]" @drop.prevent="nfDrop(g[0], $event)" class="rounded-lg border-2 border-dashed p-2" :class="nfZone===g[0] ? 'border-primary/60 bg-primary/5 dark:border-accent/60' : 'border-transparent'"><span class="font-medium text-slate-600 dark:text-navy-100" x-text="g[1] + ' (tối đa 10)'"></span>
+                  <span class="ml-2 text-tiny text-slate-400" x-text="nfZone===g[0] ? 'Ctrl+V để dán ảnh vào đây · hoặc kéo thả' : 'Bấm vào ô này rồi Ctrl+V'"></span>
                   <div class="mt-2 flex flex-wrap gap-2"><template x-for="(p,i) in nfPh[g[0]]" :key="p.url"><div class="relative size-20 overflow-hidden rounded-lg bg-slate-150" :class="p.id?'':'opacity-50'"><img :src="p.url" class="size-full object-cover"><button @click="nfPh[g[0]].splice(i,1)" class="absolute right-1 top-1 size-5 rounded-full bg-black/60 text-xs text-white">×</button></div></template>
                     <label class="flex size-20 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-400 dark:border-navy-450"><i class="fa-solid fa-camera text-lg"></i><span class="text-tiny">Thêm</span><input type="file" accept="image/*" multiple class="hidden" @change="nfAddPh(g[0], [...$event.target.files]); $event.target.value=''"></label></div></div>
               </template>

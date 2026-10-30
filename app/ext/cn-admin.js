@@ -136,6 +136,13 @@
       },
 
       // ---- nhan vien tao don gium khach ----
+      nfZone: 'prod',
+      nfPaste(e) {
+        if (this.page !== 'cnnew' || !this.nf || this.nfDone) return;
+        const f = [...((e.clipboardData && e.clipboardData.items) || [])].filter((i) => i.kind === 'file' && /^image\//.test(i.type)).map((i) => i.getAsFile()).filter(Boolean);
+        if (!f.length) return; e.preventDefault(); this.nfAddPh(this.nfZone, f);
+      },
+      nfDrop(k, e) { this.nfZone = k; const f = [...((e.dataTransfer && e.dataTransfer.files) || [])].filter((x) => /^image\//.test(x.type)); if (f.length) this.nfAddPh(k, f); },
       nf: null, nfQ: '', nfCands: [], nfCos: [], nfErr: '', nfBusy: false, nfDone: null, nfPh: { prod: [], pkg: [] }, nfUp: 0,
       nfNew() {
         this.nf = { cust: null, lot: '', cat: 'thuong', rname: '', rphone: '', raddr: '', items: [{ name: '', qty: 1, price: '' }], wb: '', wh: 'HN', method: 'standard_shipping', insurance: false, reinforce: false, estW: '', note: '', vat: false, companyId: '', invCompany: '', invTax: '', invAddr: '', invEmail: '' };
