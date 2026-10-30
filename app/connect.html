@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kết nối · VMT</title>
+<style>
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f5f7;color:#1f2937}
+main{max-width:720px;margin:0 auto;padding:24px 16px 60px}
+h1{font-size:22px;margin:0 0 4px}p.sub{color:#6b7280;margin:0 0 20px}
+.card{background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.card h2{font-size:16px;margin:0 0 12px}
+label{display:block;margin:12px 0 4px;font-size:14px;color:#374151;font-weight:500}
+input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;font-family:ui-monospace,monospace}
+small{color:#6b7280}
+button{border:0;border-radius:10px;padding:11px 18px;font-size:15px;font-weight:600;cursor:pointer;background:#4f46e5;color:#fff}
+button.sec{background:#eef2ff;color:#4338ca}button:disabled{opacity:.5;cursor:default}
+.row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:14px}.row span:first-child{color:#6b7280}
+.row span:last-child{text-align:right;word-break:break-all}
+.ok{color:#15803d;font-weight:600}.bad{color:#b91c1c;font-weight:600}
+.err{color:#b91c1c;margin-top:10px;white-space:pre-wrap}
+.url{background:#f3f4f6;border-radius:10px;padding:12px;font-family:ui-monospace,monospace;font-size:13px;word-break:break-all;margin:8px 0}
+pre{background:#f9fafb;border-radius:8px;padding:8px;font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:160px;overflow:auto;margin:6px 0 0}
+a{color:#4f46e5}
+</style></head><body><main>
+<p><a href="/">← Về trang quản trị</a></p>
+<h1>Kết nối</h1>
+<p class="sub">Khoá và địa chỉ kết nối với hệ thống bên ngoài. Chỉ quản trị thấy trang này.</p>
+
+<div class="card"><h2>Máy đo tự động kho TQ</h2>
+  <p style="margin:0;color:#6b7280;font-size:14px">Gửi địa chỉ dưới đây cho bên máy đo, nhờ họ cài <b>bắn song song</b> (vẫn bắn Gobiz như cũ). Hiện chỉ lưu nguyên dữ liệu máy gửi, chưa xử lý.</p>
+  <div class="url" id="dwsUrl">Đang tải…</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="sec" id="copyBtn">Sao chép địa chỉ</button><button class="sec" id="reloadBtn">Tải lại</button></div>
+  <div id="dwsStat" style="margin-top:12px"></div>
+  <div id="dwsList"></div>
+</div>
+
+<div class="card"><h2>Xport (mua hàng / vận đơn Taobao, 1688)</h2>
+  <div id="xpSt">Đang tải…</div>
+  <form id="xf" autocomplete="off">
+    <label>AccessKey</label><input name="accessKey" required>
+    <label>AccessSecret</label><input name="accessSecret" type="password" required><small>Lấy ở trang nhà phát triển Xport. Chỉ lưu trên máy chủ, không hiện lại.</small>
+    <label>User ID (tài khoản con, có thể bỏ trống)</label><input name="userId">
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap"><button id="xSave">Lưu và thử kết nối</button><button type="button" class="sec" id="xTest">Chỉ thử kết nối</button></div>
+    <div class="err" id="xErr"></div>
+  </form>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+async function api(u, o) { const r = await fetch(u, Object.assign({ headers: { 'Content-Type': 'application/json' } }, o || {})); const j = await r.json().catch(() => ({})); if (r.status === 401) location.href = '/login'; return Object.assign({ _s: r.status }, j); }
+async function loadDws() {
+  const i = await api('/api/dws/info');
+  if (i.error) { $('#dwsUrl').textContent = i.error; return; }
+  $('#dwsUrl').textContent = i.url;
+  $('#dwsStat').innerHTML = '<div class="row"><span>Đã nhận</span><span>' + i.total + ' lần (24 giờ qua: ' + i.last24h + ')</span></div><div class="row"><span>Lần gần nhất</span><span>' + (i.last ? esc(i.last) + ' (giờ UTC)' : '<span class="bad">chưa có</span>') + '</span></div><div class="row"><span>Giữ dữ liệu thô</span><span>' + i.keepDays + ' ngày</span></div>';
+  const r = await api('/api/dws/recent?limit=5');
+  $('#dwsList').innerHTML = (r.items || []).map((x) => '<div style="margin-top:10px"><small>#' + x.id + ' · ' + esc(x.ts) + ' · ' + esc(x.ctype) + ' · ' + x.bytes + ' byte' + (x.tracking ? ' · mã: <b>' + esc(x.tracking) + '</b>' : '') + '</small><pre>' + esc(x.preview || x.query || '(dữ liệu nhị phân)') + '</pre></div>').join('');
+}
+$('#copyBtn').onclick = () => navigator.clipboard.writeText($('#dwsUrl').textContent).then(() => { $('#copyBtn').textContent = 'Đã chép'; setTimeout(() => $('#copyBtn').textContent = 'Sao chép địa chỉ', 1500); });
+$('#reloadBtn').onclick = loadDws;
+function showX(v) {
+  if (!v.configured) { $('#xpSt').innerHTML = '<div class="row"><span>Trạng thái</span><span class="bad">Chưa nhập khoá</span></div>'; return; }
+  const t = v.lastTest;
+  $('#xpSt').innerHTML = '<div class="row"><span>AccessKey</span><span>' + esc(v.accessKey) + '</span></div><div class="row"><span>Nhập bởi</span><span>' + esc(v.by) + ' · ' + esc(v.at) + '</span></div>' +
+    '<div class="row"><span>Thử gần nhất</span><span>' + (t ? (t.ok ? '<span class="ok">Kết nối được</span>' : '<span class="bad">Lỗi: ' + esc(t.msg || t.code || t.http) + '</span>') + ' · ' + esc(t.at) : '—') + '</span></div>';
+}
+async function loadX() { showX(await api('/api/xport')); }
+$('#xf').onsubmit = async (e) => {
+  e.preventDefault(); $('#xErr').textContent = ''; $('#xSave').disabled = true;
+  const f = new FormData(e.target);
+  const r = await api('/api/xport', { method: 'POST', body: JSON.stringify({ accessKey: f.get('accessKey'), accessSecret: f.get('accessSecret'), userId: f.get('userId') }) });
+  $('#xSave').disabled = false;
+  if (r.error) { $('#xErr').textContent = r.error; return; }
+  e.target.reset(); showX(r.view);
+};
+$('#xTest').onclick = async () => { $('#xTest').disabled = true; const r = await api('/api/xport/test', { method: 'POST', body: '{}' }); $('#xTest').disabled = false; if (r.error) $('#xErr').textContent = r.error; else showX(r.view); };
+loadDws(); loadX();
+</script>
+</main></body></html>

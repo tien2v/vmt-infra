@@ -28,6 +28,10 @@ let UIINS = null; try { UIINS = JSON.parse(fs.readFileSync(path.join(__dirname, 
 store.syncUiInspect(UIINS);
 const backup = require('./lib/backup');
 backup.init(store);
+const dws = require('./lib/dws');
+dws.init(store);
+const xport = require('./lib/xport');
+xport.init(store);
 setInterval(() => { try { const n = cn.autoDeliver(); if (n) console.log('autoDeliver', n); } catch (e) { console.error(e); } }, 30 * 60e3);
 setTimeout(() => { try { cn.autoDeliver(); } catch (e) {} }, 20e3);
 
@@ -171,6 +175,17 @@ async function handle(req, res) {
 
   if (p === '/healthz') return json(req, res, 200, { ok: true, version: VERSION, snapshot: (store.latestMeta() || {}).gen || null });
 
+  // May do tu dong kho TQ ban du lieu vao (ma bi mat nam trong duong dan). Chi luu tho, tra loi nhanh.
+  const mdws = p.match(/^\/hook\/dws\/([A-Za-z0-9_-]{10,64})\/?$/);
+  if (mdws) {
+    if (!dws.checkToken(mdws[1])) return json(req, res, 404, { code: 404, success: false, msg: 'not found' });
+    if (req.method === 'GET' && !url.search) return json(req, res, 200, { code: 200, success: true, msg: 'ok' });
+    let body; try { body = await readBody(req, 30 * 1024 * 1024); } catch (e) { return json(req, res, e.code || 400, { code: 400, success: false, msg: 'body' }); }
+    if (req.headers['content-encoding'] === 'gzip') { try { body = zlib.gunzipSync(body); } catch {} }
+    let id; try { id = dws.save(req, body, url.search.slice(1), clientIp(req)); } catch (e) { console.error('dws', e); return json(req, res, 500, { code: 500, success: false, msg: 'save error' }); }
+    return json(req, res, 200, { code: 200, success: true, msg: 'ok', id });
+  }
+
   // Nhan du lieu tu n8n: chu ky RSA-SHA256 tren chuoi "<X-Ts>.<body>"
   if (p === '/api/ingest' && req.method === 'POST') {
     let body;
@@ -225,6 +240,31 @@ async function handle(req, res) {
   if (p === '/api/status') {
     if (!user || user.role !== 'admin') return json(req, res, 403, { error: 'forbidden' });
     return json(req, res, 200, { snapshot: store.latestMeta(), ingest: store.recentIngest(), logins: store.recentLogins() });
+  }
+
+  // ---- Ket noi: may do kho TQ + khoa Xport (chi admin) ----
+  if (p === '/ket-noi' || p.startsWith('/api/dws/') || p === '/api/xport' || p === '/api/xport/test') {
+    if (!user) { if (p === '/ket-noi') { res.writeHead(302, { Location: '/login' }); return res.end(); } return json(req, res, 401, { error: 'login' }); }
+    if (user.role !== 'admin') return p === '/ket-noi' ? send(res, 403, 'Chỉ quản trị được vào trang này') : json(req, res, 403, { error: 'forbidden' });
+    if (p === '/ket-noi') return fs.readFile(path.join(__dirname, 'connect.html'), (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8' }));
+    if (p === '/api/dws/info') return json(req, res, 200, dws.info(req.headers.host || 'saas.7zone.net'));
+    if (p === '/api/dws/recent') return json(req, res, 200, { items: dws.recent(Math.min(200, Number(url.searchParams.get('limit')) || 50), String(url.searchParams.get('q') || '').slice(0, 60)) });
+    if (p === '/api/dws/raw') {
+      const r = dws.raw(Number(url.searchParams.get('id')));
+      if (!r) return json(req, res, 404, { error: 'not found' });
+      return send(res, 200, r.body || Buffer.alloc(0), { 'Content-Type': r.row.ctype || 'application/octet-stream', 'Content-Disposition': 'inline; filename="dws-' + r.row.id + '"' });
+    }
+    if (p === '/api/xport' && req.method === 'GET') return json(req, res, 200, xport.view());
+    if (req.method !== 'POST' || !sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    if (p === '/api/xport') {
+      let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+      const r = xport.setCreds(b.accessKey, b.accessSecret, b.userId, user.username);
+      if (r.error) return json(req, res, 400, r);
+      store.kvSet('xport_sigmode', '');
+      await xport.test();
+      return json(req, res, 200, { ok: true, view: xport.view() });
+    }
+    if (p === '/api/xport/test') { await xport.test(); return json(req, res, 200, { ok: true, view: xport.view() }); }
   }
 
   // ---------- Ban Ship to China (don SCN tu trang khach) ----------
