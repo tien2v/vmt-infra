@@ -26,6 +26,8 @@ const SECRET = store.sessionSecret();
 store.ensureAdmin();
 let UIINS = null; try { UIINS = JSON.parse(fs.readFileSync(path.join(__dirname, 'ui-inspect.json'), 'utf8')); } catch {}
 store.syncUiInspect(UIINS);
+setInterval(() => { try { const n = cn.autoDeliver(); if (n) console.log('autoDeliver', n); } catch (e) { console.error(e); } }, 30 * 60e3);
+setTimeout(() => { try { cn.autoDeliver(); } catch (e) {} }, 20e3);
 
 // ---------- tien ich ----------
 const b64u = (b) => Buffer.from(b).toString('base64url');
@@ -210,7 +212,7 @@ async function handle(req, res) {
     if (!ts || Math.abs(Date.now() - ts) > 15 * 60e3) return json(req, res, 401, { error: 'ts' });
     if (!(sig && crypto.verify('RSA-SHA256', Buffer.concat([Buffer.from(ts + '.'), body]), PUBKEY, Buffer.from(sig, 'base64')))) return json(req, res, 401, { error: 'sig' });
     let b; try { b = JSON.parse(body.toString('utf8')); } catch { return json(req, res, 400, { error: 'json' }); }
-    const r = cn.track(String(b.ref || ''), String(b.wbCn || ''));
+    const r = cn.track(String(b.ref || ''), String(b.wbCn || ''), String(b.eta || ''), { msgId: b.msgId || null, text: String(b.text || '').slice(0, 500) });
     if (r.error) return json(req, res, r.code, { error: r.error });
     return json(req, res, 200, { ok: true, code: r.order.code, status: r.order.status });
   }
@@ -219,9 +221,9 @@ async function handle(req, res) {
     if (!user) return json(req, res, 401, { error: 'login' });
     if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
     let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
-    const r = cn.scan(String(b.code || ''), String(b.mode || ''), user.role, user.username, !!b.force);
+    const r = cn.scan(String(b.code || ''), String(b.mode || ''), user.role, user.username, !!b.force, b.ref ? String(b.ref) : '');
     if (r.error) return json(req, res, r.code, { error: r.error, missing: r.missing || null, order: r.order || null });
-    return json(req, res, 200, { ok: true, order: r.order, result: r.result, missing: r.missing || [], warn: !!r.warn });
+    return json(req, res, 200, { ok: true, order: r.order, result: r.result, missing: r.missing || [], warn: !!r.warn, needRef: !!r.needRef });
   }
   if (p === '/api/cn/summary') {
     if (!user) return json(req, res, 401, { error: 'login' });
@@ -236,6 +238,7 @@ async function handle(req, res) {
   if (mcn) {
     if (!user) return json(req, res, 401, { error: 'login' });
     if (mcn[2]) return json(req, res, 200, { log: cn.log(mcn[1]) });
+    if (url.searchParams.get('event') === 'print' && req.method === 'POST') { cn.event(mcn[1], 'staff:' + user.username, 'In tem mã vạch', {}); return json(req, res, 200, { ok: true }); }
     if (req.method !== 'POST') return json(req, res, 405, { error: 'method' });
     if (!sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
     let b; try { b = JSON.parse((await readBody(req, 20000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }

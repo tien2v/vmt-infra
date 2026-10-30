@@ -18,6 +18,27 @@
   const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
   const iso2 = (s) => { if (!s) return ''; const d = new Date(s); const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); };
   const csvCell = (v) => { if (v === undefined || v === null) return ''; const s = String(v); return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  // ---- Ma vach Code128-B (ve SVG) de in tem dan kien ----
+  const C128 = ['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
+  function code128svg(text, h) {
+    const codes = [104]; for (const ch of String(text)) { const c = ch.charCodeAt(0) - 32; codes.push(c >= 0 && c < 95 ? c : 0); }
+    let sum = 104; for (let i = 1; i < codes.length; i++) sum += codes[i] * i; codes.push(sum % 103, 106);
+    let x = 10, bars = ''; for (const c of codes) { const p = C128[c]; for (let i = 0; i < p.length; i++) { const w = +p[i]; if (i % 2 === 0) bars += '<rect x="' + x + '" y="0" width="' + w + '" height="' + h + '"/>'; x += w; } }
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + (x + 10) + ' ' + h + '" preserveAspectRatio="none" style="width:100%;height:' + h + 'px">' + bars + '</svg>';
+  }
+  const escH = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function printLabels(o) {
+    const n = Math.max(1, Math.min(50, Number(o.pk) || 1)); let pages = '';
+    for (let i = 1; i <= n; i++) pages += '<div class="lb"><div class="top"><b>SHIP TO CHINA</b><span>' + escH(o.wh || '') + ' → TQ</span></div>' + code128svg(o.code, 70) +
+      '<div class="code">' + escH(o.code) + '</div><div class="row"><span>Khách: <b>' + escH(o.gobiz || o.username || '') + '</b></span><span>Kiện <b>' + i + '/' + n + '</b></span></div>' +
+      '<div class="row"><span>Nhận: ' + escH(o.recvName || '') + '</span><span>' + escH((o.recvAddr || '').slice(0, 14)) + '</span></div><div class="row small"><span>' + escH(o.note || '') + '</span><span>' + new Date().toLocaleDateString('vi-VN') + '</span></div></div>';
+    const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + escH(o.code) + '</title><style>@page{size:75mm 50mm;margin:0}body{margin:0;font-family:Arial,sans-serif}.lb{width:75mm;height:50mm;box-sizing:border-box;padding:2.5mm 3.5mm;page-break-after:always;overflow:hidden}.top{display:flex;justify-content:space-between;font-size:10pt;margin-bottom:1mm}.code{text-align:center;font-size:15pt;font-weight:700;letter-spacing:1px;margin:1mm 0}.row{display:flex;justify-content:space-between;gap:2mm;font-size:9pt;white-space:nowrap;overflow:hidden}.small{font-size:8pt;color:#333}svg rect{fill:#000}</style></head><body>' + pages + '</body></html>';
+    let f = document.getElementById('cnPrintFrame');
+    if (!f) { f = document.createElement('iframe'); f.id = 'cnPrintFrame'; f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'; document.body.appendChild(f); }
+    f.srcdoc = html; f.onload = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) {} };
+    fetch('/api/cn/' + o.code + '?event=print', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+  }
+
   const MENU = { t: 'Ship to China', p: 'cn', i: 'fa-plane-departure' };
   const MENU_SCAN = { t: 'Quét mã Ship to China', p: 'cnscan', i: 'fa-barcode' };
 
@@ -112,15 +133,21 @@
       },
 
       // ---- quet ma tai kho ----
-      scMode: 'in', scCode: '', scBusy: false, scLog: [], scCur: null, scMsg: '', scErr: '', scMissing: [],
+      scMode: 'in', scCode: '', scBusy: false, scLog: [], scCur: null, scMsg: '', scErr: '', scMissing: [], scWaitRef: '', scAutoPrint: true,
+      scPrint(o) { printLabels(o || this.cnDetail); },
+      scCancelRef() { this.scWaitRef = ''; this.scMsg = ''; this.$nextTick(() => { const el = document.getElementById('cnScanInput'); if (el) el.focus(); }); },
       async scGo(force) {
         const code = this.scCode.trim(); if (!code || this.scBusy) return;
         this.scBusy = true; this.scErr = ''; this.scMsg = '';
+        // Xuat kho luot 2: ma vua quet la bill Tai Loc cua don dang cho
+        const body = this.scMode === 'out' && this.scWaitRef ? { code: this.scWaitRef, mode: 'out', ref: code, force: !!force } : { code, mode: this.scMode, force: !!force };
         try {
-          const r = await fetch('/api/cn/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, mode: this.scMode, force: !!force }) });
+          const r = await fetch('/api/cn/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
           const j = await r.json().catch(() => ({}));
           const ok = r.ok;
-          this.scLog.unshift({ t: new Date().toTimeString().slice(0, 8), code, mode: this.scMode, ok: ok && !j.warn, text: ok ? (j.order.code + ' · ' + j.result) : j.error });
+          if (ok && j.needRef) this.scWaitRef = j.order.code; else if (body.ref) this.scWaitRef = ok ? '' : this.scWaitRef;
+          if (ok && this.scMode === 'in' && !j.warn && this.scAutoPrint && j.order) printLabels(j.order);
+          this.scLog.unshift({ t: new Date().toTimeString().slice(0, 8), code: body.ref ? body.code + ' + bill ' + body.ref : code, mode: this.scMode, ok: ok && !j.warn, text: ok ? (j.order.code + ' · ' + j.result) : j.error });
           if (this.scLog.length > 50) this.scLog.pop();
           if (j.order) { this.scCur = j.order; this.cnPick(j.order); this.cnDetail = j.order; }
           this.scMissing = j.missing || [];
@@ -140,7 +167,11 @@
         this.cnForm = { status: x.status, w: x.w ?? '', dL: x.dims ? x.dims[0] : '', dW: x.dims ? x.dims[1] : '', dH: x.dims ? x.dims[2] : '', pk: x.pk ?? '', wbCn: x.wbCn || '', refTL: x.refTL || '', fee: x.fee ?? '', paid: x.paid ?? '', staffNote: x.staffNote || '' };
         this.cnMsg = '';
       },
-      cnOpen(x) { this.cnPick(x); this.cnShow = true; },
+      cnOpen(x) { this.cnPick(x); this.cnShow = true; this.cnLogLoad(x.code); },
+      cnLog: [], cnLogCode: '',
+      async cnLogLoad(code) { this.cnLog = []; this.cnLogCode = code; try { const r = await fetch('/api/cn/' + code + '/log', { cache: 'no-store' }); const j = await r.json(); if (this.cnLogCode === code) this.cnLog = (j.log || []).slice().reverse().map((l) => { let d = null; try { d = JSON.parse(l.detail); } catch (e) {} return { ts: l.ts, who: l.username, action: l.action, changes: d && d.changes ? d.changes : [], raw: d ? '' : (l.detail || ''), extra: d || {} }; }); } catch (e) {} },
+      cnWho(w) { w = String(w || ''); return w.startsWith('staff:') ? 'NV ' + w.slice(6) : w.startsWith('khach:') ? 'Khách ' + w.slice(6) : w === 'tai-loc' ? 'Tài Lộc (tự động)' : w === 'he-thong' ? 'Hệ thống (tự động)' : w; },
+      cnPrint(x) { printLabels(x || this.cnDetail); if (this.cnDetail) setTimeout(() => this.cnLogLoad(this.cnDetail.code), 800); },
       cnCanEdit(k) { return this.cnCan.includes(k); },
       async cnSave(recalc) {
         const x = this.cnDetail, f = this.cnForm, b = {};
@@ -162,7 +193,7 @@
         try {
           const r = await fetch('/api/cn/' + x.code, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
           const j = await r.json().catch(() => ({}));
-          if (!r.ok) { this.cnMsg = j.error || 'Lỗi lưu'; } else { this.cnMsg = 'Đã lưu'; if (j.order) { j.order._q = norm([j.order.code, j.order.refTL, j.order.gobiz, j.order.recvName, j.order.wb, j.order.wbCn].join(' ')); this.cnPick(j.order); this.cnMsg = 'Đã lưu'; } await this.cnLoad(); this.cnPoll(); }
+          if (!r.ok) { this.cnMsg = j.error || 'Lỗi lưu'; } else { this.cnMsg = 'Đã lưu'; if (j.order) { this.cnLogLoad(j.order.code); j.order._q = norm([j.order.code, j.order.refTL, j.order.gobiz, j.order.recvName, j.order.wb, j.order.wbCn].join(' ')); this.cnPick(j.order); this.cnMsg = 'Đã lưu'; } await this.cnLoad(); this.cnPoll(); }
         } catch (e) { this.cnMsg = 'Mất kết nối'; }
         this.cnSaving = false;
       },

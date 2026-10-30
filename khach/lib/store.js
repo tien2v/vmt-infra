@@ -81,22 +81,22 @@ function cnRow(r) {
   d.ms = (d.ms || []).map((m) => ({ t: m.t, s: m.s }));
   return Object.assign(d, { code: r.code, status: ({ CN_WAREHOUSE: 'CLEARED', DISPATCHED: 'CLEARED' })[r.status] || r.status, created: r.created_at, modified: r.updated_at || r.created_at });
 }
-function cnCreate(username, gobiz, test, data) {
+function cnCreate(username, gobiz, test, data, ip) {
   const r = db.prepare('INSERT INTO cn_orders (code, username, gobiz, test, data) VALUES (?, ?, ?, ?, ?)').run('tmp-' + crypto.randomUUID(), username, gobiz, test ? 1 : 0, JSON.stringify(data));
   const seq = Number(r.lastInsertRowid); const code = 'SCN' + seq;
   db.prepare('UPDATE cn_orders SET code = ? WHERE seq = ?').run(code, seq);
-  db.prepare('INSERT INTO cn_log (code, username, action) VALUES (?, ?, ?)').run(code, username, 'create');
+  db.prepare('INSERT INTO cn_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, 'khach:' + username, 'Khách tạo đơn', JSON.stringify({ changes: [], ip: ip || null, gobiz }));
   return cnRow(db.prepare('SELECT * FROM cn_orders WHERE seq = ?').get(seq));
 }
 function cnList(username) { return db.prepare('SELECT * FROM cn_orders WHERE username = ? ORDER BY seq DESC LIMIT 500').all(username).map(cnRow); }
 function cnCountRecent(username) { return db.prepare("SELECT COUNT(*) AS n FROM cn_orders WHERE username = ? AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hour')").get(username).n; }
-function cnCancel(username, code) {
+function cnCancel(username, code, ip) {
   const r = db.prepare('SELECT * FROM cn_orders WHERE code = ? AND username = ?').get(code, username);
   if (!r) return { error: 'Không tìm thấy đơn', code: 404 };
   if (r.status !== 'PENDING') return { error: 'Đơn đã được kho tiếp nhận, không huỷ được. Vui lòng liên hệ nhân viên.', code: 409 };
-  const d = JSON.parse(r.data); d.ms = (d.ms || []).concat([{ t: new Date().toISOString(), s: 'CANCELLED' }]);
+  const d = JSON.parse(r.data); d.ms = (d.ms || []).concat([{ t: new Date().toISOString(), s: 'CANCELLED', by: 'khách' }]);
   db.prepare("UPDATE cn_orders SET status = 'CANCELLED', data = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE seq = ?").run(JSON.stringify(d), r.seq);
-  db.prepare('INSERT INTO cn_log (code, username, action) VALUES (?, ?, ?)').run(code, username, 'cancel');
+  db.prepare('INSERT INTO cn_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, 'khach:' + username, 'Khách huỷ đơn', JSON.stringify({ changes: [['Trạng thái', 'Chờ tiếp nhận', 'Đã huỷ']], ip: ip || null }));
   return { order: cnRow(db.prepare('SELECT * FROM cn_orders WHERE seq = ?').get(r.seq)) };
 }
 function notifList(username) { return db.prepare('SELECT id, code, text, read, created_at FROM notif WHERE username = ? ORDER BY id DESC LIMIT 50').all(username); }

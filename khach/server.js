@@ -203,7 +203,7 @@ async function handle(req, res) {
     const v = validateCn(b);
     if (v.error) return json(req, res, 400, { error: v.error });
     if (store.cnCountRecent(user.username) >= 20) return json(req, res, 429, { error: 'Tạo quá nhiều đơn trong 1 giờ, vui lòng thử lại sau' });
-    const o = store.cnCreate(user.username, user.gobiz, String(user.note || '').startsWith('tai khoan test'), v.data);
+    const o = store.cnCreate(user.username, user.gobiz, String(user.note || '').startsWith('tai khoan test'), v.data, clientIp(req));
     return json(req, res, 200, { ok: true, order: Object.assign(o, { mine: true }) });
   }
   if (p === '/api/notif') {
@@ -221,7 +221,7 @@ async function handle(req, res) {
   if (mc && req.method === 'POST') {
     if (!user) return json(req, res, 401, { error: 'login' });
     if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
-    const r = store.cnCancel(user.username, mc[1]);
+    const r = store.cnCancel(user.username, mc[1], clientIp(req));
     if (r.error) return json(req, res, r.code, { error: r.error });
     return json(req, res, 200, { ok: true, order: Object.assign(r.order, { mine: true }) });
   }
