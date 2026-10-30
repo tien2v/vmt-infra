@@ -143,7 +143,8 @@
       wlCredit: { limit: '', days: 30 }, wlReq: { kind: 'TOPUP_MANUAL', amount: '', code: '', note: '' },
       async wlLoad() {
         try {
-          const [a, b] = await Promise.all([fetch('/api/fin/wallets', { cache: 'no-store' }).then((r) => r.json()), fetch('/api/fin/requests?status=pending', { cache: 'no-store' }).then((r) => r.json())]);
+          const [a, b, c] = await Promise.all([fetch('/api/fin/wallets', { cache: 'no-store' }).then((r) => r.json()), fetch('/api/fin/requests?status=pending', { cache: 'no-store' }).then((r) => r.json()), fetch('/api/fin/deposits?status=hold', { cache: 'no-store' }).then((r) => r.json())]);
+          this.wlHolds = c.items || [];
           this.wl = (a.items || []).map((x) => Object.assign(x, { _q: norm([x.u, x.code, x.gobizCode, x.fn].join(' ')) })); this.wlRole = a.role; this.wlPend = a.pending; this.wlReqs = b.items || [];
         } catch (e) { this.wlErr = 'Không tải được ví'; }
       },
@@ -168,6 +169,16 @@
         const note = ok ? '' : (prompt('Lý do từ chối?') || ''); if (!ok && !note) return;
         const j = await this.wlPost('/api/fin/request/' + q.id + '/' + (ok ? 'approve' : 'reject'), { note });
         if (j) { this.wlMsg = ok ? 'Đã duyệt · ' + j.txn : 'Đã từ chối'; await this.wlLoad(); if (this.wlCur) this.wlOpen(this.wl.find((x) => x.owner === this.wlCur.owner) || this.wlCur); }
+      },
+      wlHolds: [],
+      async wlHold(d, act) {
+        let owner = '';
+        if (act === 'assign') {
+          const v = prompt('Gán khoản ' + this.vnd(d.amount) + ' cho khách nào? Gõ mã khách (vd 3HK7Q25) hoặc tên đăng nhập Gobiz', d.code || d.owner || ''); if (!v) return;
+          const x = this.wl.find((w) => w.code === v.trim().toUpperCase() || w.owner === v.trim().toLowerCase()); if (!x) { this.wlErr = 'Không tìm thấy khách ' + v; return; } owner = x.owner;
+        } else if (!confirm('Bỏ qua khoản này (tiền của Gobiz, không cộng ví mới)?')) return;
+        const j = await this.wlPost('/api/fin/hold', { ref: d.ref, action: act, owner, note: '' });
+        if (j) { this.wlMsg = act === 'assign' ? 'Đã tạo yêu cầu nạp tay #' + j.requestId + ', chờ anh duyệt' : 'Đã bỏ qua'; this.wlLoad(); }
       },
       cnTx: [],
       async cnTxLoad(code) { this.cnTx = []; try { const j = await fetch('/api/cn/' + code + '/txns', { cache: 'no-store' }).then((r) => r.json()); this.cnTx = j.items || []; } catch (e) {} },

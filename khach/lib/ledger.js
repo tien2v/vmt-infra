@@ -54,6 +54,10 @@ function init(db) {
       id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, owner TEXT NOT NULL, amount INTEGER NOT NULL, codes TEXT, note TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending', created_by TEXT NOT NULL, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       decided_by TEXT, decided_at TEXT, decide_note TEXT, txn TEXT);
+    CREATE TABLE IF NOT EXISTS deposits (
+      ref TEXT PRIMARY KEY, src TEXT, bank_ref TEXT, rec TEXT, amount INTEGER NOT NULL, content TEXT, at TEXT,
+      status TEXT NOT NULL, owner TEXT, code TEXT, reason TEXT, txn TEXT, req_id INTEGER,
+      created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), decided_by TEXT, decided_at TEXT);
     CREATE TABLE IF NOT EXISTS wallet_log (ts TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), owner TEXT, by TEXT, action TEXT, detail TEXT);
   `);
 }
@@ -250,6 +254,76 @@ function checkPin(db, owner, pin) {
   return { code: lock ? 429 : 401, error: lock ? 'Sai PIN 5 lần, khoá thanh toán 30 phút' : 'Sai mã PIN (còn ' + (5 - fails) + ' lần)' };
 }
 
+// ---------- nap tien tu ngan hang (SePay -> Lark Base quy B1 -> n8n ky -> day) ----------
+// Quy tac (decisions/vi-nap-rut-chung-tu.md):
+// - Noi dung co DUNG 1 ma khach hop le (co so kiem tra, co trong he thong) va khong co username Gobiz -> cong vi.
+// - Co ma khach + co username Gobiz -> hang cho (tranh Gobiz va web moi cung cong).
+// - Khong co ma khach -> bo qua (tien cua Gobiz). Duoi 10.000d -> hang cho.
+// - Vi moi chua mo cho khach that -> hang cho (khong cong).
+// - Moi khoan chi xu ly 1 lan (ref UNIQUE); cong vi dung idem DEP:<ref>.
+function findCodes(db, content) {
+  const c = normCode(content); const found = new Set();
+  for (let i = 0; i + 7 <= c.length; i++) { const w = c.slice(i, i + 7); if (validCode(w) && db.prepare('SELECT 1 FROM cust_codes WHERE code = ?').get(w)) found.add(w); }
+  return [...found];
+}
+function gobizHit(content, code, gobizSet) {
+  const low = String(content || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+  const toks = low.split(/[^a-z0-9_]+/).filter((t) => t && !normCode(t).includes(code));
+  for (const t of toks) if (gobizSet.has(t)) return t;
+  const joined = toks.join(''); if (gobizSet.has(joined)) return joined;
+  return null;
+}
+function deposit(db, item, gobizSet, isLive) {
+  const ref = String(item.ref || '').slice(0, 120); const amount = Math.round(Number(item.amount));
+  if (!ref || !Number.isSafeInteger(amount) || amount <= 0) return { ref, status: 'invalid' };
+  return tx(db, () => {
+    const old = db.prepare('SELECT status, txn FROM deposits WHERE ref = ?').get(ref);
+    if (old) return { ref, status: old.status, txn: old.txn, dup: true };
+    const content = String(item.content || '').slice(0, 500);
+    const codes = findCodes(db, content);
+    let status = 'ignored', owner = null, code = null, reason = 'Không có mã khách (tiền Gobiz)', txn = null;
+    if (!codes.length) { // tu dung 7 ky tu giong ma khach nhung sai so kiem tra -> co the khach go nham, treo de nguoi xem
+      const near = String(content).toUpperCase().split(/[^0-9A-Z]+/).find((t) => /^[2-9][23456789ABCDEFGHJKMNPQRSTUVWXYZ]{5}[0-9]$/.test(t) && /[A-Z]/.test(t.slice(1, 6)));
+      if (near) { status = 'hold'; reason = 'Có "' + near + '" giống mã khách nhưng sai — có thể khách gõ nhầm'; }
+    }
+    if (codes.length > 1) { status = 'hold'; reason = 'Nội dung có nhiều mã khách: ' + codes.join(', '); }
+    else if (codes.length === 1) {
+      code = codes[0]; owner = db.prepare('SELECT owner FROM cust_codes WHERE code = ?').get(code).owner;
+      const g = gobizHit(content, code, gobizSet);
+      if (g) { status = 'hold'; reason = 'Nội dung có cả mã khách và username Gobiz "' + g + '" — kiểm tra Gobiz đã nạp chưa'; }
+      else if (amount < 10000) { status = 'hold'; reason = 'Dưới mức nạp tối thiểu 10.000đ'; }
+      else if (!isLive(owner)) { status = 'hold'; reason = 'Ví mới chưa mở cho khách này'; }
+      else {
+        const p = post(db, { owner, kind: 'TOPUP', amount, idem: 'DEP:' + ref, note: 'Chuyển khoản ' + (item.bankRef || '') + ': ' + content.slice(0, 120), by: 'ngan-hang:' + (item.src || 'b1'), test: isLive(owner) === 'test' });
+        status = 'credited'; reason = null; txn = p.txn;
+        const u = db.prepare('SELECT username FROM users WHERE lower(gobiz) = ? LIMIT 1').get(owner);
+        if (u) notify(db, u.username, null, 'Đã nhận ' + vnd(amount) + ' vào ví. Mã giao dịch ' + p.txn + '. Số dư ' + vnd(p.balance) + '.');
+      }
+    }
+    db.prepare('INSERT INTO deposits (ref, src, bank_ref, rec, amount, content, at, status, owner, code, reason, txn) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(ref, String(item.src || 'b1'), String(item.bankRef || ''), String(item.rec || ''), amount, content, String(item.at || ''), status, owner, code, reason, txn);
+    return { ref, status, txn, reason };
+  });
+}
+function deposits(db, status) { return db.prepare('SELECT * FROM deposits' + (status ? ' WHERE status = ?' : " WHERE status <> 'ignored'") + ' ORDER BY created_at DESC LIMIT 300').all(...(status ? [status] : [])); }
+// Xu ly khoan treo: gan cho khach (tao yeu cau nap tay cho anh duyet) hoac bo qua (tien Gobiz)
+function resolveDeposit(db, ref, action, owner, by, note) {
+  return tx(db, () => {
+    const d = db.prepare('SELECT * FROM deposits WHERE ref = ?').get(ref);
+    if (!d) return { code: 404, error: 'Không có khoản này' };
+    if (d.status !== 'hold') return { code: 409, error: 'Khoản này đã xử lý (' + d.status + ')' };
+    if (action === 'ignore') {
+      db.prepare("UPDATE deposits SET status = 'ignored_manual', decided_by = ?, decided_at = ?, reason = reason || ' | ' || ? WHERE ref = ? AND status = 'hold'").run(by, nowIso(), note || 'bỏ qua', ref);
+      return { ok: true };
+    }
+    const o = String(owner || d.owner || '').toLowerCase(); if (!o) return { code: 400, error: 'Chọn khách' };
+    const r = request(db, { kind: 'TOPUP_MANUAL', owner: o, amount: d.amount, note: 'Gán khoản chuyển khoản ' + (d.bank_ref || d.ref) + ' (' + d.content.slice(0, 80) + ')' + (note ? ' — ' + note : ''), by });
+    if (r.error) return r;
+    db.prepare("UPDATE deposits SET status = 'assigned', owner = ?, req_id = ?, decided_by = ?, decided_at = ? WHERE ref = ? AND status = 'hold'").run(o, r.id, by, nowIso(), ref);
+    return { ok: true, requestId: r.id };
+  });
+}
+
 // ---------- tra cuu ----------
 function txnsOf(db, owner, limit) {
   return db.prepare('SELECT txn, kind, amount, balance_after, note, by, created_at FROM ledger WHERE owner = ? ORDER BY id DESC LIMIT ?').all(owner, limit || 100)
@@ -279,4 +353,4 @@ function verify(db) {
   return { ok: !errs.length, errs, at: nowIso() };
 }
 
-module.exports = { init, validCode, normCode, genCode, codeOf, walletView, pay, request, decide, requests, setCredit, setPin, hasPin, checkPin, txnsOf, txnsOfOrder, verify, KIND };
+module.exports = { deposit, deposits, resolveDeposit, findCodes, init, validCode, normCode, genCode, codeOf, walletView, pay, request, decide, requests, setCredit, setPin, hasPin, checkPin, txnsOf, txnsOfOrder, verify, KIND };

@@ -401,6 +401,12 @@
               <span>#<b x-text="q.id"></b> · <b x-text="q.kindLabel"></b> · <span x-text="q.owner"></span> · <b x-text="vnd(q.amount)"></b> <span x-show="q.codes.length" x-text="'· ' + q.codes.join(', ')"></span><br><span class="text-slate-400" x-text="q.note + ' — ' + cnWho(q.created_by) + ' · ' + cnDT(q.created_at)"></span></span>
               <span x-show="wlRole==='admin'" class="flex gap-2"><button @click="wlDecide(q,true)" :disabled="wlBusy" class="btn h-8 rounded-full bg-success px-3 text-white">Duyệt</button><button @click="wlDecide(q,false)" :disabled="wlBusy" class="btn h-8 rounded-full border border-slate-300 px-3">Từ chối</button></span></div></template>
           </div>
+          <div x-show="wlHolds.length" class="card mb-4 p-4 text-xs-plus">
+            <p class="font-medium text-error">Khoản chuyển khoản đang treo (<span x-text="wlHolds.length"></span>) — chưa cộng ví</p>
+            <template x-for="d in wlHolds" :key="d.ref"><div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-150 py-2 dark:border-navy-500">
+              <span><b x-text="vnd(d.amount)"></b> · <span x-text="d.content"></span><br><span class="text-error" x-text="d.reason"></span><span class="text-slate-400" x-text="' · ' + (d.bank_ref||'') + ' · ' + cnDT(d.created_at)"></span></span>
+              <span x-show="wlRole!=='sale'" class="flex gap-2"><button @click="wlHold(d,'assign')" :disabled="wlBusy" class="btn h-8 rounded-full bg-primary px-3 text-white dark:bg-accent">Gán cho khách</button><button @click="wlHold(d,'ignore')" :disabled="wlBusy" class="btn h-8 rounded-full border border-slate-300 px-3">Bỏ qua (Gobiz)</button></span></div></template>
+          </div>
           <p x-show="wlMsg" class="mb-3 text-success" x-text="wlMsg"></p><p x-show="wlErr" class="mb-3 text-error" x-text="wlErr"></p>
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-5">
             <div class="card p-4 lg:col-span-2 text-xs-plus">

@@ -249,6 +249,27 @@ async function handle(req, res) {
     }
     return json(req, res, 404, { error: 'not found' });
   }
+  // ---- n8n (ky RSA) day giao dich ngan hang vao vi moi / tao yeu cau nap tay (van can anh duyet) ----
+  if ((p === '/api/fin/deposits' || p === '/api/fin/claude-request') && req.method === 'POST') {
+    let body; try { body = await readBody(req, 500000); } catch { return json(req, res, 400, { error: 'body' }); }
+    const ts = Number(req.headers['x-ts']); const sig = String(req.headers['x-sig'] || '');
+    if (!ts || Math.abs(Date.now() - ts) > 15 * 60e3) return json(req, res, 401, { error: 'ts' });
+    if (!(sig && crypto.verify('RSA-SHA256', Buffer.concat([Buffer.from(ts + '.'), body]), PUBKEY, Buffer.from(sig, 'base64')))) return json(req, res, 401, { error: 'sig' });
+    let b; try { b = JSON.parse(body.toString('utf8')); } catch { return json(req, res, 400, { error: 'json' }); }
+    const db = cn.fin(), L = cn.ledger;
+    if (p === '/api/fin/claude-request') {
+      const owner = String(b.owner || '').toLowerCase();
+      if (!customers().some((c) => String(c.u).toLowerCase() === owner)) return json(req, res, 400, { error: 'Không có khách này' });
+      if (b.kind !== 'TOPUP_MANUAL') return json(req, res, 400, { error: 'Chỉ tạo được yêu cầu nạp tay' });
+      const r = L.request(db, { kind: 'TOPUP_MANUAL', owner, amount: b.amount, note: String(b.note || ''), by: 'claude' });
+      return json(req, res, r.error ? r.code : 200, r);
+    }
+    const gobizSet = new Set(customers().map((c) => String(c.u).toLowerCase()));
+    const isLive = (owner) => { const u = db.prepare('SELECT note FROM users WHERE lower(gobiz) = ? LIMIT 1').get(owner); return u && String(u.note || '').startsWith('tai khoan test') ? 'test' : (store.kvGet('wallet_live') === '1'); };
+    const out = [];
+    for (const it of (Array.isArray(b.items) ? b.items : []).slice(0, 300)) { try { out.push(L.deposit(db, it, gobizSet, isLive)); } catch (e) { out.push({ ref: it && it.ref, status: 'error', error: String(e.message || e) }); } }
+    return json(req, res, 200, { ok: true, results: out.filter((x) => !x.dup), dup: out.filter((x) => x.dup).length });
+  }
   if (p === '/api/cn/track' && req.method === 'POST') {
     let body; try { body = await readBody(req, 20000); } catch { return json(req, res, 400, { error: 'body' }); }
     const ts = Number(req.headers['x-ts']); const sig = String(req.headers['x-sig'] || '');
@@ -286,6 +307,7 @@ async function handle(req, res) {
       db.prepare('INSERT INTO wallet_log (owner, by, action, detail) VALUES (?, ?, ?, ?)').run(o, by, 'Xem ví', '{}');
       return json(req, res, 200, { wallet: L.walletView(db, o), txns: L.txnsOf(db, o, 200), log: db.prepare('SELECT * FROM wallet_log WHERE owner = ? ORDER BY ts DESC LIMIT 100').all(o) });
     }
+    if (p === '/api/fin/deposits' && req.method === 'GET') return json(req, res, 200, { items: L.deposits(db, url.searchParams.get('status') || '') });
     if (p === '/api/fin/requests' && req.method === 'GET') return json(req, res, 200, { items: L.requests(db, url.searchParams.get('status') || '') });
     if (req.method !== 'POST' || !sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
     let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
@@ -300,6 +322,12 @@ async function handle(req, res) {
       if (!['admin', 'tc'].includes(user.role)) return json(req, res, 403, { error: 'Chỉ tài chính / admin được tạo yêu cầu' });
       if (!known()) return json(req, res, 400, { error: 'Không có khách này' });
       const r = L.request(db, { kind: String(b.kind || ''), owner, amount: b.amount, codes: b.codes, note: b.note, by }); return json(req, res, r.error ? r.code : 200, r);
+    }
+    if (p === '/api/fin/hold') {
+      if (!['admin', 'tc'].includes(user.role)) return json(req, res, 403, { error: 'Chỉ tài chính / admin' });
+      if (b.owner && !known()) return json(req, res, 400, { error: 'Không có khách này' });
+      const r = L.resolveDeposit(db, String(b.ref || ''), b.action === 'ignore' ? 'ignore' : 'assign', owner, by, String(b.note || '').slice(0, 200));
+      return json(req, res, r.error ? r.code : 200, r);
     }
     const md = p.match(/^\/api\/fin\/request\/(\d{1,9})\/(approve|reject)$/);
     if (md) {
