@@ -99,7 +99,8 @@ function payload(user) {
     username: user.username, gobiz: user.gobiz, test: String(user.note || '').startsWith('tai khoan test'),
     name: (c && c.fn) || user.gobiz, code: (c && c.code) || '', balance: c ? Number(c.bal) : null, brand,
   };
-  const data = { orders: s ? s.orders : [], shipments: s ? s.shipments : [], peer: s ? s.peer : [], pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
+  const cn = store.cnList(user.username).map((o) => Object.assign(o, { mine: true }));
+  const data = { orders: s ? s.orders : [], shipments: s ? s.shipments : [], peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
   return 'window.ME=' + JSON.stringify(me) + ';window.DATA=' + JSON.stringify(data) + ';';
 }
 
@@ -121,6 +122,38 @@ function loginPage(req, res) {
     const b = hostBrand(req);
     send(res, 200, html.replaceAll('{{BRAND}}', b).replaceAll('{{NAME}}', BRAND[b].name).replaceAll('{{TAG}}', BRAND[b].tag), { 'Content-Type': 'text/html; charset=utf-8' });
   });
+}
+
+// ---------- kiem tra don Ship to China ----------
+const CN_CATS = ['Hàng thông thường', 'Quần áo, vải', 'Thực phẩm khô', 'Mỹ phẩm', 'Đồ điện tử', 'Giấy tờ, tài liệu', 'Hàng khác'];
+const CN_METHODS = ['express_shipping', 'standard_shipping', 'eco_shipping'];
+const CN_SVCS = ['insurance', 'reinforce'];
+const str = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
+function validateCn(b) {
+  if (!b || typeof b !== 'object') return { error: 'Dữ liệu không hợp lệ' };
+  const lot = str(b.lot, 80), cat = str(b.cat, 40), rname = str(b.rname, 60), rphone = str(b.rphone, 20), raddr = str(b.raddr, 300), note = str(b.note, 500);
+  if (!lot || !rname || !raddr) return { error: 'Thiếu tên lô, tên hoặc địa chỉ người nhận' };
+  if (!CN_CATS.includes(cat)) return { error: 'Chọn loại hàng' };
+  if (!/^[+0-9 ()-]{6,20}$/.test(rphone)) return { error: 'Số điện thoại người nhận không hợp lệ' };
+  const wh = b.wh === 'HN' ? 'HN' : b.wh === 'HCM' ? 'HCM' : null; if (!wh) return { error: 'Chọn kho gửi hàng' };
+  const method = CN_METHODS.includes(b.method) ? b.method : null; if (!method) return { error: 'Chọn hình thức vận chuyển' };
+  const svcs = Array.isArray(b.svcs) ? [...new Set(b.svcs.filter((x) => CN_SVCS.includes(x)))] : [];
+  if (!Array.isArray(b.items) || !b.items.length || b.items.length > 50) return { error: 'Cần 1–50 dòng sản phẩm' };
+  const items = [];
+  for (const i of b.items) {
+    const name = str(i && i.name, 120), qty = Math.floor(Number(i && i.qty)), price = Math.floor(Number(i && i.price) || 0);
+    if (!name || !(qty >= 1 && qty <= 1000000) || !(price >= 0 && price <= 1e11)) return { error: 'Dòng sản phẩm cần tên và số lượng hợp lệ' };
+    items.push({ name, qty, price });
+  }
+  const wbs = Array.isArray(b.wb) ? [...new Set(b.wb.map((w) => str(w, 40).toUpperCase()).filter((w) => /^[A-Z0-9-]{4,40}$/.test(w)))].slice(0, 20) : [];
+  const now = new Date().toISOString();
+  return { data: {
+    note: lot, cat, recvName: rname, recvPhone: rphone, recvAddr: raddr, note2: note || null, wh, to: 'TQ', svcs,
+    items, wbs, wb: wbs.join(', ') || null, w: null, nw: null, dw: null, pk: null, fee: null, paid: 0, unpaid: 0, refund: null,
+    value: items.reduce((a, i) => a + i.qty * i.price, 0),
+    fees: [{ t: method, prov: null, act: null, q: null, p: null, free: false }].concat(svcs.map((t) => ({ t, prov: null, act: null, q: null, p: null, free: false }))),
+    ms: [{ t: now, s: 'PENDING' }],
+  } };
 }
 
 async function handle(req, res) {
@@ -149,6 +182,24 @@ async function handle(req, res) {
   if (p === '/api/data.js') {
     if (!user) return send(res, 401, 'location.href="/login";', { 'Content-Type': 'text/javascript; charset=utf-8' });
     return gz(req, res, 200, Buffer.from(payload(user)), 'text/javascript; charset=utf-8');
+  }
+  if (p === '/api/cn' && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 50000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const v = validateCn(b);
+    if (v.error) return json(req, res, 400, { error: v.error });
+    if (store.cnCountRecent(user.username) >= 20) return json(req, res, 429, { error: 'Tạo quá nhiều đơn trong 1 giờ, vui lòng thử lại sau' });
+    const o = store.cnCreate(user.username, user.gobiz, String(user.note || '').startsWith('tai khoan test'), v.data);
+    return json(req, res, 200, { ok: true, order: Object.assign(o, { mine: true }) });
+  }
+  const mc = p.match(/^\/api\/cn\/(SCN\d{1,12})\/cancel$/);
+  if (mc && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    const r = store.cnCancel(user.username, mc[1]);
+    if (r.error) return json(req, res, r.code, { error: r.error });
+    return json(req, res, 200, { ok: true, order: Object.assign(r.order, { mine: true }) });
   }
   if (p === '/' || p === '/index.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }

@@ -20,7 +20,14 @@ function init() {
     );
     CREATE TABLE IF NOT EXISTS login_log (ts TEXT DEFAULT (datetime('now')), username TEXT, ip TEXT, ok INTEGER);
     CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+    CREATE TABLE IF NOT EXISTS cn_orders (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE, username TEXT NOT NULL, gobiz TEXT, test INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'PENDING', data TEXT NOT NULL, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS cn_log (ts TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), code TEXT, username TEXT, action TEXT, detail TEXT);
   `);
+  // Ma don SCN bat dau tu 100001
+  if (!db.prepare("SELECT 1 FROM sqlite_sequence WHERE name = 'cn_orders'").get()) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('cn_orders', 100000)").run();
 }
 function adminDb() {
   if (adb) return adb;
@@ -65,4 +72,24 @@ function logLogin(u, ip, ok) {
   db.prepare('INSERT INTO login_log (username, ip, ok) VALUES (?, ?, ?)').run(String(u || '').slice(0, 64), ip, ok ? 1 : 0);
   db.prepare("DELETE FROM login_log WHERE ts < datetime('now', '-90 days')").run();
 }
-module.exports = { init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };
+// ---------- Don Ship to China ----------
+function cnRow(r) { const d = JSON.parse(r.data); return Object.assign(d, { code: r.code, status: r.status, created: r.created_at, modified: r.updated_at || r.created_at }); }
+function cnCreate(username, gobiz, test, data) {
+  const r = db.prepare('INSERT INTO cn_orders (code, username, gobiz, test, data) VALUES (?, ?, ?, ?, ?)').run('tmp-' + crypto.randomUUID(), username, gobiz, test ? 1 : 0, JSON.stringify(data));
+  const seq = Number(r.lastInsertRowid); const code = 'SCN' + seq;
+  db.prepare('UPDATE cn_orders SET code = ? WHERE seq = ?').run(code, seq);
+  db.prepare('INSERT INTO cn_log (code, username, action) VALUES (?, ?, ?)').run(code, username, 'create');
+  return cnRow(db.prepare('SELECT * FROM cn_orders WHERE seq = ?').get(seq));
+}
+function cnList(username) { return db.prepare('SELECT * FROM cn_orders WHERE username = ? ORDER BY seq DESC LIMIT 500').all(username).map(cnRow); }
+function cnCountRecent(username) { return db.prepare("SELECT COUNT(*) AS n FROM cn_orders WHERE username = ? AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hour')").get(username).n; }
+function cnCancel(username, code) {
+  const r = db.prepare('SELECT * FROM cn_orders WHERE code = ? AND username = ?').get(code, username);
+  if (!r) return { error: 'Không tìm thấy đơn', code: 404 };
+  if (r.status !== 'PENDING') return { error: 'Đơn đã được kho tiếp nhận, không huỷ được. Vui lòng liên hệ nhân viên.', code: 409 };
+  const d = JSON.parse(r.data); d.ms = (d.ms || []).concat([{ t: new Date().toISOString(), s: 'CANCELLED' }]);
+  db.prepare("UPDATE cn_orders SET status = 'CANCELLED', data = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE seq = ?").run(JSON.stringify(d), r.seq);
+  db.prepare('INSERT INTO cn_log (code, username, action) VALUES (?, ?, ?)').run(code, username, 'cancel');
+  return { order: cnRow(db.prepare('SELECT * FROM cn_orders WHERE seq = ?').get(r.seq)) };
+}
+module.exports = { cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };
