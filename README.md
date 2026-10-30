@@ -22,6 +22,8 @@ Lần chạy đầu sau khi có app, màn hình in **tài khoản quản trị**
 - Dữ liệu Gobiz do n8n đẩy sang mỗi 15 phút qua `POST /api/ingest`, có chữ ký RSA-SHA256 trên chuỗi `<X-Ts>.<body>`; máy chủ kiểm bằng `app/ingest_pub.pem` (khoá công khai). Khoá riêng chỉ nằm trong n8n.
 - Lưu ở `/opt/vmt/appdata/vmt.db` (SQLite có sẵn trong Node 22).
 
+Máy chủ tự cập nhật mỗi 3 phút khi có commit mới trên main (nhật ký: /var/log/vmt-autoupdate.log).
+
 Quản lý tài khoản nhân viên (chạy trong `/opt/vmt`):
 
     docker compose exec app node cli.js list
