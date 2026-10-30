@@ -221,12 +221,21 @@ function update(code, role, staff, b, meta) {
   if ('paid' in b && (o.txns || []).length) return { code: 409, error: 'Đơn đã có giao dịch qua ví, không sửa tay số đã thanh toán. Dùng yêu cầu hoàn tiền / điều chỉnh.' };
   if ('paid' in b) { const v = num(b.paid, 1e11); if (v === undefined) return { code: 400, error: 'Số tiền đã thanh toán không hợp lệ' }; o.paid = v === null ? 0 : Math.round(v); }
   o.unpaid = ['CANCELLED', 'RETURN'].includes(status) ? 0 : Math.max(0, (o.fee || 0) - (o.paid || 0));
+  // Phi thuc te cao hon uoc tinh cua khach > 10% hoac > 50.000d -> khach phai dong y truoc khi thanh toan (anh chot 30/10)
+  const feeOld = old.fee;
+  if (o.fee != null && o.fee !== feeOld && o.est && o.est.fee && !(o.paid > 0)) {
+    const diff = o.fee - o.est.fee;
+    const need = diff > 0 && (diff > o.est.fee * 0.1 || diff > 50000);
+    if (need && o.feeConfirm !== 'need') { o.feeConfirm = 'need'; o._feeNotify = true; }
+    else if (!need && o.feeConfirm === 'need') o.feeConfirm = null;
+  }
   const trTxt = (x) => splitList(x.wbCn).map((c) => c + ((x.tracks || {})[c] ? ' (' + x.tracks[c] + ')' : '')).join(', ');
   old.tracksTxt = trTxt(old); o.tracksTxt = undefined;
   const now2 = Object.assign({}, o, { status, tracksTxt: trTxt(o) });
   const changes = Object.keys(FIELD).filter((k) => JSON.stringify(old[k] ?? null) !== JSON.stringify(now2[k] ?? null)).map((k) => [FIELD[k], show(k, old[k]), show(k, now2[k])]);
   if (!changes.length && !meta.action) return { order: row(r, role) };
   notifyChange(d, r, o, before, status, wbBefore);
+  if (o._feeNotify) { delete o._feeNotify; d.prepare('INSERT INTO notif (username, code, text) VALUES (?, ?, ?)').run(r.username, r.code, 'Đơn ' + r.code + ': kho đã cân, phí thực tế ' + vnd(o.fee) + ' (anh/chị ước tính ' + vnd(o.est.fee) + ', ' + (o.cw ? 'cân tính cước ' + o.cw + ' kg' : '') + '). Anh/chị xem chi tiết và bấm "Đồng ý và thanh toán".'); }
   d.prepare("UPDATE cn_orders SET status = ?, data = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE seq = ?").run(status, JSON.stringify(o), r.seq);
   // Tra hang: tu tao yeu cau hoan cuoc da tra ve vi (cho anh duyet)
   if (status === 'RETURN' && before !== 'RETURN' && (o.paid || 0) > 0 && r.gobiz) {

@@ -59,6 +59,8 @@ function init(db) {
       ref TEXT PRIMARY KEY, src TEXT, bank_ref TEXT, rec TEXT, amount INTEGER NOT NULL, content TEXT, at TEXT,
       status TEXT NOT NULL, owner TEXT, code TEXT, reason TEXT, txn TEXT, req_id INTEGER,
       created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), decided_by TEXT, decided_at TEXT);
+    CREATE TABLE IF NOT EXISTS pay_intents (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, codes TEXT NOT NULL, need INTEGER, short INTEGER, by TEXT,
+      status TEXT NOT NULL DEFAULT 'open', txn TEXT, reason TEXT, expires_at TEXT, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
     CREATE TABLE IF NOT EXISTS deposit_claims (
       id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, amount INTEGER NOT NULL, at TEXT NOT NULL, note TEXT, photos TEXT,
       status TEXT NOT NULL DEFAULT 'open', match_ref TEXT, req_id INTEGER, decided_by TEXT, decided_at TEXT, decide_note TEXT,
@@ -69,7 +71,7 @@ function init(db) {
 }
 const nowIso = () => new Date().toISOString();
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
-const KIND = { TOPUP: 'Nạp tiền', TOPUP_MANUAL: 'Nạp tay', PAY: 'Thanh toán đơn', REFUND: 'Hoàn tiền về ví', ADJUST: 'Điều chỉnh', REVERSAL: 'Giao dịch đảo' };
+const KIND = { WITHDRAW: 'Rút tiền', TOPUP: 'Nạp tiền', TOPUP_MANUAL: 'Nạp tay', PAY: 'Thanh toán đơn', REFUND: 'Hoàn tiền về ví', ADJUST: 'Điều chỉnh', REVERSAL: 'Giao dịch đảo' };
 const vnd = (n) => Math.round(n).toLocaleString('vi-VN') + 'đ';
 function tx(db, fn) {
   db.exec('BEGIN IMMEDIATE');
@@ -89,11 +91,13 @@ function walletView(db, owner) {
   const overdue = !!(w.neg_since && Date.now() - Date.parse(w.neg_since) > w.credit_days * 86400e3);
   const creditOk = w.credit_limit > 0 && !overdue;
   const pending = db.prepare("SELECT COALESCE(SUM(json_extract(data,'$.unpaid')),0) AS s FROM cn_orders WHERE lower(gobiz) = ? AND status NOT IN ('CANCELLED','RETURN')").get(owner).s;
+  const held = db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM fin_requests WHERE owner = ? AND kind = 'WITHDRAW' AND status = 'pending'").get(owner).s;
   return {
     owner, balance: w.balance, creditLimit: w.credit_limit, creditDays: w.credit_days, negSince: w.neg_since, overdue, creditOk,
     dueAt: w.neg_since ? new Date(Date.parse(w.neg_since) + w.credit_days * 86400e3).toISOString() : null,
-    available: w.balance + (creditOk ? w.credit_limit : 0), // dung de THANH TOAN
-    withdrawable: Math.max(0, w.balance - pending), // dung de RUT: khong tinh tin dung, tru tien don chua tra
+    available: w.balance - held + (creditOk ? w.credit_limit : 0), // dung de THANH TOAN (tru tien dang giu cho lenh rut)
+    withdrawable: Math.max(0, w.balance - pending - held), // dung de RUT: khong tinh tin dung, tru tien don chua tra + lenh rut dang cho
+    held,
     pendingOrders: pending,
   };
 }
@@ -136,7 +140,8 @@ function setPaid(db, r, d, newPaid, txn) {
 
 // Khach thanh toan 1 hoac nhieu don. TAT CA HOAC KHONG.
 // idem: ma phien do trinh duyet sinh 1 lan khi mo hop thanh toan.
-function pay(db, owner, codes, idem, by, test) {
+function pay(db, owner, codes, idem, by, test, confirm) {
+  const okFee = new Set((confirm || []).map(String));
   codes = [...new Set((codes || []).map(String))].filter((c) => /^SCN\d{1,12}$/.test(c));
   if (!codes.length || codes.length > 100) return { code: 400, error: 'Chọn đơn cần thanh toán' };
   if (!/^[A-Za-z0-9-]{16,64}$/.test(String(idem || ''))) return { code: 400, error: 'Phiên thanh toán không hợp lệ, mở lại' };
@@ -153,6 +158,7 @@ function pay(db, owner, codes, idem, by, test) {
       if (d.fee == null) return { code: 409, error: 'Đơn ' + c + ' chưa có phí' };
       const need = Math.max(0, Math.round(d.fee) - Math.round(d.paid || 0));
       if (need <= 0) return { code: 409, error: 'Đơn ' + c + ' đã thanh toán đủ' };
+      if (d.feeConfirm === 'need' && !okFee.has(c)) return { code: 409, error: 'Đơn ' + c + ' có phí thực tế ' + vnd(d.fee) + ' cao hơn ước tính, cần anh/chị đồng ý phí mới trước khi thanh toán', needConfirm: c };
       rows.push({ r, d, need }); total += need;
     }
     const w = walletView(db, owner);
@@ -160,6 +166,7 @@ function pay(db, owner, codes, idem, by, test) {
     const p = post(db, { owner, kind: 'PAY', amount: -total, idem: key, note: 'Thanh toán ' + codes.join(', '), by, lines: rows.map((x) => ({ code: x.r.code, amount: x.need })), test });
     for (const x of rows) {
       const before = x.d.paid || 0;
+      if (x.d.feeConfirm === 'need') { x.d.feeConfirm = 'ok'; orderLog(db, x.r.code, by, 'Khách đồng ý phí thực tế ' + vnd(x.d.fee), [], {}); }
       setPaid(db, x.r, x.d, before + x.need, p.txn);
       orderLog(db, x.r.code, by, 'Thanh toán (' + p.txn + ')', [['Đã thanh toán', vnd(before), vnd(before + x.need)]], { txn: p.txn, amount: x.need });
     }
@@ -171,7 +178,7 @@ function pay(db, owner, codes, idem, by, test) {
 // ---------- yeu cau can duyet: nap tay, dieu chinh, hoan tien ----------
 // kind: TOPUP_MANUAL (+), ADJUST (+/-), REFUND (+, gan don; khong qua so da thu cua don)
 function request(db, { kind, owner, amount, codes, note, by }) {
-  if (!['TOPUP_MANUAL', 'ADJUST', 'REFUND'].includes(kind)) return { code: 400, error: 'Loại yêu cầu không hợp lệ' };
+  if (!['TOPUP_MANUAL', 'ADJUST', 'REFUND', 'WITHDRAW'].includes(kind)) return { code: 400, error: 'Loại yêu cầu không hợp lệ' };
   amount = Math.round(Number(amount));
   if (!Number.isSafeInteger(amount) || amount === 0 || Math.abs(amount) > 1e11) return { code: 400, error: 'Số tiền không hợp lệ' };
   if (kind !== 'ADJUST' && amount < 0) return { code: 400, error: 'Số tiền phải dương' };
@@ -181,6 +188,10 @@ function request(db, { kind, owner, amount, codes, note, by }) {
     if (cs.length !== 1) return { code: 400, error: 'Hoàn tiền phải gắn đúng 1 đơn' };
     const r = db.prepare('SELECT data FROM cn_orders WHERE code = ? AND lower(gobiz) = ?').get(cs[0], owner);
     if (!r) return { code: 404, error: 'Đơn không thuộc khách này' };
+  }
+  if (kind === 'WITHDRAW') {
+    if (amount < 10000) return { code: 400, error: 'Rút tối thiểu 10.000đ' };
+    const w = walletView(db, owner); if (amount > w.withdrawable) return { code: 409, error: 'Chỉ rút được tối đa ' + vnd(w.withdrawable) + ' (số dư trừ tiền đơn chưa thanh toán và lệnh rút đang chờ)' };
   }
   const id = Number(db.prepare('INSERT INTO fin_requests (kind, owner, amount, codes, note, created_by) VALUES (?, ?, ?, ?, ?, ?)').run(kind, owner, amount, JSON.stringify(cs), note, by).lastInsertRowid);
   wlog(db, owner, by, 'Tạo yêu cầu ' + KIND[kind], { id, amount, codes: cs, note });
@@ -192,6 +203,7 @@ function decide(db, id, approve, by, dnote, test) {
     if (!q) return { code: 404, error: 'Không tìm thấy yêu cầu' };
     if (q.status !== 'pending') return { code: 409, error: 'Yêu cầu đã được xử lý trước đó (' + q.status + ')' };
     if (!approve) {
+      if (q.kind === 'WITHDRAW') { const uu = db.prepare('SELECT username FROM users WHERE lower(gobiz) = ? LIMIT 1').get(q.owner); if (uu) notify(db, uu.username, null, 'Lệnh rút ' + vnd(q.amount) + ' chưa được duyệt' + (dnote ? ': ' + dnote : '') + '. Tiền vẫn nằm trong ví.'); }
       db.prepare("UPDATE fin_requests SET status = 'rejected', decided_by = ?, decided_at = ?, decide_note = ? WHERE id = ? AND status = 'pending'").run(by, nowIso(), dnote || null, q.id);
       wlog(db, q.owner, by, 'Từ chối yêu cầu #' + q.id, { note: dnote }); return { ok: true };
     }
@@ -203,7 +215,8 @@ function decide(db, id, approve, by, dnote, test) {
       if (q.amount > paid) return { code: 409, error: 'Đơn ' + codes[0] + ' mới thu ' + vnd(paid) + ', không hoàn ' + vnd(q.amount) + ' được' };
       lines = [{ code: codes[0], amount: -q.amount }];
     }
-    const p = post(db, { owner: q.owner, kind: q.kind, amount: q.amount, idem: 'REQ:' + q.id, note: q.note, by: q.created_by + ' / duyệt: ' + by, lines, test });
+    if (q.kind === 'WITHDRAW') { const w = walletView(db, q.owner); if (q.amount > w.withdrawable + q.amount) return { code: 409, error: 'Ví không còn đủ số rút được (' + vnd(w.withdrawable + q.amount) + ')' }; }
+    const p = post(db, { owner: q.owner, kind: q.kind, amount: q.kind === 'WITHDRAW' ? -q.amount : q.amount, idem: 'REQ:' + q.id, note: q.note, by: q.created_by + ' / duyệt: ' + by, lines, test });
     db.prepare("UPDATE fin_requests SET status = 'approved', decided_by = ?, decided_at = ?, decide_note = ?, txn = ? WHERE id = ? AND status = 'pending'").run(by, nowIso(), dnote || null, p.txn, q.id);
     if (q.kind === 'REFUND') {
       const r = db.prepare('SELECT * FROM cn_orders WHERE code = ?').get(codes[0]); const d = JSON.parse(r.data); const before = d.paid || 0;
@@ -213,7 +226,8 @@ function decide(db, id, approve, by, dnote, test) {
       notify(db, r.username, r.code, 'Đơn ' + r.code + ' được hoàn ' + vnd(q.amount) + ' về ví. Mã giao dịch ' + p.txn + '.');
     } else {
       const u = db.prepare('SELECT username FROM cn_orders WHERE lower(gobiz) = ? ORDER BY seq DESC LIMIT 1').get(q.owner);
-      if (u) notify(db, u.username, null, (q.amount > 0 ? 'Ví được cộng ' : 'Ví bị trừ ') + vnd(Math.abs(q.amount)) + ' (' + KIND[q.kind] + '). Mã giao dịch ' + p.txn + '.');
+      const uu = u || db.prepare('SELECT username FROM users WHERE lower(gobiz) = ? LIMIT 1').get(q.owner);
+      if (uu) notify(db, uu.username, null, q.kind === 'WITHDRAW' ? 'Lệnh rút ' + vnd(q.amount) + ' đã được duyệt (mã ' + p.txn + '), tiền sẽ về tài khoản ngân hàng của anh/chị trong ngày làm việc.' : (q.amount > 0 ? 'Ví được cộng ' : 'Ví bị trừ ') + vnd(Math.abs(q.amount)) + ' (' + KIND[q.kind] + '). Mã giao dịch ' + p.txn + '.');
     }
     wlog(db, q.owner, by, 'Duyệt yêu cầu #' + q.id, { txn: p.txn });
     return { ok: true, txn: p.txn, balance: p.balance };
@@ -331,6 +345,37 @@ function resolveDeposit(db, ref, action, owner, by, note) {
   });
 }
 
+
+// ---------- "Nap va tra luon": khach xac nhan PIN truoc, tien ve la tu tra (han 24h) ----------
+function intentCreate(db, owner, codes, by) {
+  codes = [...new Set((codes || []).map(String))].filter((c) => /^SCN\d{1,12}$/.test(c));
+  if (!codes.length) return { code: 400, error: 'Chọn đơn' };
+  let need = 0;
+  for (const c of codes) {
+    const r = db.prepare('SELECT * FROM cn_orders WHERE code = ? AND lower(gobiz) = ?').get(c, owner); if (!r) return { code: 404, error: 'Không tìm thấy đơn ' + c };
+    const d = JSON.parse(r.data); if (d.fee == null) return { code: 409, error: 'Đơn ' + c + ' chưa có phí' };
+    need += Math.max(0, Math.round(d.fee) - Math.round(d.paid || 0));
+  }
+  const w = walletView(db, owner); const short = need - w.available;
+  if (short <= 0) return { code: 409, error: 'Ví đã đủ tiền, anh/chị thanh toán trực tiếp' };
+  db.prepare("UPDATE pay_intents SET status = 'replaced' WHERE owner = ? AND status = 'open'").run(owner);
+  const id = Number(db.prepare("INSERT INTO pay_intents (owner, codes, need, short, by, expires_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now','+1 day'))").run(owner, JSON.stringify(codes), need, Math.max(10000, short), by).lastInsertRowid);
+  wlog(db, owner, by, 'Nạp và trả luôn #' + id, { codes, need, short });
+  return { ok: true, id, need, short: Math.max(10000, short) };
+}
+function intentOf(db, owner) { const r = db.prepare("SELECT * FROM pay_intents WHERE owner = ? ORDER BY id DESC LIMIT 1").get(owner); return r ? Object.assign(r, { codes: JSON.parse(r.codes) }) : null; }
+// Chay sau moi lan cong vi: thu tra cac lenh dang cho
+function intentsRun(db, owner, test) {
+  db.prepare("UPDATE pay_intents SET status = 'expired' WHERE status = 'open' AND expires_at < strftime('%Y-%m-%dT%H:%M:%fZ','now')").run();
+  const out = [];
+  for (const it of db.prepare("SELECT * FROM pay_intents WHERE status = 'open'" + (owner ? ' AND owner = ?' : '')).all(...(owner ? [owner] : []))) {
+    const r = pay(db, it.owner, JSON.parse(it.codes), 'INTENT-' + String(it.id).padStart(12, '0'), it.by + ' (nạp và trả luôn)', test, JSON.parse(it.codes));
+    if (r.ok) { db.prepare("UPDATE pay_intents SET status = 'done', txn = ? WHERE id = ?").run(r.txn, it.id); out.push({ id: it.id, txn: r.txn }); }
+    else if (!r.short) { db.prepare("UPDATE pay_intents SET status = 'failed', reason = ? WHERE id = ?").run(String(r.error).slice(0, 200), it.id); out.push({ id: it.id, error: r.error }); }
+  }
+  return out;
+}
+
 // ---------- khach bao "Toi da chuyen khoan" (tien chua vao vi) ----------
 function claimCreate(db, owner, b, by) {
   const amount = Math.round(Number(b.amount)); if (!(amount >= 10000 && amount <= 5e9)) return { code: 400, error: 'Số tiền không hợp lệ (từ 10.000đ)' };
@@ -431,4 +476,4 @@ function verify(db) {
   return { ok: !errs.length, errs, at: nowIso() };
 }
 
-module.exports = { claimCreate, claims, claimResolve, alertsTake, report, tx, post, deposit, deposits, resolveDeposit, findCodes, init, validCode, normCode, genCode, codeOf, walletView, pay, request, decide, requests, setCredit, setPin, hasPin, checkPin, txnsOf, txnsOfOrder, verify, KIND };
+module.exports = { intentCreate, intentOf, intentsRun, claimCreate, claims, claimResolve, alertsTake, report, tx, post, deposit, deposits, resolveDeposit, findCodes, init, validCode, normCode, genCode, codeOf, walletView, pay, request, decide, requests, setCredit, setPin, hasPin, checkPin, txnsOf, txnsOfOrder, verify, KIND };

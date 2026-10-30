@@ -142,7 +142,7 @@
       wl: [], wlQ: '', wlRole: '', wlPend: 0, wlCur: null, wlTx: [], wlLog: [], wlReqs: [], wlMsg: '', wlErr: '', wlBusy: false,
       wlCredit: { limit: '', days: 30 }, wlReq: { kind: 'TOPUP_MANUAL', amount: '', code: '', note: '' },
       async wlLoad() {
-        this.wlAccLoad();
+        this.wlAccLoad(); this.wlRepLoad();
         try {
           const [a, b, c] = await Promise.all([fetch('/api/fin/wallets', { cache: 'no-store' }).then((r) => r.json()), fetch('/api/fin/requests?status=pending', { cache: 'no-store' }).then((r) => r.json()), fetch('/api/fin/deposits?status=hold', { cache: 'no-store' }).then((r) => r.json())]);
           this.wlHolds = c.items || [];
@@ -176,6 +176,8 @@
       async wlAccLoad() { try { const j = await fetch('/api/fin/accounts', { cache: 'no-store' }).then((r) => r.json()); this.wlAccs = j.items || []; this.wlBanks = j.banks || {}; } catch (e) {} },
       wlAccAdd() { this.wlAccs.push({ id: '', label: '', bank: 'TPB', acct: '', holder: '', active: true }); },
       async wlAccSave() { const j = await this.wlPost('/api/fin/accounts', { items: this.wlAccs }); if (j) { this.wlAccs = j.items; this.wlMsg = 'Đã lưu tài khoản nhận nạp tiền'; } },
+      wlRep: null,
+      async wlRepLoad() { try { const r = await fetch('/api/fin/report', { cache: 'no-store' }); if (r.ok) this.wlRep = await r.json(); } catch (e) {} },
       wlClaims: [],
       async wlClaim(c, ref) {
         let note = '';

@@ -322,10 +322,13 @@ async function handle(req, res) {
     const isLive = (owner) => { const u = db.prepare('SELECT note FROM users WHERE lower(gobiz) = ? LIMIT 1').get(owner); return u && String(u.note || '').startsWith('tai khoan test') ? 'test' : (store.kvGet('wallet_live') === '1'); };
     const out = [];
     for (const it of (Array.isArray(b.items) ? b.items : []).slice(0, 300)) { try { out.push(L.deposit(db, it, gobizSet, isLive)); } catch (e) { out.push({ ref: it && it.ref, status: 'error', error: String(e.message || e) }); } }
+    // Nap va tra luon: sau khi cong vi, thu tra cac lenh dang cho cua khach vua nap
+    const paidIntents = [];
+    for (const x of out) if (x.status === 'credited') { const ow = (db.prepare('SELECT owner FROM deposits WHERE ref = ?').get(x.ref) || {}).owner; if (ow) { try { paidIntents.push(...L.intentsRun(db, ow, isLive(ow) === 'test')); } catch (e) { console.error('intent', e); } } }
     const al = L.alertsTake(db);
     const nm = {}; for (const c of customers()) nm[String(c.u).toLowerCase()] = c.u + (c.fn ? ' - ' + c.fn : '');
     for (const c of al.claims) c.khach = nm[c.owner] || c.owner;
-    return json(req, res, 200, { ok: true, results: out.filter((x) => !x.dup), dup: out.filter((x) => x.dup).length, alerts: al });
+    return json(req, res, 200, { ok: true, results: out.filter((x) => !x.dup), dup: out.filter((x) => x.dup).length, alerts: al, intents: paidIntents });
   }
   if (p === '/api/cn/track' && req.method === 'POST') {
     let body; try { body = await readBody(req, 20000); } catch { return json(req, res, 400, { error: 'body' }); }
@@ -366,6 +369,7 @@ async function handle(req, res) {
     }
     if (p === '/api/fin/accounts' && req.method === 'GET') return json(req, res, 200, { items: JSON.parse(store.kvGet('deposit_accounts') || '[]'), banks: require('./lib/vietqr').BANKS });
     if (p === '/api/fin/deposits' && req.method === 'GET') return json(req, res, 200, { items: L.deposits(db, url.searchParams.get('status') || '') });
+    if (p === '/api/fin/report' && req.method === 'GET') { if (!['admin', 'tc'].includes(user.role)) return json(req, res, 403, { error: 'forbidden' }); return json(req, res, 200, L.report(db)); }
     if (p === '/api/fin/claims' && req.method === 'GET') { const nm = {}; for (const c of customers()) nm[String(c.u).toLowerCase()] = c.u + (c.fn ? ' - ' + c.fn : ''); return json(req, res, 200, { items: L.claims(db, url.searchParams.get('status') || 'open').map((c) => Object.assign(c, { khach: nm[c.owner] || c.owner, code: (db.prepare('SELECT code FROM cust_codes WHERE owner = ?').get(c.owner) || {}).code })) }); }
     if (p === '/api/fin/requests' && req.method === 'GET') return json(req, res, 200, { items: L.requests(db, url.searchParams.get('status') || '') });
     if (req.method !== 'POST' || !sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });

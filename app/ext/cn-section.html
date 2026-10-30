@@ -401,6 +401,16 @@
               <span>#<b x-text="q.id"></b> · <b x-text="q.kindLabel"></b> · <span x-text="q.owner"></span> · <b x-text="vnd(q.amount)"></b> <span x-show="q.codes.length" x-text="'· ' + q.codes.join(', ')"></span><br><span class="text-slate-400" x-text="q.note + ' — ' + cnWho(q.created_by) + ' · ' + cnDT(q.created_at)"></span></span>
               <span x-show="wlRole==='admin'" class="flex gap-2"><button @click="wlDecide(q,true)" :disabled="wlBusy" class="btn h-8 rounded-full bg-success px-3 text-white">Duyệt</button><button @click="wlDecide(q,false)" :disabled="wlBusy" class="btn h-8 rounded-full border border-slate-300 px-3">Từ chối</button></span></div></template>
           </div>
+          <div x-show="wlRep" class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <template x-if="wlRep"><div class="contents">
+              <div class="card p-3"><p class="text-xs text-slate-400">Đối soát sổ</p><p class="mt-1 font-semibold" :class="wlRep.ok?'text-success':'text-error'" x-text="wlRep.ok?'Khớp':'LỆCH: '+wlRep.errs.length+' lỗi'"></p></div>
+              <div class="card p-3"><p class="text-xs text-slate-400">Nạp hôm nay</p><p class="mt-1 font-semibold" x-text="vnd(wlRep.day.TOPUP.s + wlRep.day.TOPUP_MANUAL.s)"></p><p class="text-tiny text-slate-400" x-text="(wlRep.day.TOPUP.n + wlRep.day.TOPUP_MANUAL.n) + ' lần'"></p></div>
+              <div class="card p-3"><p class="text-xs text-slate-400">Thanh toán đơn hôm nay</p><p class="mt-1 font-semibold" x-text="vnd(-wlRep.day.PAY.s)"></p><p class="text-tiny text-slate-400" x-text="wlRep.day.PAY.n + ' lần'"></p></div>
+              <div class="card p-3"><p class="text-xs text-slate-400">Hoàn hôm nay</p><p class="mt-1 font-semibold" x-text="vnd(wlRep.day.REFUND.s)"></p></div>
+              <div class="card p-3"><p class="text-xs text-slate-400">Đang chờ</p><p class="mt-1 font-semibold" x-text="wlRep.open.holds.n + ' treo · ' + wlRep.open.claims + ' khách báo · ' + wlRep.open.requests + ' chờ duyệt'"></p></div>
+              <div class="card p-3"><p class="text-xs text-slate-400">Tổng số dư ví khách</p><p class="mt-1 font-semibold" x-text="vnd(wlRep.total.s)"></p><p class="text-tiny text-slate-400" x-text="wlRep.neg.length + ' ví âm'"></p></div>
+            </div></template>
+          </div>
           <div x-show="wlClaims.length" class="card mb-4 p-4 text-xs-plus">
             <p class="font-medium text-warning">Khách báo đã chuyển khoản nhưng chưa vào ví (<span x-text="wlClaims.length"></span>)</p>
             <template x-for="c in wlClaims" :key="c.id"><div class="border-b border-slate-150 py-2 dark:border-navy-500">

@@ -206,7 +206,7 @@ async function handle(req, res) {
     const db = store.rawDb(), o = owner(user);
     if (p === '/api/wallet' && req.method === 'GET') {
       const code = ledger.codeOf(db, o, gobizNames());
-      return json(req, res, 200, { code, canTopup: store.depositAccounts().length > 0, wallet: ledger.walletView(db, o), hasPin: ledger.hasPin(db, o), txns: ledger.txnsOf(db, o, 100), claims: ledger.claims(db, null, o).slice(0, 10).map((c) => ({ id: c.id, amount: c.amount, at: c.at, status: c.status, note: c.decide_note, created: c.created_at })) });
+      return json(req, res, 200, { code, canTopup: store.depositAccounts().length > 0, wallet: ledger.walletView(db, o), hasPin: ledger.hasPin(db, o), txns: ledger.txnsOf(db, o, 100), intent: ledger.intentOf(db, o), withdraws: db.prepare("SELECT id, amount, note, status, decide_note, created_at, txn FROM fin_requests WHERE owner = ? AND kind = 'WITHDRAW' ORDER BY id DESC LIMIT 10").all(o), claims: ledger.claims(db, null, o).slice(0, 10).map((c) => ({ id: c.id, amount: c.amount, at: c.at, status: c.status, note: c.decide_note, created: c.created_at })) });
     }
     // QR nap tien: phai nhap so tien truoc; tai khoan nhan chon theo so tien + gio (luat giong Gobiz)
     if (p === '/api/wallet/qr' && req.method === 'GET') {
@@ -227,6 +227,23 @@ async function handle(req, res) {
       const r = ledger.setPin(db, o, String(b.pin || ''), 'khach:' + user.username + ' ' + clientIp(req));
       return json(req, res, r.error ? r.code : 200, r);
     }
+    if (p === '/api/wallet/intent' || p === '/api/wallet/withdraw') {
+      const pc = ledger.checkPin(db, o, String(b.pin || ''));
+      if (pc.error) return json(req, res, pc.code, pc);
+      if (p === '/api/wallet/intent') {
+        const r = ledger.intentCreate(db, o, b.codes, 'khach:' + user.username);
+        if (r.error) return json(req, res, r.code, r);
+        const code = ledger.codeOf(db, o, gobizNames()); const Q = require('./lib/vietqr'); const R = require('./lib/depositrule');
+        let flags = {}; try { flags = JSON.parse(store.adminKv('deposit_flags') || '{}'); } catch (e) {}
+        const k = R.pick(r.short, code, flags, store.depositAccounts()); if (k.error) return json(req, res, 400, { error: k.error });
+        const x = k.account;
+        return json(req, res, 200, Object.assign(r, { qr: Q.payload(x.bank, x.acct, r.short, code), amount: r.short, code, bankName: (Q.BANKS[x.bank] || [])[1] || x.bank, acct: x.acct, holder: x.holder, validUntil: k.validUntil }));
+      }
+      const amt = Math.round(Number(b.amount)); const bank = String(b.bank || '').trim().slice(0, 60), acct = String(b.acct || '').replace(/\s/g, '').slice(0, 30), holder = String(b.holder || '').trim().toUpperCase().slice(0, 60);
+      if (!bank || !/^[0-9A-Za-z]{5,30}$/.test(acct) || holder.length < 3) return json(req, res, 400, { error: 'Nhập đủ ngân hàng, số tài khoản, tên chủ tài khoản' });
+      const r = ledger.request(db, { kind: 'WITHDRAW', owner: o, amount: amt, note: 'Rút về ' + bank + ' ' + acct + ' ' + holder + (b.note ? ' — ' + String(b.note).slice(0, 100) : ''), by: 'khach:' + user.username + ' ' + clientIp(req) });
+      return json(req, res, r.error ? r.code : 200, r);
+    }
     if (p === '/api/wallet/claim') {
       const r = ledger.claimCreate(db, o, b, 'khach:' + user.username);
       return json(req, res, r.error ? r.code : 200, r);
@@ -234,7 +251,7 @@ async function handle(req, res) {
     if (p === '/api/pay') {
       const pc = ledger.checkPin(db, o, String(b.pin || ''));
       if (pc.error) return json(req, res, pc.code, pc);
-      const r = ledger.pay(db, o, b.codes, String(b.idem || ''), 'khach:' + user.username, true);
+      const r = ledger.pay(db, o, b.codes, String(b.idem || ''), 'khach:' + user.username, true, Array.isArray(b.confirm) ? b.confirm : []);
       if (r.error) return json(req, res, r.code, r);
       return json(req, res, 200, Object.assign(r, { wallet: ledger.walletView(db, o), orders: store.cnList(user.username, user.gobiz) }));
     }
