@@ -101,7 +101,8 @@ function payload(user) {
     name: (c && c.fn) || user.gobiz, code: (c && c.code) || '', balance: c ? Number(c.bal) : null, brand,
   };
   const cn = store.cnList(user.username).map((o) => Object.assign(o, { mine: true }));
-  const data = { orders: s ? s.orders : [], shipments: s ? s.shipments : [], peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
+  const companies = store.coList(user.username);
+  const data = { companies, orders: s ? s.orders : [], shipments: s ? s.shipments : [], peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
   return 'window.ME=' + JSON.stringify(me) + ';window.DATA=' + JSON.stringify(data) + ';';
 }
 
@@ -130,6 +131,16 @@ const CN_CATS = Object.keys(price.CLASSES);
 const CN_METHODS = ['express_shipping', 'standard_shipping', 'eco_shipping'];
 const CN_SVCS = ['insurance', 'reinforce'];
 const str = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
+// Kiem tra thong tin doanh nghiep. MST Viet Nam: 10 so, hoac 10 so + '-' + 3 so (chi nhanh)
+function checkCo(b) {
+  const co = { name: str(b.name, 200), taxId: str(b.taxId, 20).replace(/\s/g, ''), addr: str(b.addr, 300), email: str(b.email, 120).toLowerCase() };
+  if (/^\d{13}$/.test(co.taxId)) co.taxId = co.taxId.slice(0, 10) + '-' + co.taxId.slice(10);
+  if (!co.name) return { error: 'cần tên công ty' };
+  if (!/^\d{10}(-\d{3})?$/.test(co.taxId)) return { error: 'mã số thuế phải là 10 số (hoặc 10 số-3 số với chi nhánh)' };
+  if (!co.addr) return { error: 'cần địa chỉ công ty' };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(co.email)) return { error: 'email nhận hoá đơn không hợp lệ' };
+  return { co };
+}
 function validateCn(b) {
   if (!b || typeof b !== 'object') return { error: 'Dữ liệu không hợp lệ' };
   const lot = str(b.lot, 80), cat = str(b.cat, 40), rname = str(b.rname, 60), rphone = str(b.rphone, 20), raddr = str(b.raddr, 300), note = str(b.note, 500);
@@ -154,8 +165,9 @@ function validateCn(b) {
   const vat = !!b.vat;
   let inv = null;
   if (vat) {
-    inv = { company: str(b.invCompany, 200), taxId: str(b.invTax, 20), addr: str(b.invAddr, 300), email: str(b.invEmail, 120) };
-    if (!inv.company || !/^[0-9-]{10,14}$/.test(inv.taxId) || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(inv.email)) return { error: 'Lấy VAT cần tên công ty, mã số thuế (10–14 số) và email nhận hoá đơn' };
+    const c = checkCo({ name: b.invCompany, taxId: b.invTax, addr: b.invAddr, email: b.invEmail });
+    if (c.error) return { error: 'Lấy VAT: ' + c.error };
+    inv = { company: c.co.name, taxId: c.co.taxId, addr: c.co.addr, email: c.co.email };
   }
   const est = estW || estDims ? price.quote({ cls: cat, method, weight: estW, dims: estDims, value, insurance: svcs.includes('insurance'), origin: wh, vat }) : null;
   const now = new Date().toISOString();
@@ -200,11 +212,40 @@ async function handle(req, res) {
     if (!user) return json(req, res, 401, { error: 'login' });
     if (!sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
     let b; try { b = JSON.parse((await readBody(req, 50000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    if (b.vat && b.companyId) { // chon cong ty da luu: lay thong tin tu DB, khong tin du lieu gui len
+      const co = store.coGet(user.username, b.companyId);
+      if (!co) return json(req, res, 400, { error: 'Công ty xuất VAT không còn trong danh sách, chọn lại' });
+      Object.assign(b, { invCompany: co.name, invTax: co.taxId, invAddr: co.addr, invEmail: co.email });
+    }
     const v = validateCn(b);
     if (v.error) return json(req, res, 400, { error: v.error });
     if (store.cnCountRecent(user.username) >= 20) return json(req, res, 429, { error: 'Tạo quá nhiều đơn trong 1 giờ, vui lòng thử lại sau' });
+    let saved = null;
+    if (v.data.vat && !b.companyId && b.saveCompany) {
+      const r = store.coSave(user.username, { name: v.data.inv.company, taxId: v.data.inv.taxId, addr: v.data.inv.addr, email: v.data.inv.email, from: 'tao-don' }, clientIp(req));
+      if (r.co) { saved = r.co; v.data.inv.coId = r.co.id; }
+    } else if (v.data.vat && b.companyId) v.data.inv.coId = Number(b.companyId);
     const o = store.cnCreate(user.username, user.gobiz, String(user.note || '').startsWith('tai khoan test'), v.data, clientIp(req));
-    return json(req, res, 200, { ok: true, order: Object.assign(o, { mine: true }) });
+    return json(req, res, 200, { ok: true, order: Object.assign(o, { mine: true }), companies: saved ? store.coList(user.username) : undefined });
+  }
+  if (p === '/api/companies') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (req.method !== 'POST') return json(req, res, 200, { items: store.coList(user.username) });
+    if (!sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const c = checkCo(b);
+    if (c.error) return json(req, res, 400, { error: 'Thông tin doanh nghiệp: ' + c.error });
+    const r = store.coSave(user.username, Object.assign(c.co, { id: b.id || null, isDefault: !!b.isDefault }), clientIp(req));
+    if (r.error) return json(req, res, r.code, { error: r.error });
+    return json(req, res, 200, { ok: true, co: r.co, existed: !!r.existed, items: store.coList(user.username) });
+  }
+  const mco = p.match(/^\/api\/companies\/(\d{1,9})\/(delete|default)$/);
+  if (mco && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    if (mco[2] === 'delete') { const r = store.coDelete(user.username, mco[1], clientIp(req)); if (r.error) return json(req, res, r.code, { error: r.error }); }
+    else { const co = store.coGet(user.username, mco[1]); if (!co) return json(req, res, 404, { error: 'Không tìm thấy công ty' }); store.coSave(user.username, Object.assign(co, { isDefault: true }), clientIp(req)); }
+    return json(req, res, 200, { ok: true, items: store.coList(user.username) });
   }
   if (p === '/api/notif') {
     if (!user) return json(req, res, 401, { error: 'login' });
