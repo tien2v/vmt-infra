@@ -25,6 +25,7 @@ function init() {
       seq INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE, username TEXT NOT NULL, gobiz TEXT, test INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'PENDING', data TEXT NOT NULL, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), updated_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS notif (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, code TEXT, text TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
     CREATE TABLE IF NOT EXISTS cn_log (ts TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), code TEXT, username TEXT, action TEXT, detail TEXT);
   `);
   // Ma don SCN bat dau tu 100001
@@ -78,7 +79,7 @@ function cnRow(r) {
   const d = JSON.parse(r.data);
   delete d.staffNote; delete d.partnerFee; delete d.refTL; delete d.feeManual; // noi bo: khach khong thay
   d.ms = (d.ms || []).map((m) => ({ t: m.t, s: m.s }));
-  return Object.assign(d, { code: r.code, status: r.status, created: r.created_at, modified: r.updated_at || r.created_at });
+  return Object.assign(d, { code: r.code, status: ({ CN_WAREHOUSE: 'CLEARED', DISPATCHED: 'CLEARED' })[r.status] || r.status, created: r.created_at, modified: r.updated_at || r.created_at });
 }
 function cnCreate(username, gobiz, test, data) {
   const r = db.prepare('INSERT INTO cn_orders (code, username, gobiz, test, data) VALUES (?, ?, ?, ?, ?)').run('tmp-' + crypto.randomUUID(), username, gobiz, test ? 1 : 0, JSON.stringify(data));
@@ -98,4 +99,6 @@ function cnCancel(username, code) {
   db.prepare('INSERT INTO cn_log (code, username, action) VALUES (?, ?, ?)').run(code, username, 'cancel');
   return { order: cnRow(db.prepare('SELECT * FROM cn_orders WHERE seq = ?').get(r.seq)) };
 }
-module.exports = { cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };
+function notifList(username) { return db.prepare('SELECT id, code, text, read, created_at FROM notif WHERE username = ? ORDER BY id DESC LIMIT 50').all(username); }
+function notifRead(username) { db.prepare('UPDATE notif SET read = 1 WHERE username = ? AND read = 0').run(username); }
+module.exports = { notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };

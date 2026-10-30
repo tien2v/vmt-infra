@@ -10,6 +10,8 @@ const MARKUP = 0.10;            // anh dan: thu khach them 10%
 const HARD_SURCHARGE = 0.10;    // dieu 4: hang kho thu them 10% phi thong quan
 const INSURANCE_RATE = 0.06;    // dieu 9: bao hiem 6% gia tri khai bao
 const RECEIVER_PAYS = 0.08;     // dieu 6: nguoi nhan tra cuoc / thu ho +8% tong tien
+const HCM_SURCHARGE = 0.05;     // anh dan 30/10: hang gui tu kho HCM, Tai Loc thu them 5% cuoc
+const VAT = 0.10;               // khach chon lay hoa don VAT: cong 10% tren gia thu khach (bang gia doi tac chua gom VAT)
 
 // Hang thuong (cot B): 0,5-1,5kg dong gia; 2-45kg theo kg; 50kg tro len theo kg
 const THUONG = { flatMax: 1.5, flat: 178500, perKgTo50: 102637, perKg50: 98175 };
@@ -43,7 +45,7 @@ const roundHalf = (x) => Math.ceil(x * 2 - 1e-9) / 2;
 const tierRate = (tiers, kg) => { let r = tiers[0][1]; for (const [from, v] of tiers) if (kg > from || (from > 10 && kg >= from)) r = v; return r; };
 
 // Tra ve { ok, cw, partner, customer, lines[], note } hoac { ok:false, reason }
-function quote({ cls, method, weight, dims, value, insurance, receiverPays }) {
+function quote({ cls, method, weight, dims, value, insurance, receiverPays, origin, vat }) {
   const w = Number(weight) || 0;
   const [L, W, H] = (dims || []).map(Number);
   const vol = L > 0 && W > 0 && H > 0 ? (L * W * H) / 6000 : 0;
@@ -71,15 +73,20 @@ function quote({ cls, method, weight, dims, value, insurance, receiverPays }) {
     lines.push(['Cước hàng khó (' + { express: 'nhanh', standard: 'thường', eco: 'chậm' }[sp] + ')', base]);
     if (cls === 'kho') lines.push(['Phí thông quan hàng khó 10%', base * HARD_SURCHARGE]);
   }
+  if (origin === 'HCM') {
+    const freight = lines.reduce((a, l) => a + l[1], 0);
+    lines.push(['Phụ phí gửi từ kho HCM 5%', freight * HCM_SURCHARGE]);
+  }
   if (insurance) {
     const v = Number(value) || 0;
     lines.push(['Bảo hiểm 6% giá trị khai', v * INSURANCE_RATE]);
   }
   let partner = lines.reduce((a, l) => a + l[1], 0);
   if (receiverPays) { const x = partner * RECEIVER_PAYS; lines.push(['Người nhận trả cước / thu hộ 8%', x]); partner += x; }
-  const customer = Math.ceil((partner * (1 + MARKUP)) / 1000) * 1000;
-  return { ok: true, cw, vol: vol ? Math.round(vol * 100) / 100 : null, partner: Math.round(partner), customer,
-    lines: lines.map(([n, v]) => [n, Math.round(v * (1 + MARKUP))]) };
+  const out = lines.map(([n, v]) => [n, Math.round(v * (1 + MARKUP))]);
+  let customer = Math.ceil((partner * (1 + MARKUP)) / 1000) * 1000;
+  if (vat) { const v = Math.round(customer * VAT); out.push(['VAT 10%', v]); customer = Math.ceil((customer + v) / 1000) * 1000; }
+  return { ok: true, cw, vol: vol ? Math.round(vol * 100) / 100 : null, partner: Math.round(partner), customer, vat: !!vat, lines: out };
 }
 
 module.exports = { quote, CLASSES, MARKUP };

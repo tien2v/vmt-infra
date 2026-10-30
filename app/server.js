@@ -203,7 +203,26 @@ async function handle(req, res) {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     return fs.readFile(path.join(__dirname, 'cn.html'), (err, buf) => err ? send(res, 500, 'Server error') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8' }));
   }
+  // Ma chuyen phat TQ tu Tai Loc (n8n doc tin nhan, ky RSA giong /api/ingest): { ref: SCN/ma doi chieu, wbCn }
+  if (p === '/api/cn/track' && req.method === 'POST') {
+    let body; try { body = await readBody(req, 20000); } catch { return json(req, res, 400, { error: 'body' }); }
+    const ts = Number(req.headers['x-ts']); const sig = String(req.headers['x-sig'] || '');
+    if (!ts || Math.abs(Date.now() - ts) > 15 * 60e3) return json(req, res, 401, { error: 'ts' });
+    if (!(sig && crypto.verify('RSA-SHA256', Buffer.concat([Buffer.from(ts + '.'), body]), PUBKEY, Buffer.from(sig, 'base64')))) return json(req, res, 401, { error: 'sig' });
+    let b; try { b = JSON.parse(body.toString('utf8')); } catch { return json(req, res, 400, { error: 'json' }); }
+    const r = cn.track(String(b.ref || ''), String(b.wbCn || ''));
+    if (r.error) return json(req, res, r.code, { error: r.error });
+    return json(req, res, 200, { ok: true, code: r.order.code, status: r.order.status });
+  }
   if (p.startsWith('/api/cn') && user && !(user.role in cn.CAN_EDIT)) return json(req, res, 403, { error: 'forbidden' });
+  if (p === '/api/cn/scan' && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const r = cn.scan(String(b.code || ''), String(b.mode || ''), user.role, user.username, !!b.force);
+    if (r.error) return json(req, res, r.code, { error: r.error, missing: r.missing || null, order: r.order || null });
+    return json(req, res, 200, { ok: true, order: r.order, result: r.result, missing: r.missing || [], warn: !!r.warn });
+  }
   if (p === '/api/cn/summary') {
     if (!user) return json(req, res, 401, { error: 'login' });
     return json(req, res, 200, cn.summary());

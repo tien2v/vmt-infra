@@ -32,7 +32,7 @@ td small{display:block;color:var(--mute);margin-top:3px;font-size:12px}
 .code{font-weight:700}
 .pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
 .s-PENDING{background:var(--gray-soft);color:#5c574c}.s-VN_WAREHOUSE{background:var(--blue-soft);color:var(--blue)}.s-TRANSPORTING{background:var(--amber-soft);color:var(--amber)}
-.s-CN_WAREHOUSE{background:var(--blue-soft);color:var(--blue)}.s-DISPATCHED{background:var(--brand-soft);color:#1d5c0c}.s-DELIVERED{background:var(--purple-soft);color:var(--purple)}.s-CANCELLED{background:var(--red-soft);color:var(--red)}
+.s-CLEARED{background:var(--blue-soft);color:var(--blue)}.s-DISPATCHED{background:var(--brand-soft);color:#1d5c0c}.s-DELIVERED{background:var(--purple-soft);color:var(--purple)}.s-CANCELLED{background:var(--red-soft);color:var(--red)}
 .test{background:#fff3c4;color:#8a6300;font-size:11px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}
 .empty{padding:40px;text-align:center;color:var(--mute)}
 .num{text-align:right;white-space:nowrap}
@@ -91,8 +91,8 @@ dt{color:var(--mute)}dd{margin:0;word-break:break-word}
 </main>
 <div class="drawer" id="drawer"><div class="shade" data-close></div><div class="panel"><div class="panel-head"><h2 id="dTitle"></h2><span id="dPill"></span><button class="btn x" data-close>Đóng</button></div><div class="panel-body" id="dBody"></div></div></div>
 <script>
-const S={PENDING:'Chờ tiếp nhận',VN_WAREHOUSE:'Kho VN',TRANSPORTING:'Vận chuyển QT',CN_WAREHOUSE:'Kho China',DISPATCHED:'Đã xuất kho',DELIVERED:'Hoàn thành',CANCELLED:'Đã huỷ'};
-const ORDER=['PENDING','VN_WAREHOUSE','TRANSPORTING','CN_WAREHOUSE','DISPATCHED','DELIVERED','CANCELLED'];
+const S={PENDING:'Chờ tiếp nhận',VN_WAREHOUSE:'Đã nhập kho VN',TRANSPORTING:'Đã xuất kho · chờ thông quan',CLEARED:'Đã thông quan · đang giao TQ',DELIVERED:'Giao thành công',CANCELLED:'Đã huỷ'};
+const ORDER=['PENDING','VN_WAREHOUSE','TRANSPORTING','CLEARED','DELIVERED','CANCELLED'];
 const M={express_shipping:'Ưu tiên',standard_shipping:'Tiêu chuẩn',eco_shipping:'Tiết kiệm'};
 const SV={insurance:'Bảo hiểm',reinforce:'Gia cố'};
 const WH={HCM:'TP.HCM',HN:'Hà Nội'};

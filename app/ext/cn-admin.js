@@ -4,11 +4,10 @@
 (function () {
   const ST = [
     ['PENDING', 'Chờ tiếp nhận', 'warning'],
-    ['VN_WAREHOUSE', 'Đã nhận kho VN', 'info'],
-    ['TRANSPORTING', 'Vận chuyển quốc tế', 'secondary'],
-    ['CN_WAREHOUSE', 'Đã tới kho TQ', 'primary'],
-    ['DISPATCHED', 'Đang giao tại TQ', 'primary'],
-    ['DELIVERED', 'Đã giao', 'success'],
+    ['VN_WAREHOUSE', 'Đã nhập kho VN', 'info'],
+    ['TRANSPORTING', 'Đã xuất kho · chờ thông quan', 'secondary'],
+    ['CLEARED', 'Đã thông quan · đang giao TQ', 'primary'],
+    ['DELIVERED', 'Giao thành công', 'success'],
     ['CANCELLED', 'Đã huỷ', 'error'],
   ];
   const SM = Object.fromEntries(ST.map((s) => [s[0], { label: s[1], color: s[2] }]));
@@ -20,6 +19,7 @@
   const iso2 = (s) => { if (!s) return ''; const d = new Date(s); const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); };
   const csvCell = (v) => { if (v === undefined || v === null) return ''; const s = String(v); return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const MENU = { t: 'Ship to China', p: 'cn', i: 'fa-plane-departure' };
+  const MENU_SCAN = { t: 'Quét mã Ship to China', p: 'cnscan', i: 'fa-barcode' };
 
   function extend(o) {
     const origInit = o.init;
@@ -36,11 +36,12 @@
           const i = d.menu.findIndex((m) => m.p === 'ship');
           const item = Object.assign({}, MENU);
           if (i >= 0) d.menu.splice(i + 1, 0, item); else d.menu.push(item);
+          if (d.id === 'kho') { const j = d.menu.findIndex((m) => m.p === 'kho'); d.menu.splice(j >= 0 ? j + 1 : 0, 0, Object.assign({}, MENU_SCAN)); }
         }
         if (origInit) origInit.call(this);
-        const h = () => { if (location.hash === '#cn' && this.canSee('cn')) { this.desk = this.deskOfPage('cn') || this.desk; this.page = 'cn'; } };
+        const h = () => { const x = location.hash.slice(1); if ((x === 'cn' || x === 'cnscan') && this.canSee(x)) { this.desk = this.deskOfPage(x) || this.desk; this.page = x; } };
         h(); window.addEventListener('hashchange', h);
-        this.$watch('page', (p) => { if (p === 'cn') this.cnLoad(); });
+        this.$watch('page', (p) => { if (p === 'cn') this.cnLoad(); if (p === 'cnscan') this.$nextTick(() => { const el = document.getElementById('cnScanInput'); if (el) el.focus(); }); });
         if (this.page === 'cn') this.cnLoad();
         this.cnPoll(); setInterval(() => this.cnPoll(), 30000);
       },
@@ -110,6 +111,29 @@
         a.download = 'ship-to-china.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
       },
 
+      // ---- quet ma tai kho ----
+      scMode: 'in', scCode: '', scBusy: false, scLog: [], scCur: null, scMsg: '', scErr: '', scMissing: [],
+      async scGo(force) {
+        const code = this.scCode.trim(); if (!code || this.scBusy) return;
+        this.scBusy = true; this.scErr = ''; this.scMsg = '';
+        try {
+          const r = await fetch('/api/cn/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, mode: this.scMode, force: !!force }) });
+          const j = await r.json().catch(() => ({}));
+          const ok = r.ok;
+          this.scLog.unshift({ t: new Date().toTimeString().slice(0, 8), code, mode: this.scMode, ok: ok && !j.warn, text: ok ? (j.order.code + ' · ' + j.result) : j.error });
+          if (this.scLog.length > 50) this.scLog.pop();
+          if (j.order) { this.scCur = j.order; this.cnPick(j.order); this.cnDetail = j.order; }
+          this.scMissing = j.missing || [];
+          if (ok) { this.scMsg = j.result + (this.scMissing.length ? ' · còn thiếu: ' + this.scMissing.join(', ') : ''); try { new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=').play(); } catch (e) {} }
+          else this.scErr = j.error || 'Lỗi quét';
+          this.cnLoad(); this.cnPoll();
+        } catch (e) { this.scErr = 'Mất kết nối'; }
+        this.scCode = ''; this.scBusy = false;
+        this.$nextTick(() => { const el = document.getElementById('cnScanInput'); if (el && !this.scMissing.length) el.focus(); });
+      },
+      async scSave() { await this.cnSave(false); if (this.cnMsg === 'Đã lưu') this.scErr = ''; if (this.cnDetail) { this.scCur = this.cnDetail; } const d = this.cn.find((x) => this.scCur && x.code === this.scCur.code); if (d) { this.scCur = d; this.scMissing = this.cnMissing(d); } this.$nextTick(() => { const el = document.getElementById('cnScanInput'); if (el) el.focus(); }); },
+      cnMissing(x) { const m = []; if (!x.refTL) m.push('mã đối chiếu'); if (!(x.w > 0)) m.push('cân nặng'); if (!x.dims) m.push('kích thước'); if (!(x.pk > 0)) m.push('số kiện'); return m; },
+
       // ---- chi tiet + cap nhat ----
       cnPick(x) {
         this.cnDetail = x;
@@ -138,7 +162,7 @@
         try {
           const r = await fetch('/api/cn/' + x.code, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
           const j = await r.json().catch(() => ({}));
-          if (!r.ok) { this.cnMsg = j.error || 'Lỗi lưu'; } else { this.cnMsg = 'Đã lưu'; await this.cnLoad(); this.cnPoll(); }
+          if (!r.ok) { this.cnMsg = j.error || 'Lỗi lưu'; } else { this.cnMsg = 'Đã lưu'; if (j.order) { j.order._q = norm([j.order.code, j.order.refTL, j.order.gobiz, j.order.recvName, j.order.wb, j.order.wbCn].join(' ')); this.cnPick(j.order); this.cnMsg = 'Đã lưu'; } await this.cnLoad(); this.cnPoll(); }
         } catch (e) { this.cnMsg = 'Mất kết nối'; }
         this.cnSaving = false;
       },

@@ -151,10 +151,16 @@ function validateCn(b) {
   if (estW !== null && !(estW > 0 && estW <= 100000)) return { error: 'Cân nặng ước tính không hợp lệ' };
   const estDims = Array.isArray(b.estDims) && b.estDims.length === 3 && b.estDims.every((x) => Number(x) > 0 && Number(x) <= 1000) ? b.estDims.map(Number) : null;
   const value = items.reduce((a, i) => a + i.qty * i.price, 0);
-  const est = estW || estDims ? price.quote({ cls: cat, method, weight: estW, dims: estDims, value, insurance: svcs.includes('insurance') }) : null;
+  const vat = !!b.vat;
+  let inv = null;
+  if (vat) {
+    inv = { company: str(b.invCompany, 200), taxId: str(b.invTax, 20), addr: str(b.invAddr, 300), email: str(b.invEmail, 120) };
+    if (!inv.company || !/^[0-9-]{10,14}$/.test(inv.taxId) || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(inv.email)) return { error: 'Lấy VAT cần tên công ty, mã số thuế (10–14 số) và email nhận hoá đơn' };
+  }
+  const est = estW || estDims ? price.quote({ cls: cat, method, weight: estW, dims: estDims, value, insurance: svcs.includes('insurance'), origin: wh, vat }) : null;
   const now = new Date().toISOString();
   return { data: {
-    estW, estDims, est: est && est.ok ? { cw: est.cw, fee: est.customer, lines: est.lines } : null,
+    vat, inv, estW, estDims, est: est && est.ok ? { cw: est.cw, fee: est.customer, lines: est.lines } : null,
     note: lot, cat, recvName: rname, recvPhone: rphone, recvAddr: raddr, note2: note || null, wh, to: 'TQ', svcs,
     items, wbs, wb: wbs.join(', ') || null, w: null, nw: null, dw: null, pk: null, fee: null, paid: 0, unpaid: 0, refund: null,
     value,
@@ -200,11 +206,16 @@ async function handle(req, res) {
     const o = store.cnCreate(user.username, user.gobiz, String(user.note || '').startsWith('tai khoan test'), v.data);
     return json(req, res, 200, { ok: true, order: Object.assign(o, { mine: true }) });
   }
+  if (p === '/api/notif') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (req.method === 'POST') { if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' }); store.notifRead(user.username); return json(req, res, 200, { ok: true }); }
+    return json(req, res, 200, { items: store.notifList(user.username) });
+  }
   if (p === '/api/cn/quote' && req.method === 'POST') {
     if (!user) return json(req, res, 401, { error: 'login' });
     let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
     const dims = Array.isArray(b.dims) ? b.dims.slice(0, 3) : null;
-    return json(req, res, 200, price.quote({ cls: String(b.cls || ''), method: String(b.method || ''), weight: Number(b.weight) || 0, dims, value: Number(b.value) || 0, insurance: !!b.insurance }));
+    return json(req, res, 200, price.quote({ cls: String(b.cls || ''), method: String(b.method || ''), weight: Number(b.weight) || 0, dims, value: Number(b.value) || 0, insurance: !!b.insurance, origin: b.origin === 'HCM' ? 'HCM' : 'HN', vat: !!b.vat }));
   }
   const mc = p.match(/^\/api\/cn\/(SCN\d{1,12})\/cancel$/);
   if (mc && req.method === 'POST') {
