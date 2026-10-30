@@ -23,8 +23,8 @@ const LABEL = { PENDING: 'Chờ tiếp nhận', VN_WAREHOUSE: 'Đã nhập kho V
 const MONEY = ['fee', 'paid', 'unpaid', 'refund', 'value', 'partnerFee', 'est', 'feeLines'];
 // Ai sua duoc gi: kho = trang thai, can, kien, ma van chuyen; tai chinh/sale/admin = them phi
 const CAN_EDIT = {
-  admin: ['status', 'w', 'dims', 'pk', 'wbCn', 'refTL', 'staffNote', 'fee', 'paid', 'recalc'],
-  kho: ['status', 'w', 'dims', 'pk', 'wbCn', 'refTL', 'staffNote'],
+  admin: ['status', 'w', 'dims', 'pk', 'wbCn', 'refTL', 'addRef', 'staffNote', 'fee', 'paid', 'recalc'],
+  kho: ['status', 'w', 'dims', 'pk', 'wbCn', 'refTL', 'addRef', 'staffNote'],
   tc: ['fee', 'paid', 'refTL', 'staffNote', 'recalc'],
   sale: ['staffNote'],
   order: [],
@@ -66,7 +66,7 @@ function notifyChange(d, r, o, before, after, wbBefore) {
     if (after === 'CLEARED') msgs.push('Đơn ' + r.code + ' đã thông quan' + (o.wbCn ? '. Mã chuyển phát tại Trung Quốc: ' + o.wbCn : '') + '.');
     if (after === 'DELIVERED') msgs.push('Đơn ' + r.code + ' đã giao thành công.');
     if (after === 'CANCELLED') msgs.push('Đơn ' + r.code + ' đã bị huỷ. Liên hệ nhân viên nếu cần hỗ trợ.');
-  } else if (o.wbCn && o.wbCn !== wbBefore && after === 'CLEARED') msgs.push('Đơn ' + r.code + ' có mã chuyển phát tại Trung Quốc: ' + o.wbCn + '.');
+  } else if (o.wbCn && o.wbCn !== wbBefore && after === 'CLEARED') msgs.push('Đơn ' + r.code + ' có thêm mã chuyển phát tại Trung Quốc: ' + o.wbCn + '.');
   for (const t of msgs) d.prepare('INSERT INTO notif (username, code, text) VALUES (?, ?, ?)').run(r.username, r.code, t);
 }
 function missingOf(o) {
@@ -77,10 +77,13 @@ function missingOf(o) {
   return m;
 }
 // Ma bill Tai Loc: "BILL TL 42909", "TL42909", "042909" deu hieu la 42909
+// Mot don co the co nhieu ma doi chieu (bill Tai Loc) va nhieu ma chuyen phat TQ: luu chuoi "a, b, c"
+const splitList = (v) => String(v || '').split(/\s*[,;\n]\s*/).map((x) => x.trim()).filter(Boolean);
+const joinList = (a) => [...new Set(a)].join(', ') || null;
 const normRef = (v) => String(v || '').toUpperCase().replace(/\s+/g, '').replace(/^(BILL)?TL/, '').replace(/[^0-9A-Z]/g, '').replace(/^0+(?=\d)/, '');
 function findByRef(v) {
   const d = open(); if (!d) return null; const n = normRef(v); if (!n) return null;
-  for (const x of d.prepare("SELECT code, data FROM cn_orders WHERE status <> 'CANCELLED' ORDER BY seq DESC LIMIT 5000").all()) { const o = JSON.parse(x.data); if (o.refTL && normRef(o.refTL) === n) return x; }
+  for (const x of d.prepare("SELECT code, data FROM cn_orders WHERE status <> 'CANCELLED' ORDER BY seq DESC LIMIT 5000").all()) { const o = JSON.parse(x.data); if (splitList(o.refTL).some((r) => normRef(r) === n)) return x; }
   return null;
 }
 // Quet ma tai kho: tim theo ma SCN, ma doi chieu Tai Loc hoac van don khach gui
@@ -92,7 +95,7 @@ function findByScan(code) {
   if (r) return r;
   for (const x of d.prepare("SELECT * FROM cn_orders WHERE status NOT IN ('DELIVERED','CANCELLED') ORDER BY seq DESC LIMIT 3000").all()) {
     const o = JSON.parse(x.data);
-    if ((o.refTL && normRef(o.refTL) === normRef(c)) || (o.wbs || []).includes(c) || String(o.wbCn || '').toUpperCase() === c) return x;
+    if (splitList(o.refTL).some((r) => normRef(r) === normRef(c)) || (o.wbs || []).includes(c) || splitList(o.wbCn).some((w) => w.toUpperCase() === c)) return x;
   }
   return null;
 }
@@ -108,14 +111,26 @@ function scan(code, mode, role, staff, force, ref) {
     return { code: 409, error: 'Đơn ' + r.code + ' đang ở trạng thái "' + LABEL[st] + '", không nhập kho được' };
   }
   if (mode === 'out') {
+    if (ref && /^SCN\d+$/i.test(String(ref).trim())) return { code: 400, error: 'Mã ' + ref + ' là tem đơn, không phải bill Tài Lộc' };
+    // Them bill thu 2, 3... cho don vua xuat (trong 6 gio)
+    if (st === 'TRANSPORTING' && ref) {
+      const last = (o.ms || []).filter((m) => m.s === 'TRANSPORTING').pop();
+      if (!last || Date.now() - Date.parse(last.t) > 6 * 3600e3) return { code: 409, error: 'Đơn ' + r.code + ' đã xuất kho từ trước, không thêm bill được ở đây' };
+      const res2 = update(r.code, role, staff, { addRef: String(ref).trim() }, { action: 'Quét thêm bill Tài Lộc', extra: { scanned: code, billTL: ref } });
+      if (res2.error) return res2;
+      return Object.assign(res2, { result: 'Đã thêm bill ' + ref + ' vào đơn ' + r.code, missing: [], needRef: true, more: true });
+    }
     if (st !== 'VN_WAREHOUSE') return { code: 409, error: 'Đơn ' + r.code + ' đang "' + LABEL[st] + '". Chỉ xuất kho đơn đã nhập kho.' };
+    // Chua thanh toan du thi KHONG duoc xuat kho (anh chot 30/10, khong ai duoc bo qua)
+    if (o.fee == null) return { code: 409, error: 'Đơn ' + r.code + ' chưa có phí. Nhập cân, kích thước để tính phí, khách thanh toán xong mới xuất kho.' };
+    if ((o.unpaid || 0) > 0) return { code: 409, error: 'Đơn ' + r.code + ' chưa thanh toán đủ, còn thiếu ' + vnd(o.unpaid) + '. Không xuất kho được.' };
     const miss = missingOf(o);
     if (miss.length && !(force && role === 'admin')) return { code: 409, error: 'Đơn ' + r.code + ' còn thiếu: ' + miss.join(', ') + '. Điền đủ rồi quét lại.', missing: miss, order: row(r, role) };
     // Luot 1: quet ma VMT (SCN) -> cho quet bill Tai Loc. Luot 2: quet bill Tai Loc -> ghi ma doi chieu + xuat kho
     if (!ref) return { order: row(r, role), result: 'Quét tiếp mã bill Tài Lộc của đơn ' + r.code, needRef: true, missing: [] };
-    const res = update(r.code, role, staff, { refTL: String(ref).trim(), status: 'TRANSPORTING' }, { action: 'Quét xuất kho (giao Tài Lộc)' + (force && miss.length ? ' — admin cho xuất khi còn thiếu: ' + miss.join(', ') : ''), extra: { scanned: code, billTL: ref } });
+    const res = update(r.code, role, staff, { addRef: String(ref).trim(), status: 'TRANSPORTING' }, { action: 'Quét xuất kho (giao Tài Lộc)' + (force && miss.length ? ' — admin cho xuất khi còn thiếu: ' + miss.join(', ') : ''), extra: { scanned: code, billTL: ref } });
     if (res.error) return res;
-    return Object.assign(res, { result: 'Đã xuất kho, chờ thông quan', missing: [] });
+    return Object.assign(res, { result: 'Đã xuất kho, chờ thông quan. Đơn có thêm bill Tài Lộc thì quét tiếp, xong bấm Xong.', missing: [], needRef: true, more: true });
   }
   return { code: 400, error: 'Chế độ quét không hợp lệ' };
 }
@@ -132,14 +147,14 @@ function track(ref, wbCn, eta, extra) {
   const d = open(); if (!d) return { code: 503, error: 'Chưa có dữ liệu' };
   const r = findByScan(ref) || (findByRef(ref) && d.prepare('SELECT * FROM cn_orders WHERE code = ?').get(findByRef(ref).code));
   if (!r) return { code: 404, error: 'Không tìm thấy đơn ' + ref };
-  const b = { wbCn: String(wbCn || '').trim() }; const e = parseEta(eta); if (e) b.eta = e;
+  const b = { addTrack: { code: String(wbCn || '').trim(), eta: parseEta(eta) } };
   return update(r.code, 'admin', 'tai-loc', b, { system: true, who: 'tai-loc', byName: 'Tài Lộc', action: 'Tài Lộc báo mã chuyển phát TQ (tự đọc tin nhóm Zalo)', extra });
 }
 const num = (v, max) => { if (v === '' || v == null) return null; const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= max ? n : undefined; };
 const str = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
 
 // Nhan truong de ghi lich su de doc (ai sua gi, tu gia tri nao sang gia tri nao)
-const FIELD = { status: 'Trạng thái', w: 'Cân thực (kg)', cw: 'Cân tính cước (kg)', pk: 'Số kiện', dims: 'Kích thước (cm)', refTL: 'Mã đối chiếu Tài Lộc', wbCn: 'Mã chuyển phát TQ', eta: 'Dự kiến giao', staffNote: 'Ghi chú nội bộ', fee: 'Phí thu khách', paid: 'Đã thanh toán', feeManual: 'Phí nhập tay' };
+const FIELD = { status: 'Trạng thái', tracksTxt: 'Mã chuyển phát TQ (ngày dự kiến)', w: 'Cân thực (kg)', cw: 'Cân tính cước (kg)', pk: 'Số kiện', dims: 'Kích thước (cm)', refTL: 'Mã đối chiếu Tài Lộc', eta: 'Dự kiến giao (muộn nhất)', staffNote: 'Ghi chú nội bộ', fee: 'Phí thu khách', paid: 'Đã thanh toán', feeManual: 'Phí nhập tay' };
 const show = (k, v) => (v === undefined || v === null || v === '' ? '—' : k === 'status' ? (LABEL[v] || v) : k === 'dims' ? v.join('×') : (k === 'fee' || k === 'paid') ? vnd(v) : k === 'feeManual' ? (v ? 'có' : 'không') : String(v));
 function writeLog(d, code, who, action, changes, extra) {
   d.prepare('INSERT INTO cn_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, who, action, JSON.stringify(Object.assign({ changes: changes || [] }, extra || {})));
@@ -168,14 +183,19 @@ function update(code, role, staff, b, meta) {
     else if (Array.isArray(v) && v.length === 3 && v.every((x) => Number(x) > 0 && Number(x) <= 1000)) o.dims = v.map(Number);
     else return { code: 400, error: 'Kích thước không hợp lệ (D, R, C cm)' };
   }
-  if ('refTL' in b) {
-    const v = str(b.refTL, 60) || null;
-    if (v) { const dup = findByRef(v); if (dup && dup.code !== r.code) return { code: 409, error: 'Mã đối chiếu ' + v + ' đã gắn với đơn ' + dup.code }; }
-    o.refTL = v;
+  if ('refTL' in b || b.addRef) {
+    const list = 'refTL' in b ? splitList(str(b.refTL, 300)) : splitList(o.refTL);
+    if (b.addRef) list.push(str(b.addRef, 60));
+    for (const v of list) { const dup = findByRef(v); if (dup && dup.code !== r.code) return { code: 409, error: 'Mã đối chiếu ' + v + ' đã gắn với đơn ' + dup.code }; }
+    const seen = new Set(); o.refTL = joinList(list.filter((v) => { const n = normRef(v); if (seen.has(n)) return false; seen.add(n); return true; }));
   }
-  if ('eta' in b) o.eta = b.eta || null;
-  if ('wbCn' in b) {
-    o.wbCn = str(b.wbCn, 200) || null;
+  if ('wbCn' in b || b.addTrack) {
+    let list = 'wbCn' in b ? splitList(str(b.wbCn, 500)).map((x) => x.toUpperCase()) : splitList(o.wbCn);
+    o.tracks = Object.assign({}, o.tracks || {});
+    if (b.addTrack && b.addTrack.code) { const c = str(b.addTrack.code, 40).toUpperCase(); if (!list.includes(c)) list.push(c); if (b.addTrack.eta) o.tracks[c] = b.addTrack.eta; }
+    for (const k of Object.keys(o.tracks)) if (!list.includes(k)) delete o.tracks[k];
+    o.wbCn = joinList(list);
+    const etas = Object.values(o.tracks).filter(Boolean).sort(); o.eta = etas.length ? etas[etas.length - 1] : (o.eta && list.length ? o.eta : null);
     // co ma chuyen phat TQ khi dang cho thong quan -> tu chuyen "Da thong quan"
     if (o.wbCn && !('status' in b) && (status === 'TRANSPORTING' || status === 'VN_WAREHOUSE')) { status = 'CLEARED'; o.ms = (o.ms || []).concat([{ t: now, s: status, by }]); }
   }
@@ -189,7 +209,9 @@ function update(code, role, staff, b, meta) {
   }
   if ('paid' in b) { const v = num(b.paid, 1e11); if (v === undefined) return { code: 400, error: 'Số tiền đã thanh toán không hợp lệ' }; o.paid = v === null ? 0 : Math.round(v); }
   o.unpaid = Math.max(0, (o.fee || 0) - (o.paid || 0));
-  const now2 = Object.assign({}, o, { status });
+  const trTxt = (x) => splitList(x.wbCn).map((c) => c + ((x.tracks || {})[c] ? ' (' + x.tracks[c] + ')' : '')).join(', ');
+  old.tracksTxt = trTxt(old); o.tracksTxt = undefined;
+  const now2 = Object.assign({}, o, { status, tracksTxt: trTxt(o) });
   const changes = Object.keys(FIELD).filter((k) => JSON.stringify(old[k] ?? null) !== JSON.stringify(now2[k] ?? null)).map((k) => [FIELD[k], show(k, old[k]), show(k, now2[k])]);
   if (!changes.length && !meta.action) return { order: row(r, role) };
   notifyChange(d, r, o, before, status, wbBefore);

@@ -26,13 +26,16 @@
     let x = 10, bars = ''; for (const c of codes) { const p = C128[c]; for (let i = 0; i < p.length; i++) { const w = +p[i]; if (i % 2 === 0) bars += '<rect x="' + x + '" y="0" width="' + w + '" height="' + h + '"/>'; x += w; } }
     return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + (x + 10) + ' ' + h + '" preserveAspectRatio="none" style="width:100%;height:' + h + 'px">' + bars + '</svg>';
   }
+  const loadJs = (src) => new Promise((ok, no) => { if (document.querySelector('script[data-src="' + src + '"]')) return ok(); const x = document.createElement('script'); x.src = src; x.dataset.src = src; x.onload = ok; x.onerror = no; document.head.appendChild(x); });
+  const qrSvg = (text) => { try { const q = window.qrcode(0, 'M'); q.addData(String(text)); q.make(); return q.createSvgTag({ cellSize: 3, margin: 0, scalable: true }); } catch (e) { return ''; } };
   const escH = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  function printLabels(o) {
+  async function printLabels(o) {
+    try { await loadJs('/ext/vendor/qrcode.js'); } catch (e) {}
     const n = Math.max(1, Math.min(50, Number(o.pk) || 1)); let pages = '';
-    for (let i = 1; i <= n; i++) pages += '<div class="lb"><div class="top"><b>SHIP TO CHINA</b><span>' + escH(o.wh || '') + ' → TQ</span></div>' + code128svg(o.code, 70) +
+    for (let i = 1; i <= n; i++) pages += '<div class="lb"><div class="top"><b>SHIP TO CHINA</b><span>' + escH(o.wh || '') + ' → TQ</span></div><div class="bc"><div class="qr">' + qrSvg(o.code) + '</div><div class="c128">' + code128svg(o.code, 56) + '</div></div>' +
       '<div class="code">' + escH(o.code) + '</div><div class="row"><span>Khách: <b>' + escH(o.gobiz || o.username || '') + '</b></span><span>Kiện <b>' + i + '/' + n + '</b></span></div>' +
       '<div class="row"><span>Nhận: ' + escH(o.recvName || '') + '</span><span>' + escH((o.recvAddr || '').slice(0, 14)) + '</span></div><div class="row small"><span>' + escH(o.note || '') + '</span><span>' + new Date().toLocaleDateString('vi-VN') + '</span></div></div>';
-    const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + escH(o.code) + '</title><style>@page{size:75mm 50mm;margin:0}body{margin:0;font-family:Arial,sans-serif}.lb{width:75mm;height:50mm;box-sizing:border-box;padding:2.5mm 3.5mm;page-break-after:always;overflow:hidden}.top{display:flex;justify-content:space-between;font-size:10pt;margin-bottom:1mm}.code{text-align:center;font-size:15pt;font-weight:700;letter-spacing:1px;margin:1mm 0}.row{display:flex;justify-content:space-between;gap:2mm;font-size:9pt;white-space:nowrap;overflow:hidden}.small{font-size:8pt;color:#333}svg rect{fill:#000}</style></head><body>' + pages + '</body></html>';
+    const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + escH(o.code) + '</title><style>@page{size:75mm 50mm;margin:0}body{margin:0;font-family:Arial,sans-serif}.lb{width:75mm;height:50mm;box-sizing:border-box;padding:2.5mm 3.5mm;page-break-after:always;overflow:hidden}.top{display:flex;justify-content:space-between;font-size:10pt;margin-bottom:1mm}.bc{display:flex;gap:2mm;align-items:center}.qr{width:17mm;height:17mm;flex:none}.qr svg{width:100%;height:100%}.c128{flex:1;min-width:0}.code{text-align:center;font-size:15pt;font-weight:700;letter-spacing:1px;margin:1mm 0}.row{display:flex;justify-content:space-between;gap:2mm;font-size:9pt;white-space:nowrap;overflow:hidden}.small{font-size:8pt;color:#333}svg rect{fill:#000}</style></head><body>' + pages + '</body></html>';
     let f = document.getElementById('cnPrintFrame');
     if (!f) { f = document.createElement('iframe'); f.id = 'cnPrintFrame'; f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'; document.body.appendChild(f); }
     f.srcdoc = html; f.onload = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) {} };
@@ -62,7 +65,7 @@
         if (origInit) origInit.call(this);
         const h = () => { const x = location.hash.slice(1); if ((x === 'cn' || x === 'cnscan') && this.canSee(x)) { this.desk = this.deskOfPage(x) || this.desk; this.page = x; } };
         h(); window.addEventListener('hashchange', h);
-        this.$watch('page', (p) => { if (p === 'cn') this.cnLoad(); if (p === 'cnscan') this.$nextTick(() => { const el = document.getElementById('cnScanInput'); if (el) el.focus(); }); });
+        this.$watch('page', (p) => { if (p !== 'cnscan' && this.camOn) this.camStop(); if (p === 'cn') this.cnLoad(); if (p === 'cnscan') this.$nextTick(() => { const el = document.getElementById('cnScanInput'); if (el) el.focus(); }); });
         if (this.page === 'cn') this.cnLoad();
         this.cnPoll(); setInterval(() => this.cnPoll(), 30000);
       },
@@ -124,9 +127,9 @@
         return { n: r.length, kg: s((x) => x.cw ?? x.w), fee: s((x) => x.fee), paid: s((x) => x.paid), unpaid: s((x) => x.unpaid) };
       },
       cnCsv() {
-        const head = ['Mã đơn', 'Mã đối chiếu Tài Lộc', 'Khách', 'Trạng thái', 'Tên lô', 'Loại hàng', 'Tốc độ', 'Kho gửi', 'Người nhận', 'SĐT', 'Địa chỉ TQ', 'Vận đơn khách', 'Mã VC tại TQ', 'Cân thực', 'Cân tính cước', 'Số kiện', 'Giá trị khai', 'Phí', 'Đã TT', 'Còn nợ', 'Ngày tạo'];
+        const head = ['Mã đơn', 'Mã đối chiếu Tài Lộc', 'Khách', 'Trạng thái', 'Tên lô', 'Loại hàng', 'Tốc độ', 'Kho gửi', 'Người nhận', 'SĐT', 'Địa chỉ TQ', 'Vận đơn khách', 'Mã VC tại TQ', 'Cân thực', 'Cân tính cước', 'Số kiện', 'Giá trị khai', 'Phí', 'Đã TT', 'Còn thiếu', 'Ngày tạo'];
         let rows = this.cnRows().map((x) => [x.code, x.refTL, x.gobiz, this.cnSt(x.status), x.note, this.cnCl(x.cat), this.cnSpeed(x), x.wh, x.recvName, x.recvPhone, x.recvAddr, x.wb, x.wbCn, x.w, x.cw, x.pk, x.value, x.fee, x.paid, x.unpaid, iso2(x.created)]);
-        if (!this.money()) { const keep = head.map((h) => !/(Giá trị|Phí|TT|nợ)/.test(h)); rows = rows.map((l) => l.filter((_, i) => keep[i])); head.splice(0, head.length, ...head.filter((_, i) => keep[i])); }
+        if (!this.money()) { const keep = head.map((h) => !/(Giá trị|Phí|TT|thiếu)/.test(h)); rows = rows.map((l) => l.filter((_, i) => keep[i])); head.splice(0, head.length, ...head.filter((_, i) => keep[i])); }
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob(['﻿' + [head].concat(rows).map((l) => l.map(csvCell).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' }));
         a.download = 'ship-to-china.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -135,11 +138,32 @@
       // ---- quet ma tai kho ----
       scMode: 'in', scCode: '', scBusy: false, scLog: [], scCur: null, scMsg: '', scErr: '', scMissing: [], scWaitRef: '', scAutoPrint: true,
       scPrint(o) { printLabels(o || this.cnDetail); },
+      // ---- quet bang camera dien thoai (khong can may quet) ----
+      camOn: false, camErr: '', camLast: '', camLastT: 0,
+      async camToggle() {
+        if (this.camOn) return this.camStop();
+        this.camErr = '';
+        try {
+          await loadJs('/ext/vendor/html5-qrcode.min.js');
+          this.camOn = true; await this.$nextTick();
+          const F = window.Html5QrcodeSupportedFormats || {};
+          const fm = ['QR_CODE', 'CODE_128', 'CODE_39', 'CODE_93', 'EAN_13', 'EAN_8', 'UPC_A', 'ITF', 'CODABAR', 'DATA_MATRIX', 'PDF_417'].map((k) => F[k]).filter((x) => x !== undefined);
+          this._cam = new window.Html5Qrcode('cnCam', { formatsToSupport: fm, verbose: false });
+          await this._cam.start({ facingMode: 'environment' }, { fps: 12, qrbox: (w, h) => ({ width: Math.min(320, w * 0.9), height: Math.min(180, h * 0.6) }) }, (txt) => {
+            const t = String(txt || '').trim(); const n = Date.now();
+            if (!t || (t === this.camLast && n - this.camLastT < 3000) || this.scBusy) return;
+            this.camLast = t; this.camLastT = n; try { navigator.vibrate && navigator.vibrate(80); } catch (e) {}
+            this.scCode = t; this.scGo(false);
+          }, () => {});
+        } catch (e) { this.camOn = false; this.camErr = 'Không mở được camera: ' + ((e && e.message) || e) + '. Cho phép trình duyệt dùng camera rồi thử lại.'; }
+      },
+      async camStop() { try { if (this._cam) { await this._cam.stop(); this._cam.clear(); } } catch (e) {} this._cam = null; this.camOn = false; },
       scCancelRef() { this.scWaitRef = ''; this.scMsg = ''; this.$nextTick(() => { const el = document.getElementById('cnScanInput'); if (el) el.focus(); }); },
       async scGo(force) {
         const code = this.scCode.trim(); if (!code || this.scBusy) return;
         this.scBusy = true; this.scErr = ''; this.scMsg = '';
         // Xuat kho luot 2: ma vua quet la bill Tai Loc cua don dang cho
+        if (this.scWaitRef && /^SCN\d+$/i.test(code)) this.scWaitRef = ''; // quet tem don khac = sang don moi
         const body = this.scMode === 'out' && this.scWaitRef ? { code: this.scWaitRef, mode: 'out', ref: code, force: !!force } : { code, mode: this.scMode, force: !!force };
         try {
           const r = await fetch('/api/cn/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -159,7 +183,7 @@
         this.$nextTick(() => { const el = document.getElementById('cnScanInput'); if (el && !this.scMissing.length) el.focus(); });
       },
       async scSave() { await this.cnSave(false); if (this.cnMsg === 'Đã lưu') this.scErr = ''; if (this.cnDetail) { this.scCur = this.cnDetail; } const d = this.cn.find((x) => this.scCur && x.code === this.scCur.code); if (d) { this.scCur = d; this.scMissing = this.cnMissing(d); } this.$nextTick(() => { const el = document.getElementById('cnScanInput'); if (el) el.focus(); }); },
-      cnMissing(x) { const m = []; if (!x.refTL) m.push('mã đối chiếu'); if (!(x.w > 0)) m.push('cân nặng'); if (!x.dims) m.push('kích thước'); if (!(x.pk > 0)) m.push('số kiện'); return m; },
+      cnMissing(x) { const m = []; if (!(x.w > 0)) m.push('cân nặng'); if (!x.dims) m.push('kích thước'); if (!(x.pk > 0)) m.push('số kiện'); return m; },
 
       // ---- chi tiet + cap nhat ----
       cnPick(x) {

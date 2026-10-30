@@ -122,6 +122,16 @@ function serveFile(req, res, rel, cacheable) {
 // app.html (template, ma hoa tren GitHub) duoc chen them: nap /ext/cn-admin.js sau vmt.js va trang 'cn' truoc </main>.
 // Neu cau truc app.html doi (khong tim thay cho chen) thi tra ban goc, khong lam hong trang.
 let appCache = { key: '', html: null };
+// Anh chot 30/10: khong dung chu "no", dung chu "thieu" (Con no -> Con thieu, Cong no -> Khoan thieu)
+function noDebt(t) {
+  return t.replace(/Còn nợ/g, 'Còn thiếu').replace(/còn nợ/g, 'còn thiếu').replace(/Công nợ/g, 'Khoản thiếu').replace(/công nợ/g, 'khoản thiếu')
+    .replace(/'Nợ '/g, "'Thiếu '").replace(/>Nợ</g, '>Thiếu<').replace(/tổng nợ/g, 'tổng thiếu').replace(/đơn nợ/g, 'đơn thiếu').replace(/Khách nợ/g, 'Khách thiếu').replace(/khách nợ/g, 'khách thiếu')
+    .replace(/\|nợ\|/g, '|thiếu|').replace(/, nợ,/g, ', tiền thiếu,');
+}
+let vmtJsCache = { key: '', buf: null };
+function vmtJs() {
+  try { const f = path.join(PUBLIC, 'assets', 'vmt.js'); const key = String(fs.statSync(f).mtimeMs); if (vmtJsCache.key !== key) vmtJsCache = { key, buf: Buffer.from(noDebt(fs.readFileSync(f, 'utf8'))) }; return vmtJsCache.buf; } catch (e) { return null; }
+}
 function appHtml() {
   try {
     const f = path.join(PUBLIC, 'app.html'), sec = path.join(__dirname, 'ext', 'cn-section.html');
@@ -134,6 +144,7 @@ function appHtml() {
       h = h.replace(a, "load('/assets/vmt.js').then(function () { return load('/ext/cn-admin.js'); })");
       h = h.replace(m, fs.readFileSync(sec, 'utf8') + m);
     } else { console.error('cn-admin: khong tim thay cho chen trong app.html'); h = null; }
+    if (h) h = noDebt(h);
     appCache = { key, html: h ? Buffer.from(h) : null };
     return appCache.html;
   } catch (e) { console.error(e); return null; }
@@ -184,6 +195,8 @@ async function handle(req, res) {
   }
 
   if (p === '/login') return serveFile(req, res, 'login.html', false);
+  if (p === '/assets/vmt.js') { const b = vmtJs(); if (b) return send(res, 200, b, { 'Content-Type': 'text/javascript; charset=utf-8' }); }
+  if (p.startsWith('/ext/vendor/') && /^[a-z0-9.-]+\.js$/.test(p.slice(12))) return fs.readFile(path.join(__dirname, 'ext', 'vendor', p.slice(12)), (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=86400' }));
   if (p.startsWith('/assets/')) return serveFile(req, res, p.slice(1), true);
 
   const user = readSession(req);

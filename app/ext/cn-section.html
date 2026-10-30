@@ -47,7 +47,7 @@
               </div>
               <div class="flex items-center justify-between space-x-3">
                 <label x-show="money()" class="inline-flex items-center space-x-2 whitespace-nowrap">
-                  <input type="checkbox" x-model="cnF.debt" @change="cnF.p=1" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary dark:border-navy-400 dark:checked:border-accent dark:checked:bg-accent" /><span>Còn nợ</span>
+                  <input type="checkbox" x-model="cnF.debt" @change="cnF.p=1" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary dark:border-navy-400 dark:checked:border-accent dark:checked:bg-accent" /><span>Còn thiếu</span>
                 </label>
                 <label class="inline-flex items-center space-x-2 whitespace-nowrap">
                   <input type="checkbox" x-model="cnF.test" @change="cnF.p=1; cnLoad()" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary dark:border-navy-400 dark:checked:border-accent dark:checked:bg-accent" /><span>Đơn test</span>
@@ -62,7 +62,7 @@
               <span>Cân tính cước: <b class="text-slate-700 dark:text-navy-100" x-text="num(Math.round(cnTotals().kg*10)/10,' kg')"></b></span>
               <span x-show="money()">Tổng phí: <b class="text-slate-700 dark:text-navy-100" x-text="vnd(cnTotals().fee)"></b></span>
               <span x-show="money()">Đã thanh toán: <b class="text-success" x-text="vnd(cnTotals().paid)"></b></span>
-              <span x-show="money()">Còn nợ: <b class="text-error" x-text="vnd(cnTotals().unpaid)"></b></span>
+              <span x-show="money()">Còn thiếu: <b class="text-error" x-text="vnd(cnTotals().unpaid)"></b></span>
               <span x-show="cnErr" class="text-error" x-text="cnErr"></span>
             </div>
 
@@ -73,7 +73,7 @@
                   <tr>
                     <th class="vmt-th">Mã đơn</th><th class="vmt-th">Mã đối chiếu</th><th class="vmt-th">Khách hàng</th><th class="vmt-th">Trạng thái</th><th class="vmt-th">Người nhận (TQ)</th><th class="vmt-th">Hàng</th><th class="vmt-th">Kho</th>
                     <th class="vmt-th text-right">Cân thực</th><th class="vmt-th text-right">Cân tính cước</th><th class="vmt-th text-center">Kiện</th>
-                    <th x-show="money()" class="vmt-th text-right">Tổng phí</th><th x-show="money()" class="vmt-th text-right">Đã TT</th><th x-show="money()" class="vmt-th text-right">Còn nợ</th><th class="vmt-th">Ngày tạo</th><th class="vmt-th"></th>
+                    <th x-show="money()" class="vmt-th text-right">Tổng phí</th><th x-show="money()" class="vmt-th text-right">Đã TT</th><th x-show="money()" class="vmt-th text-right">Còn thiếu</th><th class="vmt-th">Ngày tạo</th><th class="vmt-th"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -116,7 +116,7 @@
                     <p class="truncate text-xs text-slate-500 dark:text-navy-200" x-text="(x.gobiz||x.username) + ' → ' + x.recvName"></p>
                     <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
                       <span x-text="(x.cw ? num(x.cw,' kg') + ' · ' : '') + (x.wh||'—') + '→TQ'"></span>
-                      <span x-show="money() && x.unpaid>0" class="font-medium text-error" x-text="'Nợ ' + vnd(x.unpaid)"></span>
+                      <span x-show="money() && x.unpaid>0" class="font-medium text-error" x-text="'Thiếu ' + vnd(x.unpaid)"></span>
                       <span class="text-slate-400 dark:text-navy-300" x-text="cnDT(x.created)"></span>
                     </div>
                   </div>
@@ -169,7 +169,7 @@
                     <div x-show="money()" class="mt-3 grid grid-cols-3 gap-3 rounded-lg border border-slate-150 p-3 text-center dark:border-navy-500">
                       <div><p class="text-xs text-slate-400">Phí thu khách</p><p class="mt-0.5 font-semibold text-slate-700 dark:text-navy-100" x-text="vnd(cnDetail.fee)"></p></div>
                       <div><p class="text-xs text-slate-400">Đã thanh toán</p><p class="mt-0.5 font-semibold text-success" x-text="vnd(cnDetail.paid)"></p></div>
-                      <div><p class="text-xs text-slate-400">Còn nợ</p><p class="mt-0.5 font-semibold" :class="cnDetail.unpaid>0?'text-error':''" x-text="vnd(cnDetail.unpaid)"></p></div>
+                      <div><p class="text-xs text-slate-400">Còn thiếu</p><p class="mt-0.5 font-semibold" :class="cnDetail.unpaid>0?'text-error':''" x-text="vnd(cnDetail.unpaid)"></p></div>
                     </div>
                     <div x-show="money() && (cnDetail.feeLines||[]).length" class="mt-2 text-xs text-slate-500 dark:text-navy-200">
                       <template x-for="l in (cnDetail.feeLines||[])" :key="l[0]"><div class="flex justify-between py-0.5"><span x-text="l[0]"></span><span x-text="vnd(l[1])"></span></div></template>
@@ -180,7 +180,7 @@
                     <p x-show="money() && cnDetail.est && cnDetail.fee==null" class="mt-2 text-xs text-slate-400" x-text="cnDetail.est ? 'Khách ước tính: ' + vnd(cnDetail.est.fee) + ' (' + cnDetail.est.cw + ' kg)' : ''"></p>
 
                     <div class="mt-4 space-y-0 text-xs-plus">
-                      <template x-for="r in [['Mã đối chiếu Tài Lộc', cnDetail.refTL],['Tên lô', cnDetail.note],['Người nhận', cnDetail.recvName],['SĐT người nhận', cnDetail.recvPhone],['Địa chỉ TQ', cnDetail.recvAddr],['Kho gửi', cnWh(cnDetail.wh)],['Dịch vụ', cnSvc(cnDetail)],['Hoá đơn VAT', cnDetail.vat ? ('Có · ' + ((cnDetail.inv||{}).company||'') + ' · MST ' + ((cnDetail.inv||{}).taxId||'') + ' · ' + ((cnDetail.inv||{}).email||'')) : 'Không'],['Vận đơn khách gửi', cnDetail.wb],['Mã VC tại TQ', cnDetail.wbCn],['Dự kiến giao (Tài Lộc)', cnDetail.eta ? cnDetail.eta.split('-').reverse().join('/') + ' · tự hoàn thành sau 1 ngày' : ''],['Kích thước', cnDetail.dims ? cnDetail.dims.join(' × ') + ' cm' : ''],['Ghi chú khách', cnDetail.note2],['Ghi chú nội bộ', cnDetail.staffNote]]" :key="r[0]">
+                      <template x-for="r in [['Mã đối chiếu Tài Lộc', cnDetail.refTL],['Tên lô', cnDetail.note],['Người nhận', cnDetail.recvName],['SĐT người nhận', cnDetail.recvPhone],['Địa chỉ TQ', cnDetail.recvAddr],['Kho gửi', cnWh(cnDetail.wh)],['Dịch vụ', cnSvc(cnDetail)],['Hoá đơn VAT', cnDetail.vat ? ('Có · ' + ((cnDetail.inv||{}).company||'') + ' · MST ' + ((cnDetail.inv||{}).taxId||'') + ' · ' + ((cnDetail.inv||{}).email||'')) : 'Không'],['Vận đơn khách gửi', cnDetail.wb],['Mã VC tại TQ', cnDetail.wbCn],['Dự kiến giao (Tài Lộc)', cnDetail.wbCn ? (cnDetail.wbCn.split(', ').map(c => c + ((cnDetail.tracks||{})[c] ? ' → ' + cnDetail.tracks[c].split('-').reverse().join('/') : '')).join('; ') + (cnDetail.eta ? ' · tự hoàn thành sau ' + cnDetail.eta.split('-').reverse().join('/') + ' 1 ngày' : '')) : ''],['Kích thước', cnDetail.dims ? cnDetail.dims.join(' × ') + ' cm' : ''],['Ghi chú khách', cnDetail.note2],['Ghi chú nội bộ', cnDetail.staffNote]]" :key="r[0]">
                         <div class="flex justify-between space-x-4 border-b border-slate-150 py-2.5 dark:border-navy-500">
                           <span class="shrink-0 text-slate-400 dark:text-navy-300" x-text="r[0]"></span>
                           <span class="break-words text-right font-medium text-slate-700 dark:text-navy-100" x-text="(r[1]===undefined || r[1]===null || r[1]==='') ? '—' : r[1]"></span>
@@ -199,12 +199,12 @@
                       <div class="grid grid-cols-2 gap-3 text-xs-plus">
                         <label x-show="cnCanEdit('status')" class="col-span-2 block"><span class="text-slate-500">Trạng thái</span>
                           <select x-model="cnForm.status" class="form-select mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-navy-450 dark:bg-navy-700"><template x-for="s in cnStList()" :key="s[0]"><option :value="s[0]" x-text="s[1]" :selected="s[0]===cnForm.status"></option></template></select></label>
-                        <label x-show="cnCanEdit('refTL')" class="col-span-2 block"><span class="text-slate-500">Mã đối chiếu (mã đơn Tài Lộc)</span><input x-model="cnForm.refTL" maxlength="60" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450" /></label>
+                        <label x-show="cnCanEdit('refTL')" class="col-span-2 block"><span class="text-slate-500">Mã đối chiếu Tài Lộc (nhiều bill thì cách nhau dấu phẩy)</span><input x-model="cnForm.refTL" maxlength="60" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450" /></label>
                         <label x-show="cnCanEdit('w')" class="block"><span class="text-slate-500">Cân thực (kg)</span><input x-model="cnForm.w" inputmode="decimal" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450" /></label>
                         <label x-show="cnCanEdit('pk')" class="block"><span class="text-slate-500">Số kiện</span><input x-model="cnForm.pk" inputmode="numeric" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450" /></label>
                         <label x-show="cnCanEdit('dims')" class="col-span-2 block"><span class="text-slate-500">Kích thước D × R × C (cm)</span>
                           <span class="mt-1 flex space-x-2"><input x-model="cnForm.dL" inputmode="decimal" placeholder="D" class="form-input w-full min-w-0 rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450" /><input x-model="cnForm.dW" inputmode="decimal" placeholder="R" class="form-input w-full min-w-0 rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450" /><input x-model="cnForm.dH" inputmode="decimal" placeholder="C" class="form-input w-full min-w-0 rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450" /></span></label>
-                        <label x-show="cnCanEdit('wbCn')" class="col-span-2 block"><span class="text-slate-500">Mã vận chuyển tại TQ</span><input x-model="cnForm.wbCn" maxlength="200" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450" /></label>
+                        <label x-show="cnCanEdit('wbCn')" class="col-span-2 block"><span class="text-slate-500">Mã chuyển phát TQ (nhiều mã cách nhau dấu phẩy)</span><input x-model="cnForm.wbCn" maxlength="200" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450" /></label>
                         <label x-show="cnCanEdit('fee')" class="block"><span class="text-slate-500">Phí thu khách (đ)</span><input x-model="cnForm.fee" inputmode="numeric" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450" /></label>
                         <label x-show="cnCanEdit('paid')" class="block"><span class="text-slate-500">Đã thanh toán (đ)</span><input x-model="cnForm.paid" inputmode="numeric" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450" /></label>
                         <label x-show="cnCanEdit('staffNote')" class="col-span-2 block"><span class="text-slate-500">Ghi chú nội bộ</span><textarea x-model="cnForm.staffNote" rows="2" maxlength="500" class="form-textarea mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450"></textarea></label>
@@ -263,8 +263,11 @@
                 <button @click="scMode='in'; $nextTick(()=>$refs.scIn.focus())" class="btn w-1/2 font-medium" :class="scMode==='in' ? 'bg-white shadow-sm text-primary dark:bg-navy-500 dark:text-accent-light' : 'text-slate-500'"><i class="fa-solid fa-arrow-right-to-bracket mr-2"></i>Nhập kho</button>
                 <button @click="scMode='out'; $nextTick(()=>$refs.scIn.focus())" class="btn w-1/2 font-medium" :class="scMode==='out' ? 'bg-white shadow-sm text-error dark:bg-navy-500' : 'text-slate-500'"><i class="fa-solid fa-truck-arrow-right mr-2"></i>Xuất kho (Tài Lộc lấy)</button>
               </div>
-              <div x-show="scMode==='in'" class="mt-3 flex items-center justify-between text-xs-plus"><label class="inline-flex items-center space-x-2"><input type="checkbox" x-model="scAutoPrint" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary" /><span>Tự in tem khi nhập kho</span></label><span class="text-slate-400">Tem 75×50mm, mỗi kiện 1 tem</span></div>
-              <div x-show="scMode==='out' && scWaitRef" class="mt-3 flex items-center justify-between rounded-lg bg-warning/10 px-3 py-2 text-warning"><span><i class="fa-solid fa-barcode mr-1.5"></i>Quét tiếp <b>mã bill Tài Lộc</b> cho đơn <b x-text="scWaitRef"></b></span><button @click="scCancelRef()" class="btn h-7 rounded-full px-3 text-xs">Bỏ</button></div>
+              <div x-show="scMode==='in'" class="mt-3 flex items-center justify-between text-xs-plus"><label class="inline-flex items-center space-x-2"><input type="checkbox" x-model="scAutoPrint" class="form-checkbox is-basic size-4.5 rounded-sm border-slate-400/70 checked:border-primary checked:bg-primary" /><span>Tự in tem khi nhập kho</span></label><span class="text-slate-400">Tem 75×50mm có QR + mã vạch, mỗi kiện 1 tem</span></div>
+              <div x-show="scMode==='out' && scWaitRef" class="mt-3 flex items-center justify-between rounded-lg bg-warning/10 px-3 py-2 text-warning"><span><i class="fa-solid fa-barcode mr-1.5"></i>Quét <b>bill Tài Lộc</b> cho đơn <b x-text="scWaitRef"></b> (nhiều bill thì quét lần lượt)</span><button @click="scCancelRef()" class="btn h-7 rounded-full bg-warning px-3 text-xs text-white">Xong</button></div>
+              <button @click="camToggle()" class="btn mt-3 w-full space-x-2 rounded-lg border-2 border-dashed py-3 font-medium" :class="camOn ? 'border-error text-error' : 'border-primary text-primary dark:border-accent dark:text-accent-light'"><i class="fa-solid" :class="camOn ? 'fa-video-slash' : 'fa-camera'"></i><span x-text="camOn ? 'Tắt camera' : 'Quét bằng camera điện thoại'"></span></button>
+              <div x-show="camOn" class="mt-3 overflow-hidden rounded-lg bg-black"><div id="cnCam" class="w-full"></div></div>
+              <p x-show="camErr" class="mt-2 text-xs-plus text-error" x-text="camErr"></p>
               <form @submit.prevent="scGo(false)" class="mt-4 flex space-x-2">
                 <input id="cnScanInput" x-ref="scIn" x-model="scCode" autocomplete="off" autocapitalize="characters" :placeholder="scMode==='out' && scWaitRef ? 'Quét mã bill Tài Lộc...' : (scMode==='out' ? 'Quét tem SCN của kiện...' : 'Quét mã đơn / tem / vận đơn khách...')"
                   class="form-input w-full rounded-lg border-2 px-4 py-3 text-lg font-medium tracking-wide dark:bg-navy-700" :class="scMode==='in' ? 'border-primary dark:border-accent' : 'border-error'" />
