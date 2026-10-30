@@ -354,4 +354,4 @@ function verify(db) {
   return { ok: !errs.length, errs, at: nowIso() };
 }
 
-module.exports = { deposit, deposits, resolveDeposit, findCodes, init, validCode, normCode, genCode, codeOf, walletView, pay, request, decide, requests, setCredit, setPin, hasPin, checkPin, txnsOf, txnsOfOrder, verify, KIND };
+module.exports = { tx, post, deposit, deposits, resolveDeposit, findCodes, init, validCode, normCode, genCode, codeOf, walletView, pay, request, decide, requests, setCredit, setPin, hasPin, checkPin, txnsOf, txnsOfOrder, verify, KIND };
