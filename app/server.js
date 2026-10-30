@@ -12,6 +12,7 @@ const crypto = require('node:crypto');
 const { prepare, forRole } = require('./lib/data');
 const store = require('./lib/store');
 const cn = require('./lib/cn');
+const extra = require('./lib/extra');
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC = path.join(__dirname, 'public');
@@ -22,6 +23,7 @@ let VERSION = 'dev';
 try { VERSION = fs.readFileSync(path.join(__dirname, 'VERSION'), 'utf8').trim().slice(0, 12); } catch {}
 
 store.init();
+extra.init(process.env.DATA_DIR || path.join(__dirname, 'data'));
 const SECRET = store.sessionSecret();
 store.ensureAdmin();
 let UIINS = null; try { UIINS = JSON.parse(fs.readFileSync(path.join(__dirname, 'ui-inspect.json'), 'utf8')); } catch {}
@@ -109,9 +111,10 @@ let cache = { id: null, base: null, byRole: {} };
 function dataFor(role) {
   const snap = store.latestSnapshot();
   if (!snap) return null;
-  if (cache.id !== snap.id) {
-    cache = { id: snap.id, base: prepare(JSON.parse(snap.data)), byRole: {} };
+  if (cache.id !== snap.id || cache.xv !== extra.version()) {
+    cache = { id: snap.id, xv: extra.version(), base: prepare(JSON.parse(snap.data)), byRole: {} };
     cache.base.received = snap.received_at;
+    try { extra.attachShips(cache.base.ships); } catch (e) { console.error('attachShips', e); }
   }
   if (!cache.byRole[role]) cache.byRole[role] = Buffer.from(JSON.stringify(forRole(cache.base, role)));
   return cache.byRole[role];
@@ -127,6 +130,78 @@ function customers() {
     custCache = { id: snap.id, list: (raw.customers || []).filter((c) => c.u).map((c) => ({ u: c.u, code: c.code || '', fn: c.fn || '', _q: norm([c.u, c.code, c.fn].join(' ')) })) };
   }
   return custCache.list;
+}
+
+// ---------- quan ly khach hang ----------
+let khCache = { at: 0, rows: null };
+function khRows() {
+  if (khCache.rows && Date.now() - khCache.at < 60e3) return khCache.rows;
+  let rows = extra.allCust();
+  if (!rows.length) rows = customers().map((c) => ({ u: c.u, code: c.code, fn: c.fn })); // chua co luong bo sung -> tam lay khach trong 30 ngay
+  const own = extra.owners(), ns = extra.noteStats();
+  const today = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
+  const dayAgo = (s) => s ? Math.floor((Date.now() + 7 * 3600e3 - Date.parse(String(s).slice(0, 10) + 'T00:00:00Z')) / 86400e3) : null;
+  rows = rows.map((c) => {
+    const k = String(c.u).toLowerCase(), o = own[k] || {}, n = ns[k] || {};
+    const last = [c.o_last, c.s_last, c.p_last].filter(Boolean).sort().pop() || null;
+    const age = dayAgo(last), cage = dayAgo(c.ca);
+    let seg = 'none';
+    if (last) seg = age <= 30 ? 'active' : age <= 90 ? 'risk' : 'lost';
+    const r = Object.assign({}, c, { k, last, age, sale: o.sale || null, cskh: o.cskh || null, tags: o.tags || null, nNote: n.n || 0, lastNote: n.last || null, remind: n.next || null, seg, isNew: cage !== null && cage <= 30 });
+    r.due = !!(r.remind && r.remind.slice(0, 10) <= today);
+    r.debt = (Number(c.unpaid) || 0) > 0 || (Number(c.bal) || 0) < 0;
+    r._q = norm([c.u, c.code, c.fn, c.ph, c.em, c.zalo, o.tags].join(' '));
+    return r;
+  });
+  khCache = { at: Date.now(), rows };
+  return rows;
+}
+const KH_SEG = {
+  all: () => true, mine: (r, me) => r.sale === me || r.cskh === me, due: (r) => r.due, active: (r) => r.seg === 'active', risk: (r) => r.seg === 'risk',
+  lost: (r) => r.seg === 'lost', none: (r) => r.seg === 'none', isNew: (r) => r.isNew, debt: (r) => r.debt, vip: (r) => (Number(r.v90) || 0) >= 100e6,
+};
+function khList(sp, user) {
+  const all = khRows(), me = user.username;
+  const q = norm(String(sp.get('q') || '').trim()), seg = KH_SEG[sp.get('seg')] ? sp.get('seg') : 'all';
+  const grp = String(sp.get('grp') || ''), owner = String(sp.get('owner') || '');
+  const base = all.filter((r) => (!q || r._q.includes(q)) && (!grp || r.grp === grp) && (!owner || (owner === '-' ? !r.sale && !r.cskh : r.sale === owner || r.cskh === owner)));
+  const counts = {}; for (const k in KH_SEG) counts[k] = base.filter((r) => KH_SEG[k](r, me)).length;
+  let list = base.filter((r) => KH_SEG[seg](r, me));
+  const sort = String(sp.get('sort') || 'last');
+  const num = (v) => Number(v) || 0;
+  const cmp = { last: (a, b) => String(b.last || '').localeCompare(String(a.last || '')), v90: (a, b) => num(b.v90) - num(a.v90), n90: (a, b) => (num(b.o90) + num(b.s90) + num(b.p90)) - (num(a.o90) + num(a.s90) + num(a.p90)),
+    debt: (a, b) => (num(b.unpaid) - num(b.bal < 0 ? b.bal : 0)) - (num(a.unpaid) - num(a.bal < 0 ? a.bal : 0)), bal: (a, b) => num(b.bal) - num(a.bal), created: (a, b) => String(b.ca || '').localeCompare(String(a.ca || '')),
+    remind: (a, b) => String(a.remind || '9').localeCompare(String(b.remind || '9')), old: (a, b) => String(a.last || '0').localeCompare(String(b.last || '0')) }[sort] || ((a, b) => 0);
+  list = list.slice().sort(cmp);
+  const size = Math.min(100, Math.max(10, Number(sp.get('size')) || 25)), pg = Math.max(1, Number(sp.get('p')) || 1);
+  const money = user.role !== 'kho';
+  const rows = list.slice((pg - 1) * size, pg * size).map((r) => { const x = Object.assign({}, r); delete x._q; if (!money) { delete x.bal; delete x.unpaid; delete x.v90; } return x; });
+  const groups = [...new Set(all.map((r) => r.grp).filter(Boolean))].sort();
+  const staff = store.listUsers().filter((x) => x.active && ['admin', 'sale'].includes(x.role)).map((x) => ({ u: x.username, n: x.name }));
+  return { total: list.length, all: all.length, p: pg, size, rows, counts, groups, staff, me, full: extra.custCount() > 0 };
+}
+function khDetail(u, user) {
+  const r = khRows().find((x) => x.k === u);
+  if (!r) return null;
+  const c = Object.assign({}, r); delete c._q;
+  // don 30 ngay gan nhat tu ban dong bo Gobiz
+  let orders = [];
+  try {
+    dataFor('admin'); const b = cache.base || {}; const cust = b.cust || {};
+    const idOf = Object.keys(cust).find((id) => String(cust[id][1] || '').toLowerCase() === u);
+    if (idOf) {
+      for (const o of b.orders || []) if (String(o.cid) === idOf) orders.push({ t: 'order', code: o.code, st: o.st, ca: o.ca, v: Math.round((Number(o.tv) || 0) * (Number(o.rate) || 0)), fee: o.fee, unpaid: o.unpaid, img: o.img, shop: o.shop, mk: o.mk });
+      for (const s of b.ships || []) if (String(s.cid) === idOf) orders.push({ t: 'ship', code: s.code, st: s.st, ca: s.ca, fee: s.fee, unpaid: s.unpaid, img: s.img, wb: (s.wb || [])[0] || null, kg: s.aw });
+    }
+    for (const x of b.peer || []) if (String(x.cu || '').toLowerCase() === u) orders.push({ t: 'peer', code: x.code, st: x.st, ca: x.ca, cny: x.amount, v: x.xa, unpaid: x.unpaid, ppt: x.ppt, bn: x.bn });
+  } catch (e) { console.error('khDetail', e); }
+  orders.sort((a, b) => String(b.ca || '').localeCompare(String(a.ca || '')));
+  let wallet = null;
+  try { const w = cn.ledger.walletView(cn.fin(), u); if (w && (w.balance || w.creditLimit || w.held || w.pendingOrders)) wallet = w; } catch (e) {}
+  const money = user.role !== 'kho';
+  if (!money) { delete c.bal; delete c.unpaid; delete c.v90; wallet = null; orders = orders.map((o) => { const x = Object.assign({}, o); delete x.v; delete x.fee; delete x.unpaid; return x; }); }
+  const staff = store.listUsers().filter((x) => x.active && ['admin', 'sale'].includes(x.role)).map((x) => ({ u: x.username, n: x.name }));
+  return { c, orders: orders.slice(0, 200), notes: extra.notes(u), log: extra.log(u), wallet, staff, canEdit: user.role !== 'tc' };
 }
 
 // ---------- file tinh ----------
@@ -214,6 +289,19 @@ async function handle(req, res) {
     return json(req, res, 200, { ok: true, id, orders: d.orders.length, ships: d.ships.length });
   }
 
+  // Du lieu bo sung (van don / san pham / kien ky gui + danh sach khach Gobiz). Chu ky RSA giong /api/ingest.
+  if (p === '/api/ingest2' && req.method === 'POST') {
+    let body;
+    try { body = await readBody(req, 80 * 1024 * 1024); } catch (e) { return json(req, res, e.code || 400, { error: 'body' }); }
+    if (req.headers['content-encoding'] === 'gzip') { try { body = zlib.gunzipSync(body); } catch { return json(req, res, 400, { error: 'gzip' }); } }
+    const ts = Number(req.headers['x-ts']); const sig = String(req.headers['x-sig'] || '');
+    if (!ts || Math.abs(Date.now() - ts) > 15 * 60e3) return json(req, res, 401, { error: 'ts' });
+    if (!(sig && crypto.verify('RSA-SHA256', Buffer.concat([Buffer.from(ts + '.'), body]), PUBKEY, Buffer.from(sig, 'base64')))) return json(req, res, 401, { error: 'sig' });
+    let d; try { d = JSON.parse(body.toString('utf8')); } catch { return json(req, res, 400, { error: 'json' }); }
+    try { const r = extra.ingest(d); store.logIngest(true, body.length, 'extra ' + r.ships + ' don, ' + r.cust + ' khach'); return json(req, res, 200, Object.assign({ ok: true }, r)); }
+    catch (e) { console.error('ingest2', e); return json(req, res, 500, { error: 'save' }); }
+  }
+
   if (p === '/api/login' && req.method === 'POST') {
     if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
     let b; try { b = JSON.parse((await readBody(req, 10000)).toString()); } catch { return json(req, res, 400, { error: 'body' }); }
@@ -249,6 +337,28 @@ async function handle(req, res) {
   if (p === '/api/status') {
     if (!user || user.role !== 'admin') return json(req, res, 403, { error: 'forbidden' });
     return json(req, res, 200, { snapshot: store.latestMeta(), ingest: store.recentIngest(), logins: store.recentLogins() });
+  }
+
+  // ---- Quan ly khach hang (ban Sale / CSKH) ----
+  if (p === '/api/kh' || p.startsWith('/api/kh/')) {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!['admin', 'sale', 'tc'].includes(user.role)) return json(req, res, 403, { error: 'forbidden' });
+    const by = user.username;
+    if (req.method === 'GET' && p === '/api/kh') return json(req, res, 200, khList(url.searchParams, user));
+    const mk = p.match(/^\/api\/kh\/([^/]{1,80})(\/note(?:\/(\d+)\/done)?|\/owner)?$/);
+    if (!mk) return json(req, res, 404, { error: 'not found' });
+    const u = decodeURIComponent(mk[1]).toLowerCase();
+    if (req.method === 'GET' && !mk[2]) { const r = khDetail(u, user); return r ? json(req, res, 200, r) : json(req, res, 404, { error: 'Không có khách này' }); }
+    if (req.method !== 'POST' || !sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    if (user.role === 'tc') return json(req, res, 403, { error: 'Tài chính chỉ xem' });
+    if (!extra.getCust(u) && !customers().some((c) => String(c.u).toLowerCase() === u)) return json(req, res, 404, { error: 'Không có khách này' });
+    let b = {}; try { b = JSON.parse((await readBody(req, 10000)).toString() || '{}'); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    let r;
+    if (mk[2] === '/owner') r = extra.setOwner(u, b, by);
+    else if (mk[3]) r = extra.doneNote(u, mk[3], by);
+    else r = extra.addNote(u, b, by);
+    if (r.error) return json(req, res, r.code || 400, { error: r.error });
+    return json(req, res, 200, khDetail(u, user));
   }
 
   // ---- Ket noi: may do kho TQ + khoa Xport (chi admin) ----

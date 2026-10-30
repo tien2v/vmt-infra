@@ -63,6 +63,7 @@ function stripMoney(o, keys) {
   for (const k of keys) delete r[k];
   r.fe = [];
   if (r.it) r.it = r.it.map((x) => { const y = x.slice(); y[7] = null; y[8] = null; return y; });
+  if (r.pr) r.pr = r.pr.map((x) => { const y = x.slice(); y[3] = null; return y; });
   return r;
 }
 
