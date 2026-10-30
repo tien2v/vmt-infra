@@ -68,6 +68,7 @@ function init(db) {
     CREATE TABLE IF NOT EXISTS wallet_log (ts TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), owner TEXT, by TEXT, action TEXT, detail TEXT);
   `);
   addCol(db, 'deposits', 'notified', 'INTEGER NOT NULL DEFAULT 0');
+  addCol(db, 'fin_requests', 'bills', 'TEXT');
 }
 const nowIso = () => new Date().toISOString();
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
@@ -197,11 +198,22 @@ function request(db, { kind, owner, amount, codes, note, by }) {
   wlog(db, owner, by, 'Tạo yêu cầu ' + KIND[kind], { id, amount, codes: cs, note });
   return { ok: true, id };
 }
-function decide(db, id, approve, by, dnote, test) {
+function decide(db, id, approve, by, dnote, test, bills) {
   return tx(db, () => {
     const q = db.prepare('SELECT * FROM fin_requests WHERE id = ?').get(Number(id));
     if (!q) return { code: 404, error: 'Không tìm thấy yêu cầu' };
     if (q.status !== 'pending') return { code: 409, error: 'Yêu cầu đã được xử lý trước đó (' + q.status + ')' };
+    // Rut tien: chi tru vi khi DA CHUYEN KHOAN, bat buoc anh bill (khach xem duoc)
+    bills = (Array.isArray(bills) ? bills : []).filter((x) => /^[a-f0-9]{32}$/.test(x)).slice(0, 5);
+    if (approve && q.kind === 'WITHDRAW') {
+      if (!bills.length) return { code: 400, error: 'Cần ảnh bill chuyển khoản cho khách' };
+      let u = null; try { u = db.prepare('SELECT username FROM users WHERE lower(gobiz) = ? OR username = ? LIMIT 1').get(q.owner, q.owner); } catch {}
+      for (const b of bills) {
+        let n = 0; try { n = db.prepare("UPDATE uploads SET code = ?, kind = 'bill-rut', owner = ? WHERE id = ? AND code IS NULL").run('WD' + q.id, u ? u.username : null, b).changes; } catch { n = 1; }
+        if (!n) return { code: 400, error: 'Ảnh bill không hợp lệ hoặc đã dùng' };
+      }
+      db.prepare('UPDATE fin_requests SET bills = ? WHERE id = ?').run(JSON.stringify(bills), q.id);
+    }
     if (!approve) {
       if (q.kind === 'WITHDRAW') { const uu = db.prepare('SELECT username FROM users WHERE lower(gobiz) = ? LIMIT 1').get(q.owner); if (uu) notify(db, uu.username, null, 'Lệnh rút ' + vnd(q.amount) + ' chưa được duyệt' + (dnote ? ': ' + dnote : '') + '. Tiền vẫn nằm trong ví.'); }
       db.prepare("UPDATE fin_requests SET status = 'rejected', decided_by = ?, decided_at = ?, decide_note = ? WHERE id = ? AND status = 'pending'").run(by, nowIso(), dnote || null, q.id);
@@ -227,13 +239,13 @@ function decide(db, id, approve, by, dnote, test) {
     } else {
       const u = db.prepare('SELECT username FROM cn_orders WHERE lower(gobiz) = ? ORDER BY seq DESC LIMIT 1').get(q.owner);
       const uu = u || db.prepare('SELECT username FROM users WHERE lower(gobiz) = ? LIMIT 1').get(q.owner);
-      if (uu) notify(db, uu.username, null, q.kind === 'WITHDRAW' ? 'Lệnh rút ' + vnd(q.amount) + ' đã được duyệt (mã ' + p.txn + '), tiền sẽ về tài khoản ngân hàng của anh/chị trong ngày làm việc.' : (q.amount > 0 ? 'Ví được cộng ' : 'Ví bị trừ ') + vnd(Math.abs(q.amount)) + ' (' + KIND[q.kind] + '). Mã giao dịch ' + p.txn + '.');
+      if (uu) notify(db, uu.username, null, q.kind === 'WITHDRAW' ? 'Đã chuyển khoản ' + vnd(q.amount) + ' cho lệnh rút của anh/chị (mã ' + p.txn + '). Bill chuyển khoản xem trong Ví của tôi.' : (q.amount > 0 ? 'Ví được cộng ' : 'Ví bị trừ ') + vnd(Math.abs(q.amount)) + ' (' + KIND[q.kind] + '). Mã giao dịch ' + p.txn + '.');
     }
     wlog(db, q.owner, by, 'Duyệt yêu cầu #' + q.id, { txn: p.txn });
     return { ok: true, txn: p.txn, balance: p.balance };
   });
 }
-function requests(db, status) { return db.prepare('SELECT * FROM fin_requests' + (status ? ' WHERE status = ?' : '') + ' ORDER BY id DESC LIMIT 300').all(...(status ? [status] : [])).map((q) => Object.assign(q, { codes: JSON.parse(q.codes || '[]'), kindLabel: KIND[q.kind] })); }
+function requests(db, status) { return db.prepare('SELECT * FROM fin_requests' + (status ? ' WHERE status = ?' : '') + ' ORDER BY id DESC LIMIT 300').all(...(status ? [status] : [])).map((q) => Object.assign(q, { codes: JSON.parse(q.codes || '[]'), bills: JSON.parse(q.bills || '[]'), kindLabel: KIND[q.kind] })); }
 
 // ---------- han muc tin dung (chi admin) ----------
 function setCredit(db, owner, limit, days, by) {

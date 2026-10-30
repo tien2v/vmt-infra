@@ -39,6 +39,7 @@ function init() {
   `);
   shared.initUploads(db);
   ledger.init(db);
+  require('./webauthn').init(db);
   // Ma don SCN bat dau tu 100001
   if (!db.prepare("SELECT 1 FROM sqlite_sequence WHERE name = 'cn_orders'").get()) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('cn_orders', 100000)").run();
 }
@@ -111,7 +112,7 @@ function cnCreate(username, gobiz, test, data, ip) {
 function uploadSave(username, buf) { return shared.saveUpload(db, DATA_DIR, username, 'khach:' + username, buf); }
 // Khach xem duoc anh minh tai, hoac anh gan vao don cua minh (ke ca don nhan vien tao gium)
 function uploadCanSee(username, gobiz, id) {
-  return !!db.prepare('SELECT 1 FROM uploads u LEFT JOIN cn_orders o ON o.code = u.code WHERE u.id = ? AND (u.by = ? OR o.username = ? OR (o.gobiz IS NOT NULL AND lower(o.gobiz) = lower(?)))').get(id, 'khach:' + username, username, gobiz || '');
+  return !!db.prepare('SELECT 1 FROM uploads u LEFT JOIN cn_orders o ON o.code = u.code WHERE u.id = ? AND (u.by = ? OR u.owner = ? OR o.username = ? OR (o.gobiz IS NOT NULL AND lower(o.gobiz) = lower(?)))').get(id, 'khach:' + username, username, username, gobiz || '');
 }
 const uploadPath = (id) => shared.uploadFile(DATA_DIR, id);
 function cnList(username, gobiz) { return db.prepare('SELECT * FROM cn_orders WHERE username = ? OR (gobiz IS NOT NULL AND lower(gobiz) = lower(?)) ORDER BY seq DESC LIMIT 500').all(username, gobiz || '').map(cnRow); }

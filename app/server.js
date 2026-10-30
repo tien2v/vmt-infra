@@ -527,7 +527,7 @@ async function handle(req, res) {
       if (user.role !== 'admin') return json(req, res, 403, { error: 'Chỉ anh (admin) được duyệt' });
       const q = db.prepare('SELECT owner FROM fin_requests WHERE id = ?').get(Number(md[1]));
       const isTest = q && db.prepare('SELECT 1 FROM cn_orders WHERE lower(gobiz) = ? AND test = 1 LIMIT 1').get(q.owner);
-      const r = L.decide(db, md[1], md[2] === 'approve', by, String(b.note || '').slice(0, 300), !!isTest);
+      const r = L.decide(db, md[1], md[2] === 'approve', by, String(b.note || '').slice(0, 300), !!isTest, Array.isArray(b.bills) ? b.bills : []);
       return json(req, res, r.error ? r.code : 200, r);
     }
     return json(req, res, 404, { error: 'not found' });

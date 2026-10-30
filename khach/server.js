@@ -206,7 +206,7 @@ async function handle(req, res) {
     const db = store.rawDb(), o = owner(user);
     if (p === '/api/wallet' && req.method === 'GET') {
       const code = ledger.codeOf(db, o, gobizNames());
-      return json(req, res, 200, { code, canTopup: store.depositAccounts().length > 0, wallet: ledger.walletView(db, o), hasPin: ledger.hasPin(db, o), txns: ledger.txnsOf(db, o, 100), intent: ledger.intentOf(db, o), withdraws: db.prepare("SELECT id, amount, note, status, decide_note, created_at, txn FROM fin_requests WHERE owner = ? AND kind = 'WITHDRAW' ORDER BY id DESC LIMIT 10").all(o), claims: ledger.claims(db, null, o).slice(0, 10).map((c) => ({ id: c.id, amount: c.amount, at: c.at, status: c.status, note: c.decide_note, created: c.created_at })) });
+      return json(req, res, 200, { code, canTopup: store.depositAccounts().length > 0, wallet: ledger.walletView(db, o), hasPin: ledger.hasPin(db, o), faceIds: db.prepare('SELECT cred_id AS id, label, created_at, last_used FROM webauthn_creds WHERE owner = ? AND disabled = 0').all(o), txns: ledger.txnsOf(db, o, 100), intent: ledger.intentOf(db, o), withdraws: db.prepare("SELECT id, amount, note, status, decide_note, created_at, txn, bills FROM fin_requests WHERE owner = ? AND kind = 'WITHDRAW' ORDER BY id DESC LIMIT 10").all(o).map((x) => Object.assign(x, { bills: JSON.parse(x.bills || '[]') })), claims: ledger.claims(db, null, o).slice(0, 10).map((c) => ({ id: c.id, amount: c.amount, at: c.at, status: c.status, note: c.decide_note, created: c.created_at })) });
     }
     // QR nap tien: phai nhap so tien truoc; tai khoan nhan chon theo so tien + gio (luat giong Gobiz)
     if (p === '/api/wallet/qr' && req.method === 'GET') {
@@ -220,7 +220,51 @@ async function handle(req, res) {
       return json(req, res, 200, { qr: Q.payload(x.bank, x.acct, amt, code), amount: amt, code, bankName: (Q.BANKS[x.bank] || [])[1] || x.bank, acct: x.acct, holder: x.holder, validUntil: r.validUntil });
     }
     if (req.method !== 'POST' || !sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
-    let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    let b; try { b = JSON.parse((await readBody(req, 20000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    // Xac thuc lenh tien: PIN hoac Face ID / van tay (WebAuthn). bind = noi dung lenh, doi noi dung la phai xac thuc lai.
+    const WA = require('./lib/webauthn');
+    const host = String(req.headers.host || '').toLowerCase(); const rpId = host.replace(/:\d+$/, '');
+    const origin = (/^(localhost|127\.0\.0\.1)$/.test(rpId) ? 'http://' : 'https://') + host;
+    const codesKey = (c) => (Array.isArray(c) ? c : []).map((x) => String(x).toUpperCase()).sort();
+    const bindOf = (purpose) => purpose === 'withdraw' ? { amount: Math.round(Number(b.amount)) || 0, acct: String(b.acct || '').replace(/\s/g, '') } : purpose === 'register' ? null : { codes: codesKey(b.codes) };
+    const auth = (purpose) => {
+      if (!b.webauthn) return ledger.checkPin(db, o, String(b.pin || ''));
+      try {
+        const w = b.webauthn; WA.take(String(w.challenge || ''), o, purpose, bindOf(purpose));
+        const c = db.prepare('SELECT * FROM webauthn_creds WHERE cred_id = ? AND owner = ? AND disabled = 0').get(String(w.id || ''), o);
+        if (!c) return { code: 401, error: 'Thiết bị này chưa bật Face ID cho ví, dùng PIN' };
+        const n = WA.verifyAssert(w, { jwk: JSON.parse(c.jwk), count: c.count }, w.challenge, origin, rpId);
+        db.prepare("UPDATE webauthn_creds SET count = ?, last_used = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE cred_id = ?").run(n, c.cred_id);
+        return { ok: true, via: 'faceid:' + c.cred_id.slice(0, 8) };
+      } catch (e) { return { code: 401, error: e.message || 'Xác thực Face ID không thành công' }; }
+    };
+    if (p === '/api/wallet/webauthn/challenge') {
+      const purpose = ['pay', 'intent', 'withdraw', 'register'].includes(b.purpose) ? b.purpose : '';
+      if (!purpose) return json(req, res, 400, { error: 'Sai mục đích' });
+      const creds = db.prepare('SELECT cred_id FROM webauthn_creds WHERE owner = ? AND disabled = 0').all(o).map((x) => x.cred_id);
+      if (purpose !== 'register' && !creds.length) return json(req, res, 400, { error: 'Chưa bật Face ID' });
+      return json(req, res, 200, { challenge: WA.challenge(o, purpose, bindOf(purpose)), rpId, creds, user: { id: WA.b64u(crypto.createHash('sha256').update('vmt:' + o).digest().subarray(0, 16)), name: user.username } });
+    }
+    if (p === '/api/wallet/webauthn/register') {
+      const pc = ledger.checkPin(db, o, String(b.pin || ''));
+      if (pc.error) return json(req, res, pc.code, pc);
+      try {
+        WA.take(String(b.challenge || ''), o, 'register', null);
+        const r = WA.verifyRegister(b.cred || {}, b.challenge, origin, rpId);
+        if (db.prepare('SELECT 1 FROM webauthn_creds WHERE cred_id = ?').get(r.credId)) return json(req, res, 409, { error: 'Thiết bị này đã bật rồi' });
+        const label = String(b.label || '').slice(0, 60) || 'Thiết bị';
+        db.prepare('INSERT INTO webauthn_creds (cred_id, owner, jwk, count, label) VALUES (?, ?, ?, ?, ?)').run(r.credId, o, JSON.stringify(r.jwk), r.count, label);
+        db.prepare('INSERT INTO wallet_log (owner, by, action, detail) VALUES (?, ?, ?, ?)').run(o, 'khach:' + user.username + ' ' + clientIp(req), 'faceid_on', JSON.stringify({ cred: r.credId.slice(0, 8), label }));
+        return json(req, res, 200, { ok: true, id: r.credId });
+      } catch (e) { return json(req, res, 400, { error: e.message || 'Không bật được Face ID' }); }
+    }
+    if (p === '/api/wallet/webauthn/remove') {
+      const pc = ledger.checkPin(db, o, String(b.pin || ''));
+      if (pc.error) return json(req, res, pc.code, pc);
+      const n = db.prepare('UPDATE webauthn_creds SET disabled = 1 WHERE cred_id = ? AND owner = ? AND disabled = 0').run(String(b.id || ''), o).changes;
+      if (n) db.prepare('INSERT INTO wallet_log (owner, by, action, detail) VALUES (?, ?, ?, ?)').run(o, 'khach:' + user.username + ' ' + clientIp(req), 'faceid_off', JSON.stringify({ cred: String(b.id).slice(0, 8) }));
+      return json(req, res, n ? 200 : 404, n ? { ok: true } : { error: 'Không tìm thấy thiết bị' });
+    }
     if (p === '/api/wallet/pin') {
       if (tooMany('pinset:' + user.username)) return json(req, res, 429, { error: 'Thử quá nhiều lần, đợi 15 phút' });
       if (!store.checkPassword(user.username, String(b.password || ''))) { addFail('pinset:' + user.username); return json(req, res, 401, { error: 'Mật khẩu đăng nhập không đúng' }); }
@@ -228,10 +272,10 @@ async function handle(req, res) {
       return json(req, res, r.error ? r.code : 200, r);
     }
     if (p === '/api/wallet/intent' || p === '/api/wallet/withdraw') {
-      const pc = ledger.checkPin(db, o, String(b.pin || ''));
+      const pc = auth(p === '/api/wallet/intent' ? 'intent' : 'withdraw');
       if (pc.error) return json(req, res, pc.code, pc);
       if (p === '/api/wallet/intent') {
-        const r = ledger.intentCreate(db, o, b.codes, 'khach:' + user.username);
+        const r = ledger.intentCreate(db, o, b.codes, 'khach:' + user.username + (pc.via ? ' ' + pc.via : ''));
         if (r.error) return json(req, res, r.code, r);
         const code = ledger.codeOf(db, o, gobizNames()); const Q = require('./lib/vietqr'); const R = require('./lib/depositrule');
         let flags = {}; try { flags = JSON.parse(store.adminKv('deposit_flags') || '{}'); } catch (e) {}
@@ -241,7 +285,7 @@ async function handle(req, res) {
       }
       const amt = Math.round(Number(b.amount)); const bank = String(b.bank || '').trim().slice(0, 60), acct = String(b.acct || '').replace(/\s/g, '').slice(0, 30), holder = String(b.holder || '').trim().toUpperCase().slice(0, 60);
       if (!bank || !/^[0-9A-Za-z]{5,30}$/.test(acct) || holder.length < 3) return json(req, res, 400, { error: 'Nhập đủ ngân hàng, số tài khoản, tên chủ tài khoản' });
-      const r = ledger.request(db, { kind: 'WITHDRAW', owner: o, amount: amt, note: 'Rút về ' + bank + ' ' + acct + ' ' + holder + (b.note ? ' — ' + String(b.note).slice(0, 100) : ''), by: 'khach:' + user.username + ' ' + clientIp(req) });
+      const r = ledger.request(db, { kind: 'WITHDRAW', owner: o, amount: amt, note: 'Rút về ' + bank + ' ' + acct + ' ' + holder + (b.note ? ' — ' + String(b.note).slice(0, 100) : ''), by: 'khach:' + user.username + ' ' + clientIp(req) + (pc.via ? ' ' + pc.via : '') });
       return json(req, res, r.error ? r.code : 200, r);
     }
     if (p === '/api/wallet/claim') {
@@ -249,9 +293,9 @@ async function handle(req, res) {
       return json(req, res, r.error ? r.code : 200, r);
     }
     if (p === '/api/pay') {
-      const pc = ledger.checkPin(db, o, String(b.pin || ''));
+      const pc = auth('pay');
       if (pc.error) return json(req, res, pc.code, pc);
-      const r = ledger.pay(db, o, b.codes, String(b.idem || ''), 'khach:' + user.username, true, Array.isArray(b.confirm) ? b.confirm : []);
+      const r = ledger.pay(db, o, b.codes, String(b.idem || ''), 'khach:' + user.username + (pc.via ? ' ' + pc.via : ''), true, Array.isArray(b.confirm) ? b.confirm : []);
       if (r.error) return json(req, res, r.code, r);
       return json(req, res, 200, Object.assign(r, { wallet: ledger.walletView(db, o), orders: store.cnList(user.username, user.gobiz) }));
     }

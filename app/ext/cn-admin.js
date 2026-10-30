@@ -166,10 +166,28 @@
         const j = await this.wlPost('/api/fin/request', { owner: this.wlCur.owner, kind: f.kind, amount: amt, codes: f.code ? [f.code.trim().toUpperCase()] : [], note: f.note });
         if (j) { this.wlMsg = 'Đã tạo yêu cầu #' + j.id + ', chờ anh duyệt'; this.wlReq = { kind: f.kind, amount: '', code: '', note: '' }; this.wlLoad(); }
       },
+      wlBill: {}, wlBillUp: 0,
+      async wlJpeg(f) {
+        const url = URL.createObjectURL(f); const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('Không đọc được ảnh')); i.src = url; });
+        const m = 1800, sc = Math.min(1, m / Math.max(img.naturalWidth, img.naturalHeight)); const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * sc); c.height = Math.round(img.naturalHeight * sc); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        let q = 0.85, b; do { b = await new Promise((r) => c.toBlob(r, 'image/jpeg', q)); q -= 0.12; } while (b && b.size > 2.8e6 && q > 0.3);
+        const r = await fetch('/api/cn/upload', { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: b }); const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || 'Không tải được ảnh'); return { id: j.id, url };
+      },
+      async wlBillAdd(q, files) {
+        files = [...(files || [])].filter((f) => f && /^image\//.test(f.type)); if (!files.length) return;
+        this.wlErr = ''; this.wlBillUp++;
+        try { for (const f of files) { const x = await this.wlJpeg(f); this.wlBill = Object.assign({}, this.wlBill, { [q.id]: [...(this.wlBill[q.id] || []), x].slice(-5) }); } }
+        catch (e) { this.wlErr = e.message; } finally { this.wlBillUp--; }
+      },
+      wlBillPaste(q, e) { const fs = [...(e.clipboardData ? e.clipboardData.items : [])].filter((i) => i.kind === 'file').map((i) => i.getAsFile()); if (fs.length) { e.preventDefault(); this.wlBillAdd(q, fs); } },
+      wlBillDel(q, x) { this.wlBill = Object.assign({}, this.wlBill, { [q.id]: (this.wlBill[q.id] || []).filter((y) => y !== x) }); },
       async wlDecide(q, ok) {
-        if (ok && !confirm('Duyệt ' + q.kindLabel + ' ' + this.vnd(q.amount) + ' cho ' + q.owner + '?')) return;
+        const bills = (this.wlBill[q.id] || []).map((x) => x.id);
+        if (ok && q.kind === 'WITHDRAW' && !bills.length) { this.wlErr = 'Dán hoặc chọn ảnh bill chuyển khoản trước'; return; }
+        if (ok && !confirm((q.kind === 'WITHDRAW' ? 'Xác nhận ĐÃ CHUYỂN ' : 'Duyệt ' + q.kindLabel + ' ') + this.vnd(q.amount) + ' cho ' + q.owner + '?')) return;
         const note = ok ? '' : (prompt('Lý do từ chối?') || ''); if (!ok && !note) return;
-        const j = await this.wlPost('/api/fin/request/' + q.id + '/' + (ok ? 'approve' : 'reject'), { note });
+        const j = await this.wlPost('/api/fin/request/' + q.id + '/' + (ok ? 'approve' : 'reject'), { note, bills });
         if (j) { this.wlMsg = ok ? 'Đã duyệt · ' + j.txn : 'Đã từ chối'; await this.wlLoad(); if (this.wlCur) this.wlOpen(this.wl.find((x) => x.owner === this.wlCur.owner) || this.wlCur); }
       },
       wlAccs: [], wlBanks: {}, wlAccOpen: false,
