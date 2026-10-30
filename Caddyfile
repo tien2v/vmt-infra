@@ -9,13 +9,31 @@
 	}
 }
 
+# Tinh trang cap nhat tu dong (khong chua bi mat)
+(deploystatus) {
+	handle /deploy-status.txt {
+		root * /srv/www
+		header Cache-Control no-store
+		file_server
+	}
+}
+
 # Trang admin (nhan vien). Caddy tu xin chung chi HTTPS.
 saas.7zone.net {
 	import security
 	request_body {
 		max_size 80MB
 	}
-	reverse_proxy app:3000
+	import deploystatus
+	handle {
+		reverse_proxy app:3000
+	}
+}
+
+# Trang khach Vominhthien (web app khach hang)
+app.vominhthien.com {
+	import security
+	import /etc/caddy/khach.caddy
 }
 
 # Vao bang IP thi chuyen ve ten mien (dang nhap can HTTPS)

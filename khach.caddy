@@ -1,0 +1,3 @@
+root * /srv/www
+rewrite * /app.html
+file_server

@@ -9,8 +9,8 @@ cd /opt/vmt
 echo "==> 1/4 Tai ban moi tu GitHub"
 rm -rf /tmp/vmt-src && mkdir -p /tmp/vmt-src
 curl -fsSL https://codeload.github.com/tien2v/vmt-infra/tar.gz/refs/heads/main | tar -xz -C /tmp/vmt-src --strip-components=1
-cp /tmp/vmt-src/Caddyfile /tmp/vmt-src/docker-compose.yml .
-mkdir -p www && cp /tmp/vmt-src/www/index.html www/index.html
+cp /tmp/vmt-src/Caddyfile /tmp/vmt-src/docker-compose.yml /tmp/vmt-src/khach.caddy .
+mkdir -p www && cp /tmp/vmt-src/www/*.html www/
 rm -rf app.new && cp -r /tmp/vmt-src/app app.new
 
 # Giao dien (template Lineone mua ban quyen) duoc ma hoa tren GitHub -> giai nen bang ma luu o .uikey
@@ -28,6 +28,27 @@ rm -f app.new/ui.tar.gz.enc
 # Ghi phien ban de /healthz bao (Claude kiem tra da cap nhat chua)
 printf '%s' "${VMT_SHA:-$(curl -fsS --max-time 20 -H 'Accept: application/vnd.github.sha' https://api.github.com/repos/tien2v/vmt-infra/commits/main || echo unknown)}" > app.new/VERSION
 rm -rf app && mv app.new app
+
+# Giao dien trang khach (template Veylix mua ban quyen), ma rieng .khkey. Thieu ma khi tu cap nhat -> bo qua, giu ban cu.
+if [ -d /tmp/vmt-src/khach ]; then
+  if [ ! -s .khkey ] && [ -t 0 ]; then
+    read -r -p "Nhap ma giao dien KHACH (20 chu thuong, anh co trong tin nhan cua Claude): " KHKEY
+    printf '%s' "$KHKEY" > .khkey && chmod 600 .khkey
+  fi
+  if [ -s .khkey ]; then
+    rm -rf khach.new && cp -r /tmp/vmt-src/khach khach.new && mkdir -p khach.new/public
+    if openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in khach.new/ui.tar.gz.enc -pass file:.khkey | tar -xz -C khach.new/public; then
+      rm -f khach.new/ui.tar.gz.enc
+      rm -rf khach && mv khach.new khach
+      mkdir -p khachdata && chown 1000:1000 khachdata && chmod 700 khachdata
+      echo "Giao dien khach: OK"
+    else
+      rm -f .khkey; rm -rf khach.new; echo "MA GIAO DIEN KHACH SAI (bo qua phan khach). Chay lai: bash u"
+    fi
+  else
+    echo "Chua co ma giao dien khach: bo qua phan khach"
+  fi
+fi
 mkdir -p appdata && chown 1000:1000 appdata && chmod 700 appdata
 
 echo "==> 2/4 Kiem tra cau hinh web"
@@ -57,4 +78,12 @@ if [ -f appdata/admin-password.txt ]; then
 fi
 echo
 cp app/VERSION .deployed 2>/dev/null || true
+# Tinh trang de Claude xem tu xa (khong chua bi mat)
+printf 'version=%s\nkhach_key=%s\ntime=%s\n' "$(cat app/VERSION 2>/dev/null)" "$([ -s .khkey ] && echo co || echo chua)" "$(date '+%F %T')" > www/deploy-status.txt
+if [ -f khachdata/test-account.txt ]; then
+  echo "=============================================="
+  echo " TAI KHOAN KHACH TEST app.vominhthien.com:"
+  cat khachdata/test-account.txt
+  echo "=============================================="
+fi
 echo "XONG. Mo trinh duyet: https://saas.7zone.net"
