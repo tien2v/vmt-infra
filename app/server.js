@@ -116,6 +116,27 @@ function serveFile(req, res, rel, cacheable) {
   });
 }
 
+// ---------- giao dien admin + phan mo rong Ship to China (app/ext) ----------
+// app.html (template, ma hoa tren GitHub) duoc chen them: nap /ext/cn-admin.js sau vmt.js va trang 'cn' truoc </main>.
+// Neu cau truc app.html doi (khong tim thay cho chen) thi tra ban goc, khong lam hong trang.
+let appCache = { key: '', html: null };
+function appHtml() {
+  try {
+    const f = path.join(PUBLIC, 'app.html'), sec = path.join(__dirname, 'ext', 'cn-section.html');
+    const key = fs.statSync(f).mtimeMs + ':' + fs.statSync(sec).mtimeMs;
+    if (appCache.key === key) return appCache.html;
+    let h = fs.readFileSync(f, 'utf8');
+    const a = "load('/assets/vmt.js')";
+    const m = '      </main>\n\n      <!-- ============ DRAWER';
+    if (h.includes(a) && h.includes(m)) {
+      h = h.replace(a, "load('/assets/vmt.js').then(function () { return load('/ext/cn-admin.js'); })");
+      h = h.replace(m, fs.readFileSync(sec, 'utf8') + m);
+    } else { console.error('cn-admin: khong tim thay cho chen trong app.html'); h = null; }
+    appCache = { key, html: h ? Buffer.from(h) : null };
+    return appCache.html;
+  } catch (e) { console.error(e); return null; }
+}
+
 // ---------- dinh tuyen ----------
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
@@ -204,9 +225,15 @@ async function handle(req, res) {
     return json(req, res, 200, { ok: true, order: r.order });
   }
 
+  if (p === '/ext/cn-admin.js') {
+    if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });
+    return fs.readFile(path.join(__dirname, 'ext', 'cn-admin.js'), (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'text/javascript; charset=utf-8' }));
+  }
   if (p === '/' || p === '/index.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
-    return serveFile(req, res, 'app.html', false);
+    const html = appHtml();
+    if (!html) return serveFile(req, res, 'app.html', false);
+    return send(res, 200, html, { 'Content-Type': 'text/html; charset=utf-8' });
   }
   return send(res, 404, 'Not found');
 }
