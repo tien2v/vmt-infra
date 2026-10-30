@@ -10,6 +10,7 @@ const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const store = require('./lib/store');
 const { buildIndex, brandOf, busiest } = require('./lib/map');
+const ledger = require('./lib/ledger');
 const price = require('./lib/price');
 
 const PORT = Number(process.env.PORT || 3001);
@@ -91,6 +92,8 @@ const BRAND = {
 };
 const hostBrand = (req) => (/vmtglobal/i.test(req.headers.host || '') ? 'yellow' : 'green');
 
+const owner = (user) => String(user.gobiz || user.username).toLowerCase();
+function gobizNames() { const ix = index(); return ix ? [...ix.byUser.keys()] : []; }
 function payload(user) {
   const ix = index();
   const s = ix ? ix.byUser.get(String(user.gobiz).toLowerCase()) : null;
@@ -98,8 +101,12 @@ function payload(user) {
   const brand = c ? brandOf(c.grp) : 'green';
   const me = {
     username: user.username, gobiz: user.gobiz, test: String(user.note || '').startsWith('tai khoan test'),
-    name: (c && c.fn) || user.gobiz, code: (c && c.code) || '', balance: c ? Number(c.bal) : null, brand,
+    name: (c && c.fn) || user.gobiz, gobizCode: (c && c.code) || '', balance: c ? Number(c.bal) : null, brand,
   };
+  // Ma khach moi (= ma nap tien), tach khoi Gobiz. Vi moi: tam thoi chi bat cho tai khoan test.
+  me.code = ledger.codeOf(store.rawDb(), owner(user), gobizNames());
+  me.walletOn = me.test;
+  if (me.walletOn) { me.wallet = ledger.walletView(store.rawDb(), owner(user)); me.hasPin = ledger.hasPin(store.rawDb(), owner(user)); }
   const cn = store.cnList(user.username, user.gobiz).map((o) => Object.assign(o, { mine: true }));
   const companies = store.coList(user.username);
   const data = { companies, orders: s ? s.orders : [], shipments: s ? s.shipments : [], peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
@@ -190,6 +197,36 @@ async function handle(req, res) {
   if (mu) {
     if (!user || !store.uploadCanSee(user.username, user.gobiz, mu[1])) return send(res, 404, 'Not found');
     return fs.readFile(store.uploadPath(mu[1]), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' }));
+  }
+  // ---- vi + thanh toan (tam thoi chi tai khoan test) ----
+  if (p.startsWith('/api/wallet') || p === '/api/pay') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    const isTest = String(user.note || '').startsWith('tai khoan test');
+    if (!isTest) return json(req, res, 403, { error: 'Ví mới đang chạy thử, chưa mở cho tài khoản này' });
+    const db = store.rawDb(), o = owner(user);
+    if (p === '/api/wallet' && req.method === 'GET') return json(req, res, 200, { code: ledger.codeOf(db, o, gobizNames()), wallet: ledger.walletView(db, o), hasPin: ledger.hasPin(db, o), txns: ledger.txnsOf(db, o, 100) });
+    if (req.method !== 'POST' || !sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    if (p === '/api/wallet/pin') {
+      if (tooMany('pinset:' + user.username)) return json(req, res, 429, { error: 'Thử quá nhiều lần, đợi 15 phút' });
+      if (!store.checkPassword(user.username, String(b.password || ''))) { addFail('pinset:' + user.username); return json(req, res, 401, { error: 'Mật khẩu đăng nhập không đúng' }); }
+      const r = ledger.setPin(db, o, String(b.pin || ''), 'khach:' + user.username + ' ' + clientIp(req));
+      return json(req, res, r.error ? r.code : 200, r);
+    }
+    if (p === '/api/pay') {
+      const pc = ledger.checkPin(db, o, String(b.pin || ''));
+      if (pc.error) return json(req, res, pc.code, pc);
+      const r = ledger.pay(db, o, b.codes, String(b.idem || ''), 'khach:' + user.username, true);
+      if (r.error) return json(req, res, r.code, r);
+      return json(req, res, 200, Object.assign(r, { wallet: ledger.walletView(db, o), orders: store.cnList(user.username, user.gobiz) }));
+    }
+    return json(req, res, 404, { error: 'not found' });
+  }
+  const mtx = p.match(/^\/api\/cn\/(SCN\d{1,12})\/txns$/);
+  if (mtx) {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!store.cnList(user.username, user.gobiz).some((x) => x.code === mtx[1])) return json(req, res, 404, { error: 'Không tìm thấy đơn' });
+    return json(req, res, 200, { items: ledger.txnsOfOrder(store.rawDb(), mtx[1]).map((t) => ({ txn: t.txn, kind: t.kindLabel, amount: t.amount, at: t.created_at })) });
   }
   if (p === '/api/companies') {
     if (!user) return json(req, res, 401, { error: 'login' });

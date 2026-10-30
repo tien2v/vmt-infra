@@ -9,6 +9,7 @@
     ['CLEARED', 'Đã thông quan · đang giao TQ', 'primary'],
     ['DELIVERED', 'Giao thành công', 'success'],
     ['CANCELLED', 'Đã huỷ', 'error'],
+    ['RETURN', 'Trả hàng', 'error'],
   ];
   const SM = Object.fromEntries(ST.map((s) => [s[0], { label: s[1], color: s[2] }]));
   const CL = { thuong: 'Hàng thường', kho: 'Hàng khó', yen: 'Yến sào', thu: 'Thư, chứng từ', rieng: 'Báo giá riêng' };
@@ -44,6 +45,7 @@
 
   const MENU = { t: 'Ship to China', p: 'cn', i: 'fa-plane-departure' };
   const MENU_SCAN = { t: 'Quét mã Ship to China', p: 'cnscan', i: 'fa-barcode' };
+  const MENU_WAL = { t: 'Ví khách (mới)', p: 'cnwal', i: 'fa-wallet' };
 
   function extend(o) {
     const origInit = o.init;
@@ -60,12 +62,13 @@
           const i = d.menu.findIndex((m) => m.p === 'ship');
           const item = Object.assign({}, MENU);
           if (i >= 0) d.menu.splice(i + 1, 0, item); else d.menu.push(item);
+          if (d.id !== 'kho' && !d.menu.some((m) => m.p === 'cnwal')) { const k = d.menu.findIndex((m) => m.p === 'cn'); d.menu.splice(k + 1, 0, Object.assign({}, MENU_WAL)); }
           if (d.id === 'kho') { const j = d.menu.findIndex((m) => m.p === 'kho'); d.menu.splice(j >= 0 ? j + 1 : 0, 0, Object.assign({}, MENU_SCAN)); }
         }
         if (origInit) origInit.call(this);
-        const h = () => { const x = location.hash.slice(1); if ((x === 'cn' || x === 'cnscan') && this.canSee(x)) { this.desk = this.deskOfPage(x) || this.desk; this.page = x; } else if (x === 'cnnew' && this.canSee('cn')) { this.desk = this.deskOfPage('cn') || this.desk; this.page = 'cnnew'; } };
+        const h = () => { const x = location.hash.slice(1); if ((x === 'cn' || x === 'cnscan') && this.canSee(x)) { this.desk = this.deskOfPage(x) || this.desk; this.page = x; } else if (x === 'cnwal' && this.canSee('cnwal')) { this.desk = this.deskOfPage('cnwal') || this.desk; this.page = 'cnwal'; } else if (x === 'cnnew' && this.canSee('cn')) { this.desk = this.deskOfPage('cn') || this.desk; this.page = 'cnnew'; } };
         h(); window.addEventListener('hashchange', h);
-        this.$watch('page', (p) => { if (p !== 'cnscan' && this.camOn) this.camStop(); if (p === 'cn') this.cnLoad(); if (p === 'cnscan') this.$nextTick(() => { const el = document.getElementById('cnScanInput'); if (el) el.focus(); }); });
+        this.$watch('page', (p) => { if (p !== 'cnscan' && this.camOn) this.camStop(); if (p === 'cn') this.cnLoad(); if (p === 'cnwal') this.wlLoad(); if (p === 'cnscan') this.$nextTick(() => { const el = document.getElementById('cnScanInput'); if (el) el.focus(); }); });
         if (this.page === 'cn') this.cnLoad();
         this.cnPoll(); setInterval(() => this.cnPoll(), 30000);
       },
@@ -134,6 +137,40 @@
         a.href = URL.createObjectURL(new Blob(['﻿' + [head].concat(rows).map((l) => l.map(csvCell).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' }));
         a.download = 'ship-to-china.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
       },
+
+      // ---- vi khach (so giao dich moi, tach Gobiz) ----
+      wl: [], wlQ: '', wlRole: '', wlPend: 0, wlCur: null, wlTx: [], wlLog: [], wlReqs: [], wlMsg: '', wlErr: '', wlBusy: false,
+      wlCredit: { limit: '', days: 30 }, wlReq: { kind: 'TOPUP_MANUAL', amount: '', code: '', note: '' },
+      async wlLoad() {
+        try {
+          const [a, b] = await Promise.all([fetch('/api/fin/wallets', { cache: 'no-store' }).then((r) => r.json()), fetch('/api/fin/requests?status=pending', { cache: 'no-store' }).then((r) => r.json())]);
+          this.wl = (a.items || []).map((x) => Object.assign(x, { _q: norm([x.u, x.code, x.gobizCode, x.fn].join(' ')) })); this.wlRole = a.role; this.wlPend = a.pending; this.wlReqs = b.items || [];
+        } catch (e) { this.wlErr = 'Không tải được ví'; }
+      },
+      wlRows() { const q = norm(this.wlQ.trim()); return this.wl.filter((x) => !q || x._q.includes(q)).sort((a, b) => (b.balance !== 0) - (a.balance !== 0) || b.creditLimit - a.creditLimit).slice(0, 200); },
+      async wlOpen(x) {
+        this.wlCur = x; this.wlMsg = ''; this.wlErr = ''; this.wlCredit = { limit: x.creditLimit || '', days: x.creditDays || 30 }; this.wlReq = { kind: 'TOPUP_MANUAL', amount: '', code: '', note: '' };
+        const j = await fetch('/api/fin/wallet/' + encodeURIComponent(x.owner), { cache: 'no-store' }).then((r) => r.json()); this.wlTx = j.txns || []; this.wlLog = j.log || []; Object.assign(this.wlCur, j.wallet || {});
+      },
+      async wlPost(url, body) {
+        this.wlBusy = true; this.wlErr = ''; this.wlMsg = '';
+        try { const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const j = await r.json().catch(() => ({})); if (!r.ok) { this.wlErr = j.error || 'Lỗi'; return null; } return j; }
+        catch (e) { this.wlErr = 'Mất kết nối'; return null; } finally { this.wlBusy = false; }
+      },
+      async wlSetCredit() { const j = await this.wlPost('/api/fin/credit', { owner: this.wlCur.owner, limit: Number(String(this.wlCredit.limit).replace(/\D/g, '')) || 0, days: Number(this.wlCredit.days) }); if (j) { this.wlMsg = 'Đã lưu hạn mức'; await this.wlLoad(); this.wlOpen(this.wl.find((x) => x.owner === this.wlCur.owner)); } },
+      async wlMakeReq() {
+        const f = this.wlReq; const amt = Number(String(f.amount).replace(/[^\d-]/g, ''));
+        const j = await this.wlPost('/api/fin/request', { owner: this.wlCur.owner, kind: f.kind, amount: amt, codes: f.code ? [f.code.trim().toUpperCase()] : [], note: f.note });
+        if (j) { this.wlMsg = 'Đã tạo yêu cầu #' + j.id + ', chờ anh duyệt'; this.wlReq = { kind: f.kind, amount: '', code: '', note: '' }; this.wlLoad(); }
+      },
+      async wlDecide(q, ok) {
+        if (ok && !confirm('Duyệt ' + q.kindLabel + ' ' + this.vnd(q.amount) + ' cho ' + q.owner + '?')) return;
+        const note = ok ? '' : (prompt('Lý do từ chối?') || ''); if (!ok && !note) return;
+        const j = await this.wlPost('/api/fin/request/' + q.id + '/' + (ok ? 'approve' : 'reject'), { note });
+        if (j) { this.wlMsg = ok ? 'Đã duyệt · ' + j.txn : 'Đã từ chối'; await this.wlLoad(); if (this.wlCur) this.wlOpen(this.wl.find((x) => x.owner === this.wlCur.owner) || this.wlCur); }
+      },
+      cnTx: [],
+      async cnTxLoad(code) { this.cnTx = []; try { const j = await fetch('/api/cn/' + code + '/txns', { cache: 'no-store' }).then((r) => r.json()); this.cnTx = j.items || []; } catch (e) {} },
 
       // ---- nhan vien tao don gium khach ----
       nfZone: 'prod',
@@ -248,7 +285,7 @@
         this.cnForm = { status: x.status, w: x.w ?? '', dL: x.dims ? x.dims[0] : '', dW: x.dims ? x.dims[1] : '', dH: x.dims ? x.dims[2] : '', pk: x.pk ?? '', wbCn: x.wbCn || '', refTL: x.refTL || '', fee: x.fee ?? '', paid: x.paid ?? '', staffNote: x.staffNote || '' };
         this.cnMsg = '';
       },
-      cnOpen(x) { this.cnPick(x); this.cnShow = true; this.cnLogLoad(x.code); },
+      cnOpen(x) { this.cnPick(x); this.cnShow = true; this.cnLogLoad(x.code); this.cnTxLoad(x.code); },
       cnLog: [], cnLogCode: '',
       async cnLogLoad(code) { this.cnLog = []; this.cnLogCode = code; try { const r = await fetch('/api/cn/' + code + '/log', { cache: 'no-store' }); const j = await r.json(); if (this.cnLogCode === code) this.cnLog = (j.log || []).slice().reverse().map((l) => { let d = null; try { d = JSON.parse(l.detail); } catch (e) {} return { ts: l.ts, who: l.username, action: l.action, changes: d && d.changes ? d.changes : [], raw: d ? '' : (l.detail || ''), extra: d || {} }; }); } catch (e) {} },
       cnWho(w) { w = String(w || ''); return w.startsWith('staff:') ? 'NV ' + w.slice(6) : w.startsWith('khach:') ? 'Khách ' + w.slice(6) : w === 'tai-loc' ? 'Tài Lộc (tự động)' : w === 'he-thong' ? 'Hệ thống (tự động)' : w; },
@@ -269,6 +306,7 @@
           if (this.cnCanEdit('paid') && String(f.paid) !== String(x.paid ?? '')) b.paid = n(f.paid);
           if (!Object.keys(b).length) { this.cnMsg = 'Chưa có gì thay đổi'; return; }
           if (b.status === 'CANCELLED' && !confirm('Huỷ đơn ' + x.code + '?')) return;
+          if (b.status === 'RETURN') { const why = prompt('Lý do trả hàng (khách huỷ / hàng cấm / kho từ chối…). Khách có 15 ngày lấy hàng; cước đã trả sẽ tạo yêu cầu hoàn chờ anh duyệt.'); if (!why) return; b.returnReason = why; }
         }
         this.cnSaving = true; this.cnMsg = '';
         try {

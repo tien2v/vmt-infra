@@ -268,6 +268,51 @@ async function handle(req, res) {
     if (r.error) return json(req, res, r.code, { error: r.error, missing: r.missing || null, order: r.order || null });
     return json(req, res, 200, { ok: true, order: r.order, result: r.result, missing: r.missing || [], warn: !!r.warn, needRef: !!r.needRef });
   }
+  // ---- tai chinh: vi khach, han muc, yeu cau nap tay / dieu chinh / hoan (anh duyet) ----
+  if (p.startsWith('/api/fin/')) {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!['admin', 'tc', 'sale'].includes(user.role)) return json(req, res, 403, { error: 'forbidden' });
+    const L = cn.ledger, db = cn.fin(), by = 'staff:' + user.username;
+    if (p === '/api/fin/wallets' && req.method === 'GET') {
+      const cs = customers(); const names = cs.map((c) => String(c.u).toLowerCase());
+      db.exec('BEGIN IMMEDIATE'); let rows;
+      try { rows = cs.map((c) => { const o = String(c.u).toLowerCase(); return Object.assign({ u: c.u, gobizCode: c.code, fn: c.fn, code: L.codeOf(db, o, names) }, L.walletView(db, o)); }); db.exec('COMMIT'); }
+      catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
+      return json(req, res, 200, { items: rows, role: user.role, pending: L.requests(db, 'pending').length });
+    }
+    const mw = p.match(/^\/api\/fin\/wallet\/([^/]{1,80})$/);
+    if (mw && req.method === 'GET') {
+      const o = decodeURIComponent(mw[1]).toLowerCase();
+      db.prepare('INSERT INTO wallet_log (owner, by, action, detail) VALUES (?, ?, ?, ?)').run(o, by, 'Xem ví', '{}');
+      return json(req, res, 200, { wallet: L.walletView(db, o), txns: L.txnsOf(db, o, 200), log: db.prepare('SELECT * FROM wallet_log WHERE owner = ? ORDER BY ts DESC LIMIT 100').all(o) });
+    }
+    if (p === '/api/fin/requests' && req.method === 'GET') return json(req, res, 200, { items: L.requests(db, url.searchParams.get('status') || '') });
+    if (req.method !== 'POST' || !sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const owner = String(b.owner || '').toLowerCase();
+    const known = () => customers().some((c) => String(c.u).toLowerCase() === owner);
+    if (p === '/api/fin/credit') {
+      if (user.role !== 'admin') return json(req, res, 403, { error: 'Chỉ anh (admin) được cấp hạn mức' });
+      if (!known()) return json(req, res, 400, { error: 'Không có khách này' });
+      const r = L.setCredit(db, owner, b.limit, b.days, by); return json(req, res, r.error ? r.code : 200, r);
+    }
+    if (p === '/api/fin/request') {
+      if (!['admin', 'tc'].includes(user.role)) return json(req, res, 403, { error: 'Chỉ tài chính / admin được tạo yêu cầu' });
+      if (!known()) return json(req, res, 400, { error: 'Không có khách này' });
+      const r = L.request(db, { kind: String(b.kind || ''), owner, amount: b.amount, codes: b.codes, note: b.note, by }); return json(req, res, r.error ? r.code : 200, r);
+    }
+    const md = p.match(/^\/api\/fin\/request\/(\d{1,9})\/(approve|reject)$/);
+    if (md) {
+      if (user.role !== 'admin') return json(req, res, 403, { error: 'Chỉ anh (admin) được duyệt' });
+      const q = db.prepare('SELECT owner FROM fin_requests WHERE id = ?').get(Number(md[1]));
+      const isTest = q && db.prepare('SELECT 1 FROM cn_orders WHERE lower(gobiz) = ? AND test = 1 LIMIT 1').get(q.owner);
+      const r = L.decide(db, md[1], md[2] === 'approve', by, String(b.note || '').slice(0, 300), !!isTest);
+      return json(req, res, r.error ? r.code : 200, r);
+    }
+    return json(req, res, 404, { error: 'not found' });
+  }
+  const mtx = p.match(/^\/api\/cn\/(SCN\d{1,12})\/txns$/);
+  if (mtx) { if (!user) return json(req, res, 401, { error: 'login' }); return json(req, res, 200, { items: ['kho', 'order'].includes(user.role) ? [] : cn.ledger.txnsOfOrder(cn.fin(), mtx[1]) }); }
   if (p === '/api/cn/customers') {
     if (!user) return json(req, res, 401, { error: 'login' });
     const q = norm(url.searchParams.get('q') || ''); if (q.length < 2) return json(req, res, 200, { items: [] });

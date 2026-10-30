@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const shared = require('./cnshared');
+const ledger = require('./ledger');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const ADMIN_DB = process.env.ADMIN_DB || '/admin/vmt.db';
@@ -37,6 +38,7 @@ function init() {
     CREATE TABLE IF NOT EXISTS cn_log (ts TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), code TEXT, username TEXT, action TEXT, detail TEXT);
   `);
   shared.initUploads(db);
+  ledger.init(db);
   // Ma don SCN bat dau tu 100001
   if (!db.prepare("SELECT 1 FROM sqlite_sequence WHERE name = 'cn_orders'").get()) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('cn_orders', 100000)").run();
 }
@@ -168,4 +170,5 @@ function coDelete(username, id, ip) {
 }
 function notifList(username) { return db.prepare('SELECT id, code, text, read, created_at FROM notif WHERE username = ? ORDER BY id DESC LIMIT 50').all(username); }
 function notifRead(username) { db.prepare('UPDATE notif SET read = 1 WHERE username = ? AND read = 0').run(username); }
-module.exports = { uploadSave, uploadCanSee, uploadPath, coList, coGet, coSave, coDelete, notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };
+function rawDb() { return db; }
+module.exports = { rawDb, uploadSave, uploadCanSee, uploadPath, coList, coGet, coSave, coDelete, notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };

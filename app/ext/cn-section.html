@@ -226,6 +226,9 @@
 
                     <div class="mt-4 flex flex-wrap gap-2"><button @click="cnPrint(cnDetail)" class="btn h-8 rounded-full border border-slate-300 px-3 text-xs-plus font-medium dark:border-navy-450"><i class="fa-solid fa-print mr-1.5"></i>In tem mã vạch</button></div>
 
+                    <div x-show="money()"><p class="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-400">Giao dịch của đơn</p>
+                      <template x-for="t in cnTx" :key="t.txn"><div class="flex justify-between border-b border-dashed border-slate-150 py-2 text-xs-plus dark:border-navy-500"><span><b x-text="t.txn"></b> · <span x-text="t.kindLabel"></span><br><span class="text-tiny text-slate-400" x-text="cnDT(t.created_at) + ' · ' + cnWho(t.by)"></span></span><b :class="t.amount>0?'text-success':'text-error'" x-text="(t.amount>0?'':'+') + vnd(Math.abs(t.amount))"></b></div></template>
+                      <p x-show="!cnTx.length" class="text-xs text-slate-400">Chưa có giao dịch qua ví</p></div>
                     <p class="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-400">Lịch sử thao tác (ai làm gì, lúc nào)</p>
                     <div class="mt-2 space-y-2">
                       <template x-for="(l,i) in cnLog" :key="i">
@@ -383,4 +386,53 @@
             </div>
           </div>
           </template>
+        </section>
+
+        <!-- ===== VI KHACH (so giao dich moi) ===== -->
+        <section x-show="page==='cnwal'" style="display:none">
+          <div class="flex flex-wrap items-end justify-between gap-3 py-5 lg:py-6">
+            <div><h2 class="text-xl font-medium text-slate-800 dark:text-navy-50 lg:text-2xl">Ví khách (hệ thống mới)</h2>
+              <p class="mt-1 text-xs-plus text-slate-400">Tách riêng Gobiz. Mỗi giao dịch có mã GD riêng, sổ không sửa / xoá được. Nạp tay, điều chỉnh, hoàn tiền đều chờ anh duyệt.</p></div>
+            <button @click="wlLoad()" class="btn space-x-2 rounded-full border border-slate-300 font-medium dark:border-navy-450"><i class="fa-solid fa-rotate"></i><span>Làm mới</span></button>
+          </div>
+          <div x-show="wlReqs.length" class="card mb-4 p-4 text-xs-plus">
+            <p class="font-medium text-warning">Chờ duyệt (<span x-text="wlReqs.length"></span>)</p>
+            <template x-for="q in wlReqs" :key="q.id"><div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-150 py-2 dark:border-navy-500">
+              <span>#<b x-text="q.id"></b> · <b x-text="q.kindLabel"></b> · <span x-text="q.owner"></span> · <b x-text="vnd(q.amount)"></b> <span x-show="q.codes.length" x-text="'· ' + q.codes.join(', ')"></span><br><span class="text-slate-400" x-text="q.note + ' — ' + cnWho(q.created_by) + ' · ' + cnDT(q.created_at)"></span></span>
+              <span x-show="wlRole==='admin'" class="flex gap-2"><button @click="wlDecide(q,true)" :disabled="wlBusy" class="btn h-8 rounded-full bg-success px-3 text-white">Duyệt</button><button @click="wlDecide(q,false)" :disabled="wlBusy" class="btn h-8 rounded-full border border-slate-300 px-3">Từ chối</button></span></div></template>
+          </div>
+          <p x-show="wlMsg" class="mb-3 text-success" x-text="wlMsg"></p><p x-show="wlErr" class="mb-3 text-error" x-text="wlErr"></p>
+          <div class="grid grid-cols-1 gap-4 lg:grid-cols-5">
+            <div class="card p-4 lg:col-span-2 text-xs-plus">
+              <input x-model="wlQ" placeholder="Tìm khách, mã khách, mã Gobiz" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450 !mt-0">
+              <div class="mt-2 max-h-[65vh] overflow-y-auto"><template x-for="x in wlRows()" :key="x.owner"><button @click="wlOpen(x)" class="flex w-full justify-between border-b border-slate-150 px-1 py-2 text-left hover:bg-slate-100 dark:border-navy-500 dark:hover:bg-navy-600" :class="wlCur&&wlCur.owner===x.owner?'bg-slate-100 dark:bg-navy-600':''">
+                <span><b x-text="x.code"></b> · <span x-text="x.u"></span><br><span class="text-tiny text-slate-400" x-text="(x.fn||'') + (x.gobizCode?' · Gobiz '+x.gobizCode:'')"></span></span>
+                <span class="text-right"><b :class="x.balance<0?'text-error':''" x-text="vnd(x.balance)"></b><br><span x-show="x.creditLimit" class="text-tiny text-slate-400" x-text="'HM ' + vnd(x.creditLimit)"></span></span></button></template></div>
+            </div>
+            <div class="card p-4 lg:col-span-3 text-xs-plus" x-show="wlCur">
+              <template x-if="wlCur"><div>
+                <div class="flex flex-wrap items-baseline justify-between gap-2"><p class="text-lg font-medium text-slate-700 dark:text-navy-100"><span x-text="wlCur.code"></span> · <span x-text="wlCur.u || wlCur.owner"></span></p><p class="text-2xl font-semibold" :class="wlCur.balance<0?'text-error':''" x-text="vnd(wlCur.balance)"></p></div>
+                <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div class="vmt-stat"><p>Có thể dùng</p><b x-text="vnd(wlCur.available)"></b></div><div class="vmt-stat"><p>Có thể rút</p><b x-text="vnd(wlCur.withdrawable)"></b></div>
+                  <div class="vmt-stat"><p>Đơn chưa trả</p><b x-text="vnd(wlCur.pendingOrders)"></b></div><div class="vmt-stat"><p>Hạn trả phần âm</p><b :class="wlCur.overdue?'text-error':''" x-text="wlCur.dueAt ? cnDT(wlCur.dueAt) + (wlCur.overdue?' (quá hạn)':'') : '—'"></b></div></div>
+                <div x-show="wlRole==='admin'" class="mt-4 rounded-lg border border-slate-150 p-3 dark:border-navy-500"><p class="font-medium">Hạn mức tín dụng (chỉ anh)</p>
+                  <div class="mt-1 flex flex-wrap items-end gap-2"><label class="block grow"><span class="text-slate-500">Số tiền (đ)</span><input x-model="wlCredit.limit" inputmode="numeric" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450"></label>
+                    <label class="block w-28"><span class="text-slate-500">Số ngày (15–30)</span><input x-model="wlCredit.days" type="number" min="15" max="30" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450"></label>
+                    <button @click="wlSetCredit()" :disabled="wlBusy" class="btn h-10 bg-primary px-4 text-white dark:bg-accent">Lưu</button></div></div>
+                <div x-show="wlRole!=='sale'" class="mt-3 rounded-lg border border-slate-150 p-3 dark:border-navy-500"><p class="font-medium">Tạo yêu cầu (chờ anh duyệt)</p>
+                  <div class="mt-1 grid grid-cols-2 gap-2">
+                    <label class="block"><span class="text-slate-500">Loại</span><select x-model="wlReq.kind" class="form-select mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-navy-450 dark:bg-navy-700"><option value="TOPUP_MANUAL">Nạp tay (+)</option><option value="REFUND">Hoàn tiền về ví (+, gắn đơn)</option><option value="ADJUST">Điều chỉnh (+/−)</option></select></label>
+                    <label class="block"><span class="text-slate-500">Số tiền (đ) <span x-show="wlReq.kind==='ADJUST'">· trừ thì ghi dấu −</span></span><input x-model="wlReq.amount" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450"></label>
+                    <label x-show="wlReq.kind==='REFUND'" class="col-span-2 block"><span class="text-slate-500">Mã đơn</span><input x-model="wlReq.code" placeholder="SCN…" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450"></label>
+                    <label class="col-span-2 block"><span class="text-slate-500">Lý do (bắt buộc)</span><input x-model="wlReq.note" maxlength="500" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-navy-450"></label></div>
+                  <button @click="wlMakeReq()" :disabled="wlBusy" class="btn mt-2 border border-slate-300 px-4 dark:border-navy-450">Gửi yêu cầu</button></div>
+                <p class="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">Sổ giao dịch</p>
+                <template x-for="t in wlTx" :key="t.txn"><div class="flex justify-between border-b border-dashed border-slate-150 py-2 dark:border-navy-500"><span><b x-text="t.txn"></b> · <span x-text="t.kindLabel"></span> <span x-show="t.lines.length" x-text="'· ' + t.lines.map(l=>l.code).join(', ')"></span><br><span class="text-tiny text-slate-400" x-text="cnDT(t.created_at) + ' · ' + t.by + (t.note ? ' · ' + t.note : '')"></span></span>
+                  <span class="text-right"><b :class="t.amount>0?'text-success':'text-error'" x-text="(t.amount>0?'+':'−') + vnd(Math.abs(t.amount))"></b><br><span class="text-tiny text-slate-400" x-text="'Dư ' + vnd(t.balance_after)"></span></span></div></template>
+                <p x-show="!wlTx.length" class="text-slate-400">Chưa có giao dịch</p>
+                <p class="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">Nhật ký ví (ai làm gì)</p>
+                <template x-for="(l,i) in wlLog.slice(0,30)" :key="i"><div class="border-b border-dashed border-slate-150 py-1.5 text-tiny dark:border-navy-500"><span x-text="cnDT(l.ts) + ' · ' + cnWho(l.by) + ' · ' + l.action"></span></div></template>
+              </div></template>
+            </div>
+          </div>
         </section>

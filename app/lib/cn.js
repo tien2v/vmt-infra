@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const price = require('./price');
 const path = require('node:path');
 const shared = require('./cnshared');
+const ledger = require('./ledger');
 const { DatabaseSync } = require('node:sqlite');
 
 const KHACH_DB = process.env.KHACH_DB || '/khach/khach.db';
@@ -14,15 +15,16 @@ function open() {
   db = new DatabaseSync(KHACH_DB);
   db.exec('PRAGMA busy_timeout = 5000');
   shared.initUploads(db);
+  ledger.init(db);
   db.exec("CREATE TABLE IF NOT EXISTS notif (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, code TEXT, text TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))");
   return db;
 }
 
 // Quy trinh (anh chot 30/10): khach tao -> kho quet NHAP KHO -> dien ma doi chieu, can, kich thuoc -> Tai Loc toi lay, kho quet XUAT KHO
 // -> cho thong quan -> Tai Loc bao ma chuyen phat TQ (tu dien) -> bao khach -> giao thanh cong
-const STATUSES = ['PENDING', 'VN_WAREHOUSE', 'TRANSPORTING', 'CLEARED', 'DELIVERED', 'CANCELLED'];
+const STATUSES = ['PENDING', 'VN_WAREHOUSE', 'TRANSPORTING', 'CLEARED', 'DELIVERED', 'CANCELLED', 'RETURN'];
 const LEGACY = { CN_WAREHOUSE: 'CLEARED', DISPATCHED: 'CLEARED' };
-const LABEL = { PENDING: 'Chờ tiếp nhận', VN_WAREHOUSE: 'Đã nhập kho VN', TRANSPORTING: 'Đã xuất kho, chờ thông quan', CLEARED: 'Đã thông quan, đang giao tại TQ', DELIVERED: 'Giao thành công', CANCELLED: 'Đã huỷ' };
+const LABEL = { RETURN: 'Trả hàng (khách lấy lại)', PENDING: 'Chờ tiếp nhận', VN_WAREHOUSE: 'Đã nhập kho VN', TRANSPORTING: 'Đã xuất kho, chờ thông quan', CLEARED: 'Đã thông quan, đang giao tại TQ', DELIVERED: 'Giao thành công', CANCELLED: 'Đã huỷ' };
 const MONEY = ['fee', 'paid', 'unpaid', 'refund', 'value', 'partnerFee', 'est', 'feeLines'];
 // Ai sua duoc gi: kho = trang thai, can, kien, ma van chuyen; tai chinh/sale/admin = them phi
 const CAN_EDIT = {
@@ -44,7 +46,7 @@ function list(role, opts = {}) {
   const d = open(); if (!d) return [];
   const where = []; const args = [];
   if (opts.status && STATUSES.includes(opts.status)) { where.push('status = ?'); args.push(opts.status); }
-  if (opts.active) where.push("status NOT IN ('DELIVERED','CANCELLED')");
+  if (opts.active) where.push("status NOT IN ('DELIVERED','CANCELLED','RETURN')");
   if (!opts.withTest) where.push('test = 0');
   const sql = 'SELECT * FROM cn_orders' + (where.length ? ' WHERE ' + where.join(' AND ') : '') + ' ORDER BY seq DESC LIMIT 1000';
   return d.prepare(sql).all(...args).map((r) => row(r, role));
@@ -69,6 +71,7 @@ function notifyChange(d, r, o, before, after, wbBefore) {
     if (after === 'CLEARED') msgs.push('Đơn ' + r.code + ' đã thông quan' + (o.wbCn ? '. Mã chuyển phát tại Trung Quốc: ' + o.wbCn : '') + '.');
     if (after === 'DELIVERED') msgs.push('Đơn ' + r.code + ' đã giao thành công.');
     if (after === 'CANCELLED') msgs.push('Đơn ' + r.code + ' đã bị huỷ. Liên hệ nhân viên nếu cần hỗ trợ.');
+    if (after === 'RETURN') msgs.push('Đơn ' + r.code + ' chuyển sang TRẢ HÀNG' + (o.returnReason ? ' (' + o.returnReason + ')' : '') + '. Anh/chị lấy hàng tại kho ' + (o.wh === 'HCM' ? 'TP.HCM' : 'Hà Nội') + ' trước ' + new Date(o.returnBy).toLocaleDateString('vi-VN') + ' (15 ngày), quá hạn sẽ tính phí lưu kho. Cước đã trả sẽ được hoàn về ví; phí lấy hàng / ship về do anh/chị chịu.');
   } else if (o.wbCn && o.wbCn !== wbBefore && after === 'CLEARED') msgs.push('Đơn ' + r.code + ' có thêm mã chuyển phát tại Trung Quốc: ' + o.wbCn + '.');
   for (const t of msgs) d.prepare('INSERT INTO notif (username, code, text) VALUES (?, ?, ?)').run(r.username, r.code, t);
 }
@@ -96,7 +99,7 @@ function findByScan(code) {
   if (!c) return null;
   let r = d.prepare('SELECT * FROM cn_orders WHERE upper(code) = ?').get(c);
   if (r) return r;
-  for (const x of d.prepare("SELECT * FROM cn_orders WHERE status NOT IN ('DELIVERED','CANCELLED') ORDER BY seq DESC LIMIT 3000").all()) {
+  for (const x of d.prepare("SELECT * FROM cn_orders WHERE status NOT IN ('DELIVERED','CANCELLED','RETURN') ORDER BY seq DESC LIMIT 3000").all()) {
     const o = JSON.parse(x.data);
     if (splitList(o.refTL).some((r) => normRef(r) === normRef(c)) || (o.wbs || []).includes(c) || splitList(o.wbCn).some((w) => w.toUpperCase() === c)) return x;
   }
@@ -171,11 +174,16 @@ function update(code, role, staff, b, meta) {
   if (!r) return { code: 404, error: 'Không tìm thấy đơn' };
   const o = JSON.parse(r.data); let status = LEGACY[r.status] || r.status; const before = status; const wbBefore = o.wbCn || '';
   const old = Object.assign({}, o, { status });
-  if (!meta.system) for (const k of Object.keys(b || {})) if (!allowed.includes(k)) return { code: 403, error: 'Không có quyền sửa: ' + k };
+  if (!meta.system) for (const k of Object.keys(b || {})) if (k !== 'returnReason' && !allowed.includes(k)) return { code: 403, error: 'Không có quyền sửa: ' + k };
   const now = new Date().toISOString(); const by = meta.byName || staff;
   if ('status' in b && b.status !== status) {
     if (!STATUSES.includes(b.status)) return { code: 400, error: 'Trạng thái không hợp lệ' };
     if (status === 'CANCELLED' && role !== 'admin') return { code: 409, error: 'Đơn đã huỷ' };
+    if (b.status === 'RETURN') {
+      if (!['VN_WAREHOUSE', 'TRANSPORTING'].includes(status) && role !== 'admin') return { code: 409, error: 'Chỉ chuyển Trả hàng khi hàng đang ở kho' };
+      const reason = str(b.returnReason || b.staffNote || '', 300); if (reason.length < 3) return { code: 400, error: 'Ghi lý do trả hàng (khách huỷ / hàng cấm / kho từ chối…)' };
+      o.returnReason = reason; o.returnBy = new Date(Date.now() + 15 * 86400e3).toISOString();
+    }
     status = b.status; o.ms = (o.ms || []).concat([{ t: now, s: status, by }]);
   }
   if ('w' in b) { const v = num(b.w, 100000); if (v === undefined) return { code: 400, error: 'Cân nặng không hợp lệ' }; o.w = v; o.nw = v; }
@@ -210,8 +218,9 @@ function update(code, role, staff, b, meta) {
     if (q.ok) { o.cw = q.cw; o.partnerFee = q.partner; o.fee = q.customer; o.feeLines = q.lines; o.feeManual = false; o.quoteNote = null; }
     else { o.cw = q.cw || null; o.quoteNote = q.reason; if (b.recalc) o.feeManual = false; }
   }
+  if ('paid' in b && (o.txns || []).length) return { code: 409, error: 'Đơn đã có giao dịch qua ví, không sửa tay số đã thanh toán. Dùng yêu cầu hoàn tiền / điều chỉnh.' };
   if ('paid' in b) { const v = num(b.paid, 1e11); if (v === undefined) return { code: 400, error: 'Số tiền đã thanh toán không hợp lệ' }; o.paid = v === null ? 0 : Math.round(v); }
-  o.unpaid = Math.max(0, (o.fee || 0) - (o.paid || 0));
+  o.unpaid = ['CANCELLED', 'RETURN'].includes(status) ? 0 : Math.max(0, (o.fee || 0) - (o.paid || 0));
   const trTxt = (x) => splitList(x.wbCn).map((c) => c + ((x.tracks || {})[c] ? ' (' + x.tracks[c] + ')' : '')).join(', ');
   old.tracksTxt = trTxt(old); o.tracksTxt = undefined;
   const now2 = Object.assign({}, o, { status, tracksTxt: trTxt(o) });
@@ -219,6 +228,10 @@ function update(code, role, staff, b, meta) {
   if (!changes.length && !meta.action) return { order: row(r, role) };
   notifyChange(d, r, o, before, status, wbBefore);
   d.prepare("UPDATE cn_orders SET status = ?, data = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE seq = ?").run(status, JSON.stringify(o), r.seq);
+  // Tra hang: tu tao yeu cau hoan cuoc da tra ve vi (cho anh duyet)
+  if (status === 'RETURN' && before !== 'RETURN' && (o.paid || 0) > 0 && r.gobiz) {
+    try { ledger.request(d, { kind: 'REFUND', owner: String(r.gobiz).toLowerCase(), amount: Math.round(o.paid), codes: [r.code], note: 'Tự tạo khi chuyển Trả hàng: ' + o.returnReason, by: 'he-thong' }); } catch (e) { console.error('auto refund request', e); }
+  }
   writeLog(d, code, meta.who || 'staff:' + staff, meta.action || 'Cập nhật', changes, meta.extra);
   return { order: row(d.prepare('SELECT * FROM cn_orders WHERE seq = ?').get(r.seq), role) };
 }
@@ -288,4 +301,5 @@ function create(staff, cust, b, ip) {
   } catch (e) { try { d.exec('ROLLBACK'); } catch {} throw e; }
 }
 
-module.exports = { create, companiesOf, uploadSave, uploadPath, uploadExists, list, counts, update, log, summary, scan, track, event, autoDeliver, missingOf, LABEL, STATUSES, CAN_EDIT };
+const fin = () => { const d = open(); if (!d) throw new Error('Chưa có dữ liệu trang khách'); return d; };
+module.exports = { fin, ledger, create, companiesOf, uploadSave, uploadPath, uploadExists, list, counts, update, log, summary, scan, track, event, autoDeliver, missingOf, LABEL, STATUSES, CAN_EDIT };
