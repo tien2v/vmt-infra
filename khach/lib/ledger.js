@@ -215,7 +215,7 @@ function decide(db, id, approve, by, dnote, test, bills) {
       db.prepare('UPDATE fin_requests SET bills = ? WHERE id = ?').run(JSON.stringify(bills), q.id);
     }
     if (!approve) {
-      if (q.kind === 'WITHDRAW') { const uu = db.prepare('SELECT username FROM users WHERE lower(gobiz) = ? LIMIT 1').get(q.owner); if (uu) notify(db, uu.username, null, 'Lệnh rút ' + vnd(q.amount) + ' chưa được duyệt' + (dnote ? ': ' + dnote : '') + '. Tiền vẫn nằm trong ví.'); }
+      if (q.kind === 'WITHDRAW') { const uu = db.prepare('SELECT username FROM users WHERE lower(gobiz) = ? LIMIT 1').get(q.owner); if (uu) notify(db, uu.username, null, 'Rút tiền không thành công: lệnh rút ' + vnd(q.amount) + ' đã bị huỷ' + (dnote ? ' (' + dnote + ')' : '') + '. Tiền đã mở lại trong ví, dùng bình thường.'); }
       db.prepare("UPDATE fin_requests SET status = 'rejected', decided_by = ?, decided_at = ?, decide_note = ? WHERE id = ? AND status = 'pending'").run(by, nowIso(), dnote || null, q.id);
       wlog(db, q.owner, by, 'Từ chối yêu cầu #' + q.id, { note: dnote }); return { ok: true };
     }
@@ -239,7 +239,7 @@ function decide(db, id, approve, by, dnote, test, bills) {
     } else {
       const u = db.prepare('SELECT username FROM cn_orders WHERE lower(gobiz) = ? ORDER BY seq DESC LIMIT 1').get(q.owner);
       const uu = u || db.prepare('SELECT username FROM users WHERE lower(gobiz) = ? LIMIT 1').get(q.owner);
-      if (uu) notify(db, uu.username, null, q.kind === 'WITHDRAW' ? 'Đã chuyển khoản ' + vnd(q.amount) + ' cho lệnh rút của anh/chị (mã ' + p.txn + '). Bill chuyển khoản xem trong Ví của tôi.' : (q.amount > 0 ? 'Ví được cộng ' : 'Ví bị trừ ') + vnd(Math.abs(q.amount)) + ' (' + KIND[q.kind] + '). Mã giao dịch ' + p.txn + '.');
+      if (uu) notify(db, uu.username, null, q.kind === 'WITHDRAW' ? 'Rút tiền thành công: ' + vnd(q.amount) + ' đã chuyển về tài khoản của anh/chị (mã ' + p.txn + '). Bill chuyển khoản xem trong Ví của tôi.' : (q.amount > 0 ? 'Ví được cộng ' : 'Ví bị trừ ') + vnd(Math.abs(q.amount)) + ' (' + KIND[q.kind] + '). Mã giao dịch ' + p.txn + '.');
     }
     wlog(db, q.owner, by, 'Duyệt yêu cầu #' + q.id, { txn: p.txn });
     return { ok: true, txn: p.txn, balance: p.balance };
