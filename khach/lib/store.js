@@ -172,5 +172,6 @@ function notifList(username) { return db.prepare('SELECT id, code, text, read, c
 function notifRead(username) { db.prepare('UPDATE notif SET read = 1 WHERE username = ? AND read = 0').run(username); }
 function rawDb() { return db; }
 // Tai khoan nhan nap tien do admin cai (doc tu DB admin, chi doc)
+function adminKv(k) { const a = adminDb(); if (!a) return null; try { const r = a.prepare('SELECT v FROM kv WHERE k = ?').get(k); return r ? r.v : null; } catch (e) { return null; } }
 function depositAccounts() { const a = adminDb(); if (!a) return []; try { const r = a.prepare("SELECT v FROM kv WHERE k = 'deposit_accounts'").get(); return r ? JSON.parse(r.v).filter((x) => x.active) : []; } catch (e) { return []; } }
-module.exports = { depositAccounts, rawDb, uploadSave, uploadCanSee, uploadPath, coList, coGet, coSave, coDelete, notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };
+module.exports = { adminKv, depositAccounts, rawDb, uploadSave, uploadCanSee, uploadPath, coList, coGet, coSave, coDelete, notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };

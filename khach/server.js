@@ -205,15 +205,19 @@ async function handle(req, res) {
     if (!isTest) return json(req, res, 403, { error: 'Ví mới đang chạy thử, chưa mở cho tài khoản này' });
     const db = store.rawDb(), o = owner(user);
     if (p === '/api/wallet' && req.method === 'GET') {
-      const code = ledger.codeOf(db, o, gobizNames()); const Q = require('./lib/vietqr');
-      const accounts = store.depositAccounts().map((x) => ({ id: x.id, label: x.label, bankName: (Q.BANKS[x.bank] || [])[1] || x.bank, acct: x.acct, holder: x.holder, qr: Q.payload(x.bank, x.acct, 0, code) }));
-      return json(req, res, 200, { code, accounts, wallet: ledger.walletView(db, o), hasPin: ledger.hasPin(db, o), txns: ledger.txnsOf(db, o, 100) });
+      const code = ledger.codeOf(db, o, gobizNames());
+      return json(req, res, 200, { code, canTopup: store.depositAccounts().length > 0, wallet: ledger.walletView(db, o), hasPin: ledger.hasPin(db, o), txns: ledger.txnsOf(db, o, 100) });
     }
+    // QR nap tien: phai nhap so tien truoc; tai khoan nhan chon theo so tien + gio (luat giong Gobiz)
     if (p === '/api/wallet/qr' && req.method === 'GET') {
-      const code = ledger.codeOf(db, o, gobizNames()); const Q = require('./lib/vietqr');
-      const x = store.depositAccounts().find((a) => a.id === url.searchParams.get('acc')); if (!x) return json(req, res, 404, { error: 'Không có tài khoản này' });
-      const amt = Math.round(Number(url.searchParams.get('amount') || 0)); if (amt && !(amt >= 10000 && amt <= 5e9)) return json(req, res, 400, { error: 'Số tiền từ 10.000đ' });
-      return json(req, res, 200, { qr: Q.payload(x.bank, x.acct, amt || 0, code) });
+      const code = ledger.codeOf(db, o, gobizNames()); const Q = require('./lib/vietqr'); const R = require('./lib/depositrule');
+      let flags = {}; try { flags = JSON.parse(store.adminKv('deposit_flags') || '{}'); } catch (e) {}
+      const amt = Math.round(Number(url.searchParams.get('amount') || 0));
+      if (amt > 5e9) return json(req, res, 400, { error: 'Số tiền quá lớn' });
+      const r = R.pick(amt, code, flags, store.depositAccounts());
+      if (r.error) return json(req, res, 400, { error: r.error });
+      const x = r.account;
+      return json(req, res, 200, { qr: Q.payload(x.bank, x.acct, amt, code), amount: amt, code, bankName: (Q.BANKS[x.bank] || [])[1] || x.bank, acct: x.acct, holder: x.holder, validUntil: r.validUntil });
     }
     if (req.method !== 'POST' || !sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
     let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }

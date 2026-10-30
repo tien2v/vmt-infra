@@ -299,12 +299,16 @@ async function handle(req, res) {
     return json(req, res, 404, { error: 'not found' });
   }
   // ---- n8n (ky RSA) day giao dich ngan hang vao vi moi / tao yeu cau nap tay (van can anh duyet) ----
-  if ((p === '/api/fin/deposits' || p === '/api/fin/claude-request') && req.method === 'POST') {
+  if ((p === '/api/fin/deposits' || p === '/api/fin/claude-request' || p === '/api/fin/deposit-flags') && req.method === 'POST') {
     let body; try { body = await readBody(req, 500000); } catch { return json(req, res, 400, { error: 'body' }); }
     const ts = Number(req.headers['x-ts']); const sig = String(req.headers['x-sig'] || '');
     if (!ts || Math.abs(Date.now() - ts) > 15 * 60e3) return json(req, res, 401, { error: 'ts' });
     if (!(sig && crypto.verify('RSA-SHA256', Buffer.concat([Buffer.from(ts + '.'), body]), PUBKEY, Buffer.from(sig, 'base64')))) return json(req, res, 401, { error: 'sig' });
     let b; try { b = JSON.parse(body.toString('utf8')); } catch { return json(req, res, 400, { error: 'json' }); }
+    if (p === '/api/fin/deposit-flags') { // co bat/tat Cuong (MC), Cao (L8) do luong Gobiz tinh theo so du vi
+      const f = { MC: b.MC === 'tat' ? 'tat' : 'bat', L8: b.L8 === 'tat' ? 'tat' : 'bat', at: new Date().toISOString(), src: String(b.src || '').slice(0, 80) };
+      store.kvSet('deposit_flags', JSON.stringify(f)); return json(req, res, 200, { ok: true, flags: f });
+    }
     const db = cn.fin(), L = cn.ledger;
     if (p === '/api/fin/claude-request') {
       const owner = String(b.owner || '').toLowerCase();
