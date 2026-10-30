@@ -1,0 +1,255 @@
+
+        <style>
+          .kh-own{align-items:end}@media (min-width:640px){.kh-own{grid-template-columns:1fr 1fr 1.4fr auto}.sm\:max-w-2xl{max-width:42rem}}
+          .max-w-\[9rem\]{max-width:9rem}.max-w-\[11rem\]{max-width:11rem}.max-w-\[13rem\]{max-width:13rem}.gap-1\.5{gap:.375rem}.whitespace-pre-line{white-space:pre-line}
+          .dark .dark\:bg-accent\/15{background-color:color-mix(in oklab,var(--color-accent) 15%,transparent)}
+        </style>
+        <!-- ===== KHACH HANG (ban Sale / CSKH) ===== -->
+        <section x-show="page==='kh'" style="display:none">
+          <div class="flex flex-wrap items-end justify-between gap-3 py-5 lg:py-6">
+            <div class="min-w-0">
+              <h2 class="text-xl font-medium text-slate-800 dark:text-navy-50 lg:text-2xl">Khách hàng</h2>
+              <p class="mt-1 text-xs-plus text-slate-400 dark:text-navy-300"><span x-text="(kh.total||0).toLocaleString('vi-VN')"></span> khách đang lọc · tổng <span x-text="(kh.all||0).toLocaleString('vi-VN')"></span><span x-show="!kh.full"> · đang chờ đồng bộ đủ danh sách khách từ Gobiz (tạm hiện khách có đơn 30 ngày)</span></p>
+            </div>
+            <button @click="khLoad()" class="btn space-x-2 rounded-full border border-slate-300 font-medium text-slate-800 hover:bg-slate-150 dark:border-navy-450 dark:text-navy-50 dark:hover:bg-navy-500"><i class="fa-solid fa-rotate" :class="khBusy ? 'animate-spin' : ''"></i><span>Làm mới</span></button>
+          </div>
+
+          <div class="card">
+            <!-- Nhom cham soc -->
+            <div class="is-scrollbar-hidden overflow-x-auto rounded-t-lg border-b border-slate-150 dark:border-navy-500">
+              <div class="tabs-list flex px-2">
+                <template x-for="s in khSegs()" :key="s[0]">
+                  <button @click="khSet('seg', s[0])" :title="khSegTip(s[0])" class="btn shrink-0 space-x-2 rounded-none border-b-2 px-3 py-2.5 font-medium"
+                    :class="khF.seg===s[0] ? 'border-primary text-primary dark:border-accent dark:text-accent-light' : 'border-transparent hover:text-slate-800 dark:hover:text-navy-100'">
+                    <span x-text="s[1]"></span>
+                    <span class="badge rounded-full px-1.5 py-0.5 text-tiny" :class="s[0]==='due' && (kh.counts||{}).due ? 'bg-error text-white' : 'bg-slate-150 text-slate-800 dark:bg-navy-500 dark:text-navy-100'" x-text="((kh.counts||{})[s[0]]||0).toLocaleString('vi-VN')"></span>
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <!-- Bo loc -->
+            <div class="grid gap-3 p-4 sm:grid-cols-2 sm:px-5 lg:grid-cols-4">
+              <label class="relative flex sm:col-span-2 lg:col-span-1">
+                <input x-model="khF.q" @input.debounce.350ms="khF.p=1; khLoad()" class="form-input peer w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 pl-9 placeholder:text-slate-400/70 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:hover:border-navy-400 dark:focus:border-accent" placeholder="Username, mã KH, tên, SĐT, email, nhãn..." type="text" />
+                <span class="pointer-events-none absolute flex h-full w-10 items-center justify-center text-slate-400 peer-focus:text-primary dark:text-navy-300"><i class="fa-solid fa-magnifying-glass text-xs"></i></span>
+              </label>
+              <select :value="khF.grp" @change="khSet('grp', $event.target.value)" class="form-select w-full rounded-lg border border-slate-300 bg-white px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:bg-navy-700">
+                <option value="">Tất cả nhóm / brand</option>
+                <template x-for="g in (kh.groups||[])" :key="g"><option :value="g" x-text="khGrp(g)"></option></template>
+              </select>
+              <select :value="khF.owner" @change="khSet('owner', $event.target.value)" class="form-select w-full rounded-lg border border-slate-300 bg-white px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:bg-navy-700">
+                <option value="">Mọi người phụ trách</option><option value="-">Chưa ai phụ trách</option>
+                <template x-for="s in (kh.staff||[])" :key="s.u"><option :value="s.u" x-text="s.n"></option></template>
+              </select>
+              <select :value="khF.sort" @change="khSet('sort', $event.target.value)" class="form-select w-full rounded-lg border border-slate-300 bg-white px-3 py-2 hover:border-slate-400 focus:border-primary dark:border-navy-450 dark:bg-navy-700">
+                <template x-for="s in khSorts()" :key="s[0]"><option :value="s[0]" x-text="'Xếp: ' + s[1]"></option></template>
+              </select>
+            </div>
+            <p x-show="khErr" class="px-5 pb-3 text-error" x-text="khErr"></p>
+
+            <!-- Bang (may tinh) -->
+            <div class="is-scrollbar-hidden hidden min-w-full overflow-x-auto sm:block">
+              <table class="is-hoverable w-full text-left">
+                <thead><tr>
+                  <th class="vmt-th">Khách hàng</th><th class="vmt-th">Liên hệ</th><th class="vmt-th">Nhóm</th><th class="vmt-th">Đơn gần nhất</th>
+                  <th class="vmt-th text-center">Đơn 90 ngày</th><th x-show="money()" class="vmt-th text-right">Chi tiêu 90 ngày</th><th x-show="money()" class="vmt-th text-right">Số dư / Còn thiếu</th>
+                  <th class="vmt-th">Phụ trách</th><th class="vmt-th">Chăm sóc</th><th class="vmt-th"></th>
+                </tr></thead>
+                <tbody>
+                  <template x-for="c in kh.rows" :key="c.k">
+                    <tr class="cursor-pointer border-y border-transparent border-b-slate-200 dark:border-b-navy-500" @click="khOpen(c.u)">
+                      <td class="vmt-td">
+                        <div class="flex items-center space-x-3">
+                          <div class="avatar size-9 shrink-0"><div class="is-initial rounded-full bg-info/10 text-xs uppercase text-info" x-text="(c.fn||c.u||'?').trim().split(/\s+/).pop().slice(0,2)"></div></div>
+                          <div class="min-w-0">
+                            <p class="font-medium text-slate-700 dark:text-navy-100"><span x-text="c.u"></span> <span x-show="c.isNew" class="badge ml-1 rounded-full bg-info/10 px-1.5 py-0.5 text-tiny text-info">Mới</span></p>
+                            <p class="max-w-[13rem] truncate text-xs text-slate-400 dark:text-navy-300" x-text="[c.code, c.fn].filter(Boolean).join(' · ')"></p>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="vmt-td"><p class="text-slate-700 dark:text-navy-100" x-text="c.ph || '—'"></p><p class="max-w-[11rem] truncate text-xs text-slate-400 dark:text-navy-300" x-text="c.em || ''"></p></td>
+                      <td class="vmt-td"><span x-text="khGrp(c.grp)"></span><p x-show="c.tags" class="max-w-[9rem] truncate text-xs text-secondary" x-text="c.tags"></p></td>
+                      <td class="vmt-td">
+                        <p class="font-medium" x-text="c.last ? c.last.slice(0,10) : '—'"></p>
+                        <p class="text-xs" :class="c.seg==='lost' ? 'text-error' : c.seg==='risk' ? 'text-warning' : 'text-slate-400 dark:text-navy-300'" x-text="c.last ? khAgo(c.age) : 'Chưa lên đơn'"></p>
+                      </td>
+                      <td class="vmt-td text-center"><p class="font-medium text-slate-700 dark:text-navy-100" x-text="khN90(c)"></p><p class="text-xs text-slate-400 dark:text-navy-300" x-text="(c.o90||0)+' order · '+(c.s90||0)+' KG · '+(c.p90||0)+' TTH'"></p></td>
+                      <td x-show="money()" class="vmt-td text-right" x-text="vnd(c.v90||0)"></td>
+                      <td x-show="money()" class="vmt-td text-right"><p :class="(c.bal||0)<0 ? 'text-error font-medium' : ''" x-text="vnd(c.bal||0)"></p><p x-show="(c.unpaid||0)>0" class="text-xs text-error" x-text="'Thiếu ' + vnd(c.unpaid)"></p></td>
+                      <td class="vmt-td text-xs"><p x-show="c.sale" x-text="'Sale: ' + khStaff(c.sale)"></p><p x-show="c.cskh" x-text="'CSKH: ' + khStaff(c.cskh)"></p><p x-show="!c.sale && !c.cskh" class="text-slate-400">—</p></td>
+                      <td class="vmt-td text-xs">
+                        <p x-show="c.remind" :class="khDue(c.remind) ? 'font-medium text-error' : 'text-slate-600 dark:text-navy-100'"><i class="fa-regular fa-bell mr-1"></i><span x-text="c.remind"></span></p>
+                        <p class="text-slate-400 dark:text-navy-300" x-text="c.nNote ? c.nNote + ' ghi chú · ' + String(c.lastNote||'').slice(0,10) : 'Chưa chăm sóc'"></p>
+                      </td>
+                      <td class="vmt-td"><i class="fa-solid fa-chevron-right text-xs text-slate-400"></i></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Dien thoai: the -->
+            <div class="divide-y divide-slate-150 dark:divide-navy-500 sm:hidden">
+              <template x-for="c in kh.rows" :key="'m'+c.k">
+                <button @click="khOpen(c.u)" class="flex w-full space-x-3 px-4 py-3 text-left active:bg-slate-100 dark:active:bg-navy-600">
+                  <div class="avatar size-10 shrink-0"><div class="is-initial rounded-full bg-info/10 text-xs uppercase text-info" x-text="(c.fn||c.u||'?').trim().split(/\s+/).pop().slice(0,2)"></div></div>
+                  <div class="min-w-0 grow">
+                    <div class="flex items-start justify-between space-x-2">
+                      <p class="truncate font-medium text-slate-700 dark:text-navy-100" x-text="c.u + (c.fn ? ' · ' + c.fn : '')"></p>
+                      <span x-show="c.remind" class="shrink-0 text-xs" :class="khDue(c.remind) ? 'font-medium text-error' : 'text-slate-400'"><i class="fa-regular fa-bell"></i> <span x-text="c.remind && c.remind.slice(5,10)"></span></span>
+                    </div>
+                    <p class="truncate text-xs text-slate-500 dark:text-navy-200" x-text="[c.code, c.ph, khGrp(c.grp)].filter(Boolean).join(' · ')"></p>
+                    <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                      <span :class="c.seg==='lost' ? 'text-error' : c.seg==='risk' ? 'text-warning' : 'text-slate-400'" x-text="c.last ? 'Đơn ' + khAgo(c.age) : 'Chưa lên đơn'"></span>
+                      <span x-text="khN90(c) + ' đơn/90 ngày'"></span>
+                      <span x-show="money() && (c.unpaid||0)>0" class="font-medium text-error" x-text="'Thiếu ' + vnd(c.unpaid)"></span>
+                    </div>
+                  </div>
+                </button>
+              </template>
+            </div>
+            <div x-show="!kh.rows.length && !khBusy" class="flex flex-col items-center py-14 text-slate-400"><i class="fa-solid fa-users-slash text-3xl"></i><p class="mt-2">Không có khách phù hợp</p></div>
+
+            <!-- Phan trang -->
+            <div class="flex flex-col justify-between space-y-3 px-4 py-4 sm:flex-row sm:items-center sm:space-y-0 sm:px-5">
+              <div class="flex items-center space-x-2 text-xs-plus">
+                <span>Hiển thị</span>
+                <select :value="khF.size" @change="khF.size=Number($event.target.value); khF.p=1; khLoad()" class="form-select rounded-full border border-slate-300 bg-white px-2 py-1 pr-6 dark:border-navy-450 dark:bg-navy-700"><option value="25">25</option><option value="50">50</option><option value="100">100</option></select>
+                <span>khách / trang</span>
+              </div>
+              <div class="flex items-center space-x-2">
+                <button @click="khGo(khF.p-1)" :disabled="khF.p<=1" class="btn size-8 rounded-full bg-slate-150 p-0 disabled:opacity-40 dark:bg-navy-500"><i class="fa-solid fa-chevron-left text-xs"></i></button>
+                <span class="text-xs-plus" x-text="'Trang ' + khF.p + ' / ' + khPages()"></span>
+                <button @click="khGo(khF.p+1)" :disabled="khF.p>=khPages()" class="btn size-8 rounded-full bg-slate-150 p-0 disabled:opacity-40 dark:bg-navy-500"><i class="fa-solid fa-chevron-right text-xs"></i></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Ngan chi tiet khach -->
+          <div x-show="khShow" @keydown.window.escape="khShow=false" style="display:none">
+            <div class="fixed inset-0 z-[100] bg-slate-900/60" @click="khShow=false"></div>
+            <div class="fixed right-0 top-0 z-[101] flex h-full w-full flex-col bg-white dark:bg-navy-700 sm:max-w-2xl">
+              <div x-show="!khD" class="flex grow items-center justify-center text-slate-400"><span x-text="khMsg || 'Đang tải...'"></span></div>
+              <template x-if="khD">
+                <div class="flex h-full flex-col">
+                  <div class="flex items-start justify-between space-x-3 border-b border-slate-150 px-4 py-3 dark:border-navy-600 sm:px-5">
+                    <div class="min-w-0">
+                      <p class="text-xs text-slate-400" x-text="'Khách hàng · ' + khGrp(khD.c.grp)"></p>
+                      <div class="mt-0.5 flex flex-wrap items-center gap-2">
+                        <h3 class="text-lg font-semibold text-slate-700 dark:text-navy-100" x-text="khD.c.u"></h3>
+                        <template x-if="khBadge(khD.c)"><div class="badge rounded-full" :class="khBadge(khD.c).cls" x-text="khBadge(khD.c).t"></div></template>
+                        <span x-show="khD.c.st && khD.c.st!=='ACTIVE'" class="badge rounded-full bg-error/10 text-error" x-text="khD.c.st"></span>
+                      </div>
+                      <p class="text-xs-plus text-slate-500 dark:text-navy-200" x-text="[khD.c.code, khD.c.fn].filter(Boolean).join(' · ')"></p>
+                    </div>
+                    <button @click="khShow=false" class="btn -mr-1.5 size-8 shrink-0 rounded-full p-0 hover:bg-slate-300/20"><i class="fa-solid fa-xmark text-lg"></i></button>
+                  </div>
+
+                  <div class="grow overflow-y-auto px-4 pb-6 sm:px-5">
+                    <!-- Lien he nhanh -->
+                    <div class="mt-4 flex flex-wrap gap-2">
+                      <a x-show="khD.c.ph" :href="'tel:' + khPh(khD.c.ph)" class="btn space-x-2 rounded-full bg-success/10 px-3 py-1.5 text-xs-plus font-medium text-success"><i class="fa-solid fa-phone"></i><span x-text="khD.c.ph"></span></a>
+                      <a x-show="khZalo(khD.c.ph)" :href="khZalo(khD.c.ph)" target="_blank" rel="noopener" class="btn space-x-2 rounded-full bg-info/10 px-3 py-1.5 text-xs-plus font-medium text-info"><i class="fa-solid fa-comment-dots"></i><span>Zalo</span></a>
+                      <a x-show="khD.c.em" :href="'mailto:' + khD.c.em" class="btn space-x-2 rounded-full bg-slate-150 px-3 py-1.5 text-xs-plus font-medium text-slate-700 dark:bg-navy-500 dark:text-navy-100"><i class="fa-solid fa-envelope"></i><span class="max-w-[12rem] truncate" x-text="khD.c.em"></span></a>
+                    </div>
+
+                    <!-- So lieu -->
+                    <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <div class="vmt-stat"><p>Đơn gần nhất</p><b x-text="khD.c.last ? khAgo(khD.c.age) : 'Chưa có'"></b></div>
+                      <div class="vmt-stat"><p>Đơn 90 ngày</p><b x-text="khN90(khD.c)"></b></div>
+                      <div class="vmt-stat" x-show="money()"><p>Chi tiêu 90 ngày</p><b x-text="vnd(khD.c.v90||0)"></b></div>
+                      <div class="vmt-stat" x-show="money()"><p>Số dư Gobiz</p><b :class="(khD.c.bal||0)<0 ? 'text-error' : ''" x-text="vnd(khD.c.bal||0)"></b></div>
+                      <div class="vmt-stat"><p>Tổng đơn từ trước</p><b x-text="(khD.c.o_n||0)+' / '+(khD.c.s_n||0)+' / '+(khD.c.p_n||0)"></b><p class="text-tiny">order / ký gửi / TTH</p></div>
+                      <div class="vmt-stat"><p>Khách từ</p><b x-text="(khD.c.ca||'—').slice(0,10)"></b></div>
+                      <div class="vmt-stat" x-show="money()"><p>Còn thiếu</p><b :class="(khD.c.unpaid||0)>0 ? 'text-error' : ''" x-text="vnd(khD.c.unpaid||0)"></b></div>
+                      <div class="vmt-stat" x-show="money()"><p>Ví mới</p><b x-text="khD.wallet ? vnd(khD.wallet.balance) : 'Chưa dùng'"></b></div>
+                    </div>
+                    <p x-show="khD.c.snote" class="mt-3 rounded-lg bg-warning/10 p-2.5 text-xs-plus text-warning"><i class="fa-solid fa-note-sticky mr-1"></i>Ghi chú Gobiz: <span x-text="khD.c.snote"></span></p>
+
+                    <!-- Phu trach -->
+                    <div class="mt-4 grid gap-2 rounded-lg border border-slate-150 p-3 dark:border-navy-500 kh-own">
+                      <label class="text-xs">Sale phụ trách
+                        <select x-model="khO.sale" :disabled="!khD.canEdit" class="form-select mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 dark:border-navy-450 dark:bg-navy-700"><option value="">—</option><template x-for="s in khD.staff" :key="s.u"><option :value="s.u" x-text="s.n" :selected="khO.sale===s.u"></option></template></select></label>
+                      <label class="text-xs">CSKH phụ trách
+                        <select x-model="khO.cskh" :disabled="!khD.canEdit" class="form-select mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 dark:border-navy-450 dark:bg-navy-700"><option value="">—</option><template x-for="s in khD.staff" :key="s.u"><option :value="s.u" x-text="s.n" :selected="khO.cskh===s.u"></option></template></select></label>
+                      <label class="text-xs">Nhãn (cách nhau dấu phẩy)
+                        <input x-model="khO.tags" :disabled="!khD.canEdit" class="form-input mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-2 py-1.5 dark:border-navy-450" placeholder="vd: khách sỉ, hàng may mặc" /></label>
+                      <button x-show="khD.canEdit" @click="khSaveOwner()" :disabled="khBusy" class="btn h-9 rounded-lg bg-primary px-4 font-medium text-white disabled:opacity-60 dark:bg-accent">Lưu</button>
+                    </div>
+                    <p x-show="khMsg" class="mt-2 text-xs-plus" :class="/Đã/.test(khMsg) ? 'text-success' : 'text-error'" x-text="khMsg"></p>
+
+                    <!-- Tabs -->
+                    <div class="is-scrollbar-hidden mt-4 overflow-x-auto border-b-2 border-slate-150 dark:border-navy-500">
+                      <div class="tabs-list -mb-0.5 flex">
+                        <template x-for="t in [['care','Chăm sóc ('+khD.notes.length+')'],['orders','Đơn 30 ngày ('+khD.orders.length+')'],['log','Lịch sử thao tác']]" :key="t[0]">
+                          <button @click="khTab=t[0]" class="btn shrink-0 rounded-none border-b-2 px-3 py-2 font-medium" :class="khTab===t[0] ? 'border-primary text-primary dark:border-accent dark:text-accent-light' : 'border-transparent'" x-text="t[1]"></button>
+                        </template>
+                      </div>
+                    </div>
+
+                    <!-- Tab cham soc -->
+                    <div x-show="khTab==='care'" class="mt-3 space-y-3">
+                      <div x-show="khD.canEdit" class="rounded-lg border border-slate-150 p-3 dark:border-navy-500">
+                        <div class="flex flex-wrap gap-1.5">
+                          <template x-for="k in khKinds()" :key="k[0]">
+                            <button @click="khN.kind=k[0]" class="btn space-x-1.5 rounded-full px-2.5 py-1 text-xs" :class="khN.kind===k[0] ? 'bg-primary text-white dark:bg-accent' : 'bg-slate-150 text-slate-700 dark:bg-navy-500 dark:text-navy-100'"><i class="fa-solid" :class="k[2]"></i><span x-text="k[1]"></span></button>
+                          </template>
+                        </div>
+                        <textarea x-model="khN.text" rows="3" class="form-textarea mt-2 w-full rounded-lg border border-slate-300 bg-transparent p-2.5 text-xs-plus dark:border-navy-450" placeholder="Nội dung trao đổi với khách, nhu cầu, hẹn gì..."></textarea>
+                        <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
+                          <label class="flex items-center space-x-2 text-xs"><span>Nhắc lại ngày</span><input type="date" x-model="khN.remind" class="form-input rounded-lg border border-slate-300 bg-transparent px-2 py-1 dark:border-navy-450" /></label>
+                          <button @click="khAddNote()" :disabled="khBusy" class="btn rounded-lg bg-primary px-4 py-1.5 font-medium text-white disabled:opacity-60 dark:bg-accent">Lưu ghi chú</button>
+                        </div>
+                      </div>
+                      <template x-for="n in khD.notes" :key="n.id">
+                        <div class="flex space-x-3 rounded-lg border border-slate-150 p-3 dark:border-navy-500">
+                          <div class="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary dark:bg-accent/15 dark:text-accent-light"><i class="fa-solid text-xs" :class="khKind(n.kind)[2]"></i></div>
+                          <div class="min-w-0 grow text-xs-plus">
+                            <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 dark:text-navy-300">
+                              <span><b class="text-slate-600 dark:text-navy-100" x-text="khKind(n.kind)[1]"></b> · <span x-text="khStaff(n.by)"></span> · <span x-text="String(n.ts).slice(0,16)"></span></span>
+                              <span x-show="n.remind" :class="n.done ? 'text-success' : khDue(n.remind) ? 'font-medium text-error' : ''"><i class="fa-regular fa-bell"></i> <span x-text="n.remind"></span><span x-show="n.done"> · xong</span></span>
+                            </div>
+                            <p class="mt-1 whitespace-pre-line text-slate-700 dark:text-navy-100" x-text="n.text"></p>
+                            <button x-show="khD.canEdit && n.remind && !n.done" @click="khDone(n.id)" class="btn mt-1.5 rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">Đã xong việc nhắc</button>
+                          </div>
+                        </div>
+                      </template>
+                      <p x-show="!khD.notes.length" class="py-6 text-center text-slate-400">Chưa có ghi chú chăm sóc</p>
+                    </div>
+
+                    <!-- Tab don 30 ngay -->
+                    <div x-show="khTab==='orders'" class="mt-3 divide-y divide-slate-150 dark:divide-navy-500">
+                      <template x-for="x in khD.orders" :key="x.t + x.code">
+                        <button @click="khGoOrder(x)" class="flex w-full items-center space-x-3 py-2.5 text-left">
+                          <img x-show="x.t!=='peer'" class="size-10 shrink-0 rounded-lg object-cover" :src="x.img || '/assets/images/placeholder.svg'" @error="noImg($event)" loading="lazy" alt="" />
+                          <span x-show="x.t==='peer'" class="shrink-0" x-html="peerLogo(x.ppt)"></span>
+                          <div class="min-w-0 grow">
+                            <div class="flex items-center justify-between gap-2">
+                              <p class="truncate font-medium text-slate-700 dark:text-navy-100" x-text="x.t==='ship' && x.wb ? x.wb : x.code"></p>
+                              <div class="badge shrink-0 rounded-full px-2 py-0.5 text-tiny" :class="stClass(x.t, x.st)" x-text="stLabel(x.t, x.st)"></div>
+                            </div>
+                            <p class="truncate text-xs text-slate-400 dark:text-navy-300" x-text="[{order:'Order',ship:'Ký gửi',peer:'Thanh toán hộ'}[x.t], x.t==='ship' && x.wb ? x.code : null, x.shop, x.bn, x.cny ? cny(x.cny) : null, money() && x.v ? vnd(x.v) : null, x.kg ? num(x.kg,' kg') : null, String(x.ca||'').slice(0,10)].filter(Boolean).join(' · ')"></p>
+                          </div>
+                          <span x-show="money() && x.unpaid>0" class="shrink-0 text-xs font-medium text-error" x-text="'Thiếu ' + vnd(x.unpaid)"></span>
+                        </button>
+                      </template>
+                      <p x-show="!khD.orders.length" class="py-6 text-center text-slate-400">Không có đơn trong 30 ngày</p>
+                    </div>
+
+                    <!-- Tab lich su -->
+                    <div x-show="khTab==='log'" class="mt-3 space-y-1 text-xs-plus">
+                      <template x-for="l in khD.log" :key="l.id">
+                        <div class="flex justify-between gap-3 border-b border-slate-150 py-2 dark:border-navy-500">
+                          <span><b x-text="khStaff(l.by)"></b> · <span x-text="l.action"></span> <span class="text-slate-400" x-text="khLogText(l)"></span></span>
+                          <span class="shrink-0 text-xs text-slate-400" x-text="String(l.ts).slice(0,16)"></span>
+                        </div>
+                      </template>
+                      <p x-show="!khD.log.length" class="py-6 text-center text-slate-400">Chưa có thao tác</p>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </section>

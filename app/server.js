@@ -236,15 +236,15 @@ function vmtJs() {
 }
 function appHtml() {
   try {
-    const f = path.join(PUBLIC, 'app.html'), sec = path.join(__dirname, 'ext', 'cn-section.html');
-    const key = fs.statSync(f).mtimeMs + ':' + fs.statSync(sec).mtimeMs;
+    const f = path.join(PUBLIC, 'app.html'), sec = path.join(__dirname, 'ext', 'cn-section.html'), ksec = path.join(__dirname, 'ext', 'kh-section.html');
+    const key = fs.statSync(f).mtimeMs + ':' + fs.statSync(sec).mtimeMs + ':' + fs.statSync(ksec).mtimeMs;
     if (appCache.key === key) return appCache.html;
     let h = fs.readFileSync(f, 'utf8');
     const a = "load('/assets/vmt.js')";
     const m = '      </main>\n\n      <!-- ============ DRAWER';
     if (h.includes(a) && h.includes(m)) {
-      h = h.replace(a, "load('/assets/vmt.js').then(function () { return load('/ext/cn-admin.js'); })");
-      h = h.replace(m, fs.readFileSync(sec, 'utf8') + m);
+      h = h.replace(a, "load('/assets/vmt.js').then(function () { return load('/ext/cn-admin.js'); }).then(function () { return load('/ext/kh-admin.js'); })");
+      h = h.replace(m, fs.readFileSync(sec, 'utf8') + fs.readFileSync(ksec, 'utf8') + m);
     } else { console.error('cn-admin: khong tim thay cho chen trong app.html'); h = null; }
     if (h) h = noDebt(h);
     appCache = { key, html: h ? Buffer.from(h) : null };
@@ -588,6 +588,10 @@ async function handle(req, res) {
     return json(req, res, 200, { ok: true, order: r.order });
   }
 
+  if (p === '/ext/kh-admin.js') {
+    if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });
+    return fs.readFile(path.join(__dirname, 'ext', 'kh-admin.js'), (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'text/javascript; charset=utf-8' }));
+  }
   if (p === '/ext/cn-admin.js') {
     if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });
     return fs.readFile(path.join(__dirname, 'ext', 'cn-admin.js'), (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'text/javascript; charset=utf-8' }));

@@ -45,7 +45,7 @@
 
   const MENU = { t: 'Ship to China', p: 'cn', i: 'fa-plane-departure' };
   const MENU_SCAN = { t: 'Quét mã Ship to China', p: 'cnscan', i: 'fa-barcode' };
-  const MENU_WAL = { t: 'Ví khách (mới)', p: 'cnwal', i: 'fa-wallet' };
+  const MENU_WAL = { t: 'Ví khách & nạp tiền', p: 'cnwal', i: 'fa-wallet' };
 
   function extend(o) {
     const origInit = o.init;
@@ -62,7 +62,7 @@
           const i = d.menu.findIndex((m) => m.p === 'ship');
           const item = Object.assign({}, MENU);
           if (i >= 0) d.menu.splice(i + 1, 0, item); else d.menu.push(item);
-          if (d.id !== 'kho' && !d.menu.some((m) => m.p === 'cnwal')) { const k = d.menu.findIndex((m) => m.p === 'cn'); d.menu.splice(k + 1, 0, Object.assign({}, MENU_WAL)); }
+          if (d.id === 'tc' && !d.menu.some((m) => m.p === 'cnwal')) { const k = d.menu.findIndex((m) => m.p === 'cn'); d.menu.splice(k + 1, 0, Object.assign({}, MENU_WAL)); }
           if (d.id === 'kho') { const j = d.menu.findIndex((m) => m.p === 'kho'); d.menu.splice(j >= 0 ? j + 1 : 0, 0, Object.assign({}, MENU_SCAN)); }
         }
         if (origInit) origInit.call(this);

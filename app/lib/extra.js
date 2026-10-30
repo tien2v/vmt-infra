@@ -16,10 +16,10 @@ function init(dataDir) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS gz_ship_x (code TEXT PRIMARY KEY, wb TEXT, pr TEXT, pk TEXT, ts INTEGER);
     CREATE TABLE IF NOT EXISTS gz_cust (u TEXT PRIMARY KEY, code TEXT, d TEXT, ts INTEGER);
-    CREATE TABLE IF NOT EXISTS cust_note (id INTEGER PRIMARY KEY AUTOINCREMENT, u TEXT NOT NULL, kind TEXT, text TEXT, remind TEXT, done INTEGER DEFAULT 0, by TEXT, ts TEXT DEFAULT (datetime('now')));
+    CREATE TABLE IF NOT EXISTS cust_note (id INTEGER PRIMARY KEY AUTOINCREMENT, u TEXT NOT NULL, kind TEXT, text TEXT, remind TEXT, done INTEGER DEFAULT 0, by TEXT, ts TEXT DEFAULT (datetime('now', '+7 hours')));
     CREATE INDEX IF NOT EXISTS cust_note_u ON cust_note(u);
-    CREATE TABLE IF NOT EXISTS cust_owner (u TEXT PRIMARY KEY, sale TEXT, cskh TEXT, tags TEXT, by TEXT, ts TEXT DEFAULT (datetime('now')));
-    CREATE TABLE IF NOT EXISTS cust_log (id INTEGER PRIMARY KEY AUTOINCREMENT, u TEXT, by TEXT, action TEXT, detail TEXT, ts TEXT DEFAULT (datetime('now')));
+    CREATE TABLE IF NOT EXISTS cust_owner (u TEXT PRIMARY KEY, sale TEXT, cskh TEXT, tags TEXT, by TEXT, ts TEXT DEFAULT (datetime('now', '+7 hours')));
+    CREATE TABLE IF NOT EXISTS cust_log (id INTEGER PRIMARY KEY AUTOINCREMENT, u TEXT, by TEXT, action TEXT, detail TEXT, ts TEXT DEFAULT (datetime('now', '+7 hours')));
   `);
   ver = Number((db.prepare('SELECT MAX(ts) m FROM gz_ship_x').get() || {}).m || 0);
 }
@@ -100,7 +100,7 @@ function setOwner(u, b, by) {
   u = String(u).toLowerCase();
   const old = db.prepare('SELECT * FROM cust_owner WHERE u = ?').get(u) || {};
   const v = { sale: S(b.sale, 40) || null, cskh: S(b.cskh, 40) || null, tags: S((Array.isArray(b.tags) ? b.tags : String(b.tags || '').split(',')).map((x) => String(x).trim()).filter(Boolean).slice(0, 10).join(','), 300) || null };
-  db.prepare("INSERT INTO cust_owner (u, sale, cskh, tags, by, ts) VALUES (?, ?, ?, ?, ?, datetime('now')) ON CONFLICT(u) DO UPDATE SET sale = excluded.sale, cskh = excluded.cskh, tags = excluded.tags, by = excluded.by, ts = excluded.ts").run(u, v.sale, v.cskh, v.tags, by);
+  db.prepare("INSERT INTO cust_owner (u, sale, cskh, tags, by, ts) VALUES (?, ?, ?, ?, ?, datetime('now', '+7 hours')) ON CONFLICT(u) DO UPDATE SET sale = excluded.sale, cskh = excluded.cskh, tags = excluded.tags, by = excluded.by, ts = excluded.ts").run(u, v.sale, v.cskh, v.tags, by);
   const ch = [['Sale phụ trách', old.sale || null, v.sale], ['CSKH phụ trách', old.cskh || null, v.cskh], ['Nhãn', old.tags || null, v.tags]].filter((x) => x[1] !== x[2]);
   if (ch.length) db.prepare('INSERT INTO cust_log (u, by, action, detail) VALUES (?, ?, ?, ?)').run(u, by, 'Đổi phụ trách / nhãn', JSON.stringify({ changes: ch }));
   return { ok: true };
