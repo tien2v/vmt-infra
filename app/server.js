@@ -27,6 +27,15 @@ store.ensureAdmin();
 let UIINS = null; try { UIINS = JSON.parse(fs.readFileSync(path.join(__dirname, 'ui-inspect.json'), 'utf8')); } catch {}
 store.syncUiInspect(UIINS);
 const backup = require('./lib/backup');
+// Tai khoan nhan nap tien ban dau (anh gui 31/10/2026). Chi ghi khi chua co cai dat nao; sau do anh sua tren trang Vi khach.
+if (!store.kvGet('deposit_accounts')) {
+  store.kvSet('deposit_accounts', JSON.stringify([
+    { id: 'B1', label: 'Quỹ B1', bank: 'TPB', acct: '10004459488', holder: 'TRAN TUAN ANH', active: true },
+    { id: 'MC', label: 'Quỹ MC', bank: 'TCB', acct: '88888868768', holder: 'NGUYEN MANH CUONG', active: true },
+    { id: 'L8', label: 'Quỹ L8', bank: 'MSB', acct: '9686688887861000002', holder: 'NGUYEN VAN CAO', active: true },
+  ]));
+  console.log('deposit_accounts: ghi 3 tai khoan ban dau');
+}
 backup.init(store);
 const dws = require('./lib/dws');
 dws.init(store);
