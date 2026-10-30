@@ -22,6 +22,7 @@ services:
       COOKIE_SECURE: "1"
     volumes:
       - ./appdata:/data
+      - ./khachdata:/khach
     # Khong mo cong ra ngoai: chi Caddy goi vao
 
   # Trang khach (app.vominhthien.com): doc snapshot Gobiz tu DB admin, du lieu rieng trong ./khachdata

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ship to China · VMT Console</title>
+<style>
+:root{--bg:#f3f1ec;--card:#fff;--line:#e7e2d8;--ink:#1f2328;--mute:#7a7365;--brand:#379e1a;--brand-soft:#e6f5de;--amber:#b7791f;--amber-soft:#fdf1d8;--blue:#2563eb;--blue-soft:#e3ecfd;--red:#b5310a;--red-soft:#fde4dc;--purple:#6d3fb3;--purple-soft:#efe6fb;--gray-soft:#eceae5}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;color:var(--ink);background:var(--bg)}
+a{color:inherit}
+header{position:sticky;top:0;z-index:5;background:#fffffff2;backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{font-size:18px;margin:0}
+header .back{text-decoration:none;color:var(--mute);font-weight:600}
+header .me{margin-left:auto;color:var(--mute);font-size:13px}
+main{padding:18px 20px 60px;max-width:1400px;margin:0 auto}
+.tabs{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.tabs button{flex:none;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:8px 14px;font:inherit;font-weight:600;cursor:pointer;color:var(--mute)}
+.tabs button[aria-pressed=true]{background:var(--brand-soft);border-color:var(--brand);color:#1d5c0c}
+.bar{display:flex;gap:10px;align-items:center;margin:14px 0;flex-wrap:wrap}
+.bar input[type=search]{flex:1 1 260px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;background:#fff}
+.bar label{color:var(--mute);font-size:13px;display:flex;gap:6px;align-items:center}
+.btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn:disabled{opacity:.6;cursor:wait}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:12px;color:var(--mute);font-weight:600;text-transform:uppercase;letter-spacing:.03em;padding:10px 12px;background:#faf9f6;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:11px 12px;border-bottom:1px solid #f0ece4;vertical-align:top}
+tr.row{cursor:pointer}tr.row:hover td{background:#fbfaf7}
+td small{display:block;color:var(--mute);margin-top:3px;font-size:12px}
+.code{font-weight:700}
+.pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
+.s-PENDING{background:var(--gray-soft);color:#5c574c}.s-VN_WAREHOUSE{background:var(--blue-soft);color:var(--blue)}.s-TRANSPORTING{background:var(--amber-soft);color:var(--amber)}
+.s-CN_WAREHOUSE{background:var(--blue-soft);color:var(--blue)}.s-DISPATCHED{background:var(--brand-soft);color:#1d5c0c}.s-DELIVERED{background:var(--purple-soft);color:var(--purple)}.s-CANCELLED{background:var(--red-soft);color:var(--red)}
+.test{background:#fff3c4;color:#8a6300;font-size:11px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}
+.empty{padding:40px;text-align:center;color:var(--mute)}
+.num{text-align:right;white-space:nowrap}
+/* ngan chi tiet */
+.drawer{position:fixed;inset:0;z-index:20;display:none}
+.drawer.open{display:block}
+.drawer .shade{position:absolute;inset:0;background:#1f232855}
+.drawer .panel{position:absolute;top:0;right:0;bottom:0;width:min(560px,100%);background:#fff;overflow:auto;box-shadow:-20px 0 40px -20px #0004;display:flex;flex-direction:column}
+.panel-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff}
+.panel-head h2{margin:0;font-size:17px}
+.panel-head .x{margin-left:auto}
+.panel-body{padding:16px 18px;display:flex;flex-direction:column;gap:16px}
+.sec h3{margin:0 0 8px;font-size:13px;color:var(--mute);text-transform:uppercase;letter-spacing:.03em}
+dl{display:grid;grid-template-columns:120px 1fr;gap:6px 12px;margin:0}
+dt{color:var(--mute)}dd{margin:0;word-break:break-word}
+.items div{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px dashed #eee}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;color:var(--mute)}
+.form .full{grid-column:1/-1}
+.form input,.form select,.form textarea{border:1px solid var(--line);border-radius:9px;padding:9px 10px;font:inherit;color:var(--ink);background:#fff}
+.err{color:var(--red);font-weight:600;min-height:18px}
+.ok{color:#1d5c0c;font-weight:600}
+.timeline{list-style:none;margin:0;padding:0}
+.timeline li{padding:5px 0 5px 16px;position:relative;font-size:13px}
+.timeline li:before{content:"";position:absolute;left:2px;top:11px;width:7px;height:7px;border-radius:50%;background:var(--brand)}
+.timeline small{color:var(--mute)}
+@media (max-width:760px){
+  thead{display:none}table,tbody,tr,td{display:block;width:100%}
+  tr.row{border-bottom:1px solid var(--line);padding:8px 4px}td{border:0;padding:4px 10px}
+  td[data-l]:before{content:attr(data-l);display:block;font-size:11px;color:var(--mute);text-transform:uppercase}
+  .num{text-align:left}.form{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/">← VMT Console</a>
+  <h1>Ship to China</h1>
+  <span class="me" id="me"></span>
+</header>
+<main>
+  <div class="tabs" id="tabs"></div>
+  <div class="bar">
+    <input type="search" id="q" placeholder="Tìm mã đơn, khách, người nhận, mã vận đơn...">
+    <label><input type="checkbox" id="withTest"> Hiện đơn test</label>
+    <button class="btn" id="reload">Làm mới</button>
+    <button class="btn" id="csv">Xuất CSV</button>
+  </div>
+  <div class="card"><table><thead id="th"></thead><tbody id="tb"></tbody></table><div class="empty" id="empty" hidden>Chưa có đơn</div></div>
+</main>
+<div class="drawer" id="drawer"><div class="shade" data-close></div><div class="panel"><div class="panel-head"><h2 id="dTitle"></h2><span id="dPill"></span><button class="btn x" data-close>Đóng</button></div><div class="panel-body" id="dBody"></div></div></div>
+<script>
+const S={PENDING:'Chờ tiếp nhận',VN_WAREHOUSE:'Kho VN',TRANSPORTING:'Vận chuyển QT',CN_WAREHOUSE:'Kho China',DISPATCHED:'Đã xuất kho',DELIVERED:'Hoàn thành',CANCELLED:'Đã huỷ'};
+const ORDER=['PENDING','VN_WAREHOUSE','TRANSPORTING','CN_WAREHOUSE','DISPATCHED','DELIVERED','CANCELLED'];
+const M={express_shipping:'Ưu tiên',standard_shipping:'Tiêu chuẩn',eco_shipping:'Tiết kiệm'};
+const SV={insurance:'Bảo hiểm',reinforce:'Gia cố'};
+const WH={HCM:'TP.HCM',HN:'Hà Nội'};
+let R={orders:[],counts:{},can:[],role:''},tab='',q='';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const vnd=n=>n==null?'—':Math.round(n).toLocaleString('vi-VN')+'đ';
+const dtt=s=>{if(!s)return '—';const d=new Date(s);return d.toLocaleDateString('vi-VN')+' '+d.toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})};
+const pill=s=>`<span class="pill s-${s}">${S[s]||s}</span>`;
+const method=o=>M[((o.fees||[]).find(f=>/shipping/.test(f.t))||{}).t]||'—';
+const money=()=>R.role!=='kho';
+async function load(){const r=await fetch('/api/cn?test='+(document.getElementById('withTest').checked?1:0));if(r.status===401){location.href='/login';return;}R=await r.json();
+ document.getElementById('me').textContent=(R.name||'')+' · '+R.role;render();}
+function filtered(){const s=q.toLowerCase();return R.orders.filter(o=>(!tab||o.status===tab)&&(!s||[o.code,o.username,o.gobiz,o.recvName,o.recvPhone,o.note,o.wb,o.wbCn].join(' ').toLowerCase().includes(s)));}
+function render(){
+ const total=Object.values(R.counts||{}).reduce((a,b)=>a+b,0);
+ document.getElementById('tabs').innerHTML=[['','Tất cả',total],...ORDER.map(s=>[s,S[s],R.counts[s]||0])].map(([k,n,c])=>`<button data-tab="${k}" aria-pressed="${tab===k}">${n} (${c})</button>`).join('');
+ document.getElementById('th').innerHTML=`<tr><th>Đơn</th><th>Ngày tạo</th><th>Khách</th><th>Người nhận (TQ)</th><th>Hàng</th><th>Vận chuyển</th><th class="num">Cân</th>${money()?'<th class="num">Phí</th><th class="num">Còn thu</th>':''}<th>Trạng thái</th></tr>`;
+ const L=filtered();document.getElementById('empty').hidden=!!L.length;
+ document.getElementById('tb').innerHTML=L.map(o=>{const q=(o.items||[]).reduce((a,i)=>a+(+i.qty||0),0);return `<tr class="row" data-code="${o.code}">
+  <td data-l="Đơn"><span class="code">${o.code}</span>${o.test?'<span class="test">TEST</span>':''}<small>${esc(o.note)}</small></td>
+  <td data-l="Ngày tạo">${dtt(o.created)}</td>
+  <td data-l="Khách">${esc(o.gobiz||o.username)}${o.test?`<small>tk ${esc(o.username)}</small>`:''}</td>
+  <td data-l="Người nhận">${esc(o.recvName)}<small>${esc(o.recvPhone)}</small></td>
+  <td data-l="Hàng">${q} cái · ${(o.items||[]).length} dòng<small>${esc(o.cat||'')}</small></td>
+  <td data-l="Vận chuyển">${method(o)} · ${WH[o.wh]||o.wh} → TQ<small>${esc(o.wb||'chưa có mã vận đơn')}</small></td>
+  <td data-l="Cân" class="num">${o.w!=null?o.w+' kg':'—'}${o.pk?`<small>${o.pk} kiện</small>`:''}</td>
+  ${money()?`<td data-l="Phí" class="num">${vnd(o.fee)}</td><td data-l="Còn thu" class="num">${vnd(o.unpaid)}</td>`:''}
+  <td data-l="Trạng thái">${pill(o.status)}</td></tr>`}).join('');}
+function openD(code){const o=R.orders.find(x=>x.code===code);if(!o)return;const can=R.can||[];
+ document.getElementById('dTitle').textContent=o.code;document.getElementById('dPill').innerHTML=pill(o.status)+(o.test?'<span class="test">TEST</span>':'');
+ const items=(o.items||[]).map(i=>`<div><span>${esc(i.name)}</span><span>SL ${i.qty}${money()&&i.price!=null?' × '+vnd(i.price):''}</span></div>`).join('');
+ const f=k=>can.includes(k);
+ const form=can.length?`<div class="sec"><h3>Cập nhật</h3><form class="form" id="upd">
+  ${f('status')?`<label>Trạng thái<select name="status">${ORDER.map(s=>`<option value="${s}" ${s===o.status?'selected':''}>${S[s]}</option>`).join('')}</select></label>`:''}
+  ${f('w')?`<label>Cân tính phí (kg)<input name="w" inputmode="decimal" value="${o.w??''}"></label>`:''}
+  ${f('pk')?`<label>Số kiện<input name="pk" inputmode="numeric" value="${o.pk??''}"></label>`:''}
+  ${f('wbCn')?`<label>Mã vận chuyển tại TQ<input name="wbCn" maxlength="200" value="${esc(o.wbCn||'')}"></label>`:''}
+  ${f('fee')?`<label>Phí vận chuyển (đ)<input name="fee" inputmode="numeric" value="${o.fee??''}"></label>`:''}
+  ${f('paid')?`<label>Đã thanh toán (đ)<input name="paid" inputmode="numeric" value="${o.paid??''}"></label>`:''}
+  ${f('staffNote')?`<label class="full">Ghi chú nội bộ<textarea name="staffNote" rows="2" maxlength="500">${esc(o.staffNote||'')}</textarea></label>`:''}
+  <div class="full err" id="uErr"></div><div class="full"><button class="btn primary" id="uBtn">Lưu</button></div></form></div>`:'';
+ document.getElementById('dBody').innerHTML=`
+  <div class="sec"><h3>Khách & lô hàng</h3><dl><dt>Khách</dt><dd>${esc(o.gobiz||'')}${o.test?' (tài khoản test)':''}</dd><dt>Tên lô</dt><dd>${esc(o.note)}</dd><dt>Loại hàng</dt><dd>${esc(o.cat||'—')}</dd><dt>Tạo lúc</dt><dd>${dtt(o.created)}</dd>${o.note2?`<dt>Ghi chú khách</dt><dd>${esc(o.note2)}</dd>`:''}</dl></div>
+  <div class="sec"><h3>Người nhận tại Trung Quốc</h3><dl><dt>Tên</dt><dd>${esc(o.recvName)}</dd><dt>SĐT</dt><dd>${esc(o.recvPhone)}</dd><dt>Địa chỉ</dt><dd>${esc(o.recvAddr)}</dd></dl></div>
+  <div class="sec"><h3>Hàng gửi</h3><div class="items">${items}</div>${money()?`<dl style="margin-top:8px"><dt>Giá trị khai</dt><dd>${vnd(o.value)}</dd></dl>`:''}</div>
+  <div class="sec"><h3>Vận chuyển</h3><dl><dt>Kho nhận VN</dt><dd>${WH[o.wh]||o.wh}</dd><dt>Hình thức</dt><dd>${method(o)}</dd><dt>Dịch vụ</dt><dd>${(o.svcs||[]).map(s=>SV[s]||s).join(', ')||'Không'}</dd><dt>Vận đơn khách gửi</dt><dd>${esc(o.wb||'—')}</dd><dt>Mã VC tại TQ</dt><dd>${esc(o.wbCn||'—')}</dd><dt>Cân / kiện</dt><dd>${o.w!=null?o.w+' kg':'chưa cân'} · ${o.pk?o.pk+' kiện':'—'}</dd>${money()?`<dt>Phí</dt><dd>${vnd(o.fee)} · đã TT ${vnd(o.paid)} · còn ${vnd(o.unpaid)}</dd>`:''}${o.staffNote?`<dt>Ghi chú nội bộ</dt><dd>${esc(o.staffNote)}</dd>`:''}</dl></div>
+  ${form}
+  <div class="sec"><h3>Lịch sử</h3><ul class="timeline">${(o.ms||[]).slice().reverse().map(m=>`<li>${S[m.s]||m.s} <small>· ${dtt(m.t)}${m.by?' · '+esc(m.by):''}</small></li>`).join('')}</ul></div>`;
+ document.getElementById('drawer').classList.add('open');
+ const fm=document.getElementById('upd');if(fm)fm.addEventListener('submit',async e=>{e.preventDefault();const b={};
+  for(const el of fm.elements){if(!el.name)continue;const v=el.value.trim();const old=el.name==='status'?o.status:(o[el.name]??'');if(String(v)!==String(old))b[el.name]=['w','pk','fee','paid'].includes(el.name)?(v===''?null:Number(v.replace(/[^0-9.]/g,''))):v;}
+  const err=document.getElementById('uErr'),btn=document.getElementById('uBtn');if(!Object.keys(b).length){err.textContent='Chưa có gì thay đổi';return;}
+  if(b.status==='CANCELLED'&&!confirm('Huỷ đơn '+o.code+'?'))return;
+  btn.disabled=true;err.textContent='';try{const r=await fetch('/api/cn/'+o.code,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const j=await r.json().catch(()=>({}));
+   if(!r.ok){err.textContent=j.error||'Lỗi lưu';btn.disabled=false;return;}Object.assign(o,j.order);await load();openD(o.code);}catch(x){err.textContent='Mất kết nối';btn.disabled=false;}});}
+document.addEventListener('click',e=>{const t=e.target.closest('[data-tab]');if(t){tab=t.dataset.tab;render();return;}
+ const r=e.target.closest('tr.row');if(r){openD(r.dataset.code);return;}if(e.target.closest('[data-close]'))document.getElementById('drawer').classList.remove('open');});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('drawer').classList.remove('open');});
+document.getElementById('q').addEventListener('input',e=>{q=e.target.value.trim();render();});
+document.getElementById('withTest').addEventListener('change',load);
+document.getElementById('reload').addEventListener('click',load);
+document.getElementById('csv').addEventListener('click',()=>{const L=filtered();const cols=['code','created','gobiz','status','note','cat','recvName','recvPhone','recvAddr','wh','wb','wbCn','w','pk'].concat(money()?['value','fee','paid','unpaid']:[]);
+ const csv='﻿'+[cols.join(',')].concat(L.map(o=>cols.map(c=>{let v=c==='status'?S[o.status]:o[c];return '"'+String(v??'').replace(/"/g,'""')+'"'}).join(','))).join('\n');
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='ship-to-china.csv';a.click();});
+load();setInterval(()=>{if(!document.hidden&&!document.getElementById('drawer').classList.contains('open'))load();},60000);
+</script>
+</body>
+</html>

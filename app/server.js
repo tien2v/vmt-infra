@@ -11,6 +11,7 @@ const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { prepare, forRole } = require('./lib/data');
 const store = require('./lib/store');
+const cn = require('./lib/cn');
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC = path.join(__dirname, 'public');
@@ -172,6 +173,28 @@ async function handle(req, res) {
   if (p === '/api/status') {
     if (!user || user.role !== 'admin') return json(req, res, 403, { error: 'forbidden' });
     return json(req, res, 200, { snapshot: store.latestMeta(), ingest: store.recentIngest(), logins: store.recentLogins() });
+  }
+
+  // ---------- Ban Ship to China (don SCN tu trang khach) ----------
+  if (p === '/cn') {
+    if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
+    return fs.readFile(path.join(__dirname, 'cn.html'), (err, buf) => err ? send(res, 500, 'Server error') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8' }));
+  }
+  if (p === '/api/cn' && req.method === 'GET') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    const withTest = url.searchParams.get('test') === '1';
+    return json(req, res, 200, { role: user.role, name: user.name || user.username, can: cn.CAN_EDIT[user.role] || [], counts: cn.counts(withTest), orders: cn.list(user.role, { status: url.searchParams.get('status') || '', withTest }) });
+  }
+  const mcn = p.match(/^\/api\/cn\/(SCN\d{1,12})(\/log)?$/);
+  if (mcn) {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (mcn[2]) return json(req, res, 200, { log: cn.log(mcn[1]) });
+    if (req.method !== 'POST') return json(req, res, 405, { error: 'method' });
+    if (!sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 20000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const r = cn.update(mcn[1], user.role, user.username, b);
+    if (r.error) return json(req, res, r.code, { error: r.error });
+    return json(req, res, 200, { ok: true, order: r.order });
   }
 
   if (p === '/' || p === '/index.html') {

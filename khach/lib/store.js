@@ -14,6 +14,7 @@ function init() {
   db = new DatabaseSync(path.join(DATA_DIR, 'khach.db'));
   db.exec(`
     PRAGMA journal_mode = WAL;
+    PRAGMA busy_timeout = 5000;
     CREATE TABLE IF NOT EXISTS users (
       username TEXT PRIMARY KEY, gobiz TEXT NOT NULL, pass TEXT, pv INTEGER NOT NULL DEFAULT 1,
       active INTEGER NOT NULL DEFAULT 1, note TEXT, created_at TEXT DEFAULT (datetime('now'))
@@ -73,7 +74,12 @@ function logLogin(u, ip, ok) {
   db.prepare("DELETE FROM login_log WHERE ts < datetime('now', '-90 days')").run();
 }
 // ---------- Don Ship to China ----------
-function cnRow(r) { const d = JSON.parse(r.data); return Object.assign(d, { code: r.code, status: r.status, created: r.created_at, modified: r.updated_at || r.created_at }); }
+function cnRow(r) {
+  const d = JSON.parse(r.data);
+  delete d.staffNote; // ghi chu noi bo: khach khong thay
+  d.ms = (d.ms || []).map((m) => ({ t: m.t, s: m.s }));
+  return Object.assign(d, { code: r.code, status: r.status, created: r.created_at, modified: r.updated_at || r.created_at });
+}
 function cnCreate(username, gobiz, test, data) {
   const r = db.prepare('INSERT INTO cn_orders (code, username, gobiz, test, data) VALUES (?, ?, ?, ?, ?)').run('tmp-' + crypto.randomUUID(), username, gobiz, test ? 1 : 0, JSON.stringify(data));
   const seq = Number(r.lastInsertRowid); const code = 'SCN' + seq;
