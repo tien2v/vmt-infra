@@ -54,3 +54,15 @@ test('luong day du', () => { const db = mk(); T.setCost(db, PLA, 'admin'); asser
   const c4 = T.create(db, { username: 'k', owner: 'k', type: 'alipay_vn', cny: 100, recipient: { name: 'Z', account: '1' }, by: 'khach:k' });
   const r4 = T.autoPayFromContent(db, 'k', 'NAP 3HK7Q25 ' + T.fmtCode(c4.order.code), 'ref1', 'ngan-hang', false); assert.ok(r4[0].ok, JSON.stringify(r4));
 });
+test('bang gia mac dinh, uy quyen, VIP, deal', () => { const db = mk(); T.setCost(db, PLA, 'a');
+  assert.equal(T.quote(db, { type: 'alipay_cn', cny: 500 }).rate, 3977 + 120);
+  assert.equal(T.quote(db, { type: 'auth', cny: 500 }).rate, 3977 + 140);
+  assert.equal(T.quote(db, { type: 'bank', cny: 60000 }).rate, 3944 + 25);
+  assert.ok(T.setCustPrice(db, 'vip', -30, 'khach lon', 'admin').ok);
+  assert.equal(T.quote(db, { type: 'bank', cny: 60000, owner: 'vip' }).rate, 3944 - 5);
+  const c = T.create(db, { username: 'k', owner: 'k', type: 'bank', cny: 80000, recipient: { name: 'W', account: '62220000', bank: 'ICBC' }, by: 'khach:k' }); assert.ok(c.ok, c.error);
+  assert.equal(T.setDeal(db, c.order.code, 'sale1', { mode: 'fixed', value: 3900 }, false).code, 403); // duoi gia von
+  const d = T.setDeal(db, c.order.code, 'sale1', { mode: 'fixed', value: 3955, until: new Date(Date.now() + 3600e3).toISOString() }, false); assert.ok(d.ok, d.error); assert.equal(d.total, 80000 * 3955);
+  T.setCost(db, PLA.replace('5V: 3944', '5V: 3954'), 'a'); assert.equal(T.getKhach(db, 'k', c.order.code).rate, 3955); // deal co dinh khong chay theo
+  assert.ok(T.setDeal(db, c.order.code, 'sale1', { mode: 'clear' }, false).ok); assert.equal(T.getKhach(db, 'k', c.order.code).rate, 3954 + 25);
+});

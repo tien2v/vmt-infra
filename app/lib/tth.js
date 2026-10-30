@@ -38,7 +38,7 @@ const TYPES = {
   alipay_vn: { label: 'Alipay VN', cost: 'alipay_vn' },
   wechat: { label: 'WeChat', cost: 'wechat' },
   bank: { label: 'Chuyển khoản ngân hàng TQ', cost: 'bank' },
-  auth: { label: 'Uỷ quyền', cost: null },
+  auth: { label: 'Uỷ quyền', cost: 'alipay_cn' }, // anh chot 31/10: cao hon 20d so voi gia hien tai (tinh tren von Alipay Trung)
 };
 const STATUSES = ['UNPAID', 'NEED_PAY', 'QUEUED', 'PROCESSING', 'DONE', 'CANCELLED'];
 const LABEL_KHACH = { UNPAID: 'Chờ thanh toán', NEED_PAY: 'Cần thanh toán thêm', QUEUED: 'Chờ xử lý', PROCESSING: 'Đang xử lý', DONE: 'Thành công', CANCELLED: 'Đã huỷ' };
@@ -65,6 +65,7 @@ function init(db) {
     CREATE TABLE IF NOT EXISTS tth_recipients (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, type TEXT NOT NULL, label TEXT, data TEXT NOT NULL,
       acct_key TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, used INTEGER NOT NULL DEFAULT 0, last_used TEXT, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
     CREATE UNIQUE INDEX IF NOT EXISTS tth_rcp_key ON tth_recipients (username, type, acct_key) WHERE deleted = 0;
+    CREATE TABLE IF NOT EXISTS tth_cust_price (owner TEXT PRIMARY KEY, delta INTEGER NOT NULL, note TEXT, by TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS funds (id TEXT PRIMARY KEY, name TEXT NOT NULL, currency TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'own', active INTEGER NOT NULL DEFAULT 1,
       staff TEXT NOT NULL DEFAULT '[]', note TEXT, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
     CREATE TABLE IF NOT EXISTS fund_txns (id INTEGER PRIMARY KEY AUTOINCREMENT, ref TEXT UNIQUE NOT NULL, fund TEXT NOT NULL, kind TEXT NOT NULL, amount INTEGER NOT NULL,
@@ -73,7 +74,15 @@ function init(db) {
     CREATE TRIGGER IF NOT EXISTS fund_no_update BEFORE UPDATE ON fund_txns BEGIN SELECT RAISE(ABORT, 'so quy chi duoc ghi them'); END;
     CREATE TRIGGER IF NOT EXISTS fund_no_delete BEFORE DELETE ON fund_txns BEGIN SELECT RAISE(ABORT, 'so quy chi duoc ghi them'); END;
   `);
+  if (!db.prepare("SELECT 1 FROM tth_rates WHERE kind = 'price' LIMIT 1").get()) {
+    const v = validatePriceTable(DEFAULT_PRICE); if (!v.error) db.prepare('INSERT INTO tth_rates (kind, data, raw, by) VALUES (?, ?, ?, ?)').run('price', JSON.stringify(v.table), 'bang anh gui 31/10/2026', 'he-thong');
+  }
 }
+// Bang anh gui 31/10/2026: ty gia khach = von PLA + dieu chinh theo so te. 4 loai, 2 brand giong nhau. Uy quyen = +20d.
+const ADJ = [[0, 200], [10, 180], [50, 160], [100, 140], [500, 120], [1000, 90], [5000, 60], [10000, 40], [20000, 35], [30000, 30], [50000, 25]];
+const DEFAULT_PRICE = { brands: { default: {
+  bank: ADJ.map(([min, add]) => ({ min, add })), alipay_cn: ADJ.map(([min, add]) => ({ min, add })), alipay_vn: ADJ.map(([min, add]) => ({ min, add })),
+  wechat: ADJ.map(([min, add]) => ({ min, add })), auth: ADJ.map(([min, add]) => ({ min, add: add + 20 })) } } };
 function log(db, code, who, action, changes, extra) {
   db.prepare('INSERT INTO tth_log (code, who, action, detail) VALUES (?, ?, ?, ?)').run(code, who, action, JSON.stringify(Object.assign({ changes: changes || [] }, extra || {})));
 }
@@ -132,25 +141,34 @@ function validatePriceTable(t) {
   return { table: out };
 }
 const pick = (tiers, cny) => tiers.find((t) => cny >= t.min) || tiers[tiers.length - 1];
-// cnyFen: so te x100. Tra ve { rate, cost } hoac { error }
-function rateFor(db, type, cnyFen, brand) {
+// cnyFen: so te x100. owner: gia rieng khach VIP (tth_cust_price). deal: gia deal tren don { mode: 'delta'|'fixed', value, until }
+// Tra ve { rate, base, cost, tierMin } hoac { error }
+function rateFor(db, type, cnyFen, brand, owner, deal) {
   const t = priceTable(db); if (!t) return { error: 'Chưa có bảng tỷ giá thu khách' };
   const tiers = (t.brands[brand] && t.brands[brand][type]) || (t.brands.default && t.brands.default[type]);
   if (!tiers) return { error: 'Chưa có tỷ giá cho loại ' + (TYPES[type] || {}).label };
   const cny = cnyFen / 100; const tier = pick(tiers, cny);
   const costs = costRates(db); const ck = TYPES[type].cost; let cost = null;
   if (ck && costs[ck]) cost = pick(costs[ck], Math.max(cny, 1000)).rate; // anh khong mua vao duoi 1.000 te
-  if (tier.rate != null) return { rate: tier.rate, cost, tierMin: tier.min };
-  if (cost == null) return { error: 'Chưa có tỷ giá vốn PLA cho loại này' };
-  return { rate: cost + tier.add, cost, tierMin: tier.min };
+  let base;
+  if (tier.rate != null) base = tier.rate;
+  else { if (cost == null) return { error: 'Chưa có tỷ giá vốn PLA cho loại này' }; base = cost + tier.add; }
+  let rate = base; let src = 'bang';
+  const cp = owner ? db.prepare('SELECT delta FROM tth_cust_price WHERE owner = ?').get(owner) : null;
+  if (cp && cp.delta) { rate = base + cp.delta; src = 'vip'; }
+  if (deal && (!deal.until || Date.parse(deal.until) > Date.now())) {
+    if (deal.mode === 'fixed') { rate = deal.value; src = 'deal'; } else if (deal.mode === 'delta') { rate = base + deal.value; src = 'deal'; }
+  }
+  return { rate, base, cost, tierMin: tier.min, src };
 }
+const orderRate = (db, r, fen) => rateFor(db, r.type, fen == null ? r.cny : fen, r.brand, r.owner, JSON.parse(r.data).deal);
 const totalOf = (cnyFen, rate, fee) => Math.round(cnyFen * rate / 100) + (fee || 0);
-function quote(db, { type, cny, brand }) {
+function quote(db, { type, cny, brand, owner }) {
   if (!TYPES[type]) return { error: 'Chọn loại giao dịch' };
   const fen = Math.round(Number(cny) * 100); if (!(fen >= 100 && fen <= 1e10)) return { error: 'Số tệ không hợp lệ' };
-  const r = rateFor(db, type, fen, brand || 'default'); if (r.error) return r;
+  const r = rateFor(db, type, fen, brand || 'default', owner || null); if (r.error) return r;
   const fee = 0; // phi dich vu: hien = 0, de san
-  return { ok: true, type, cny: fen / 100, rate: r.rate, fee, total: totalOf(fen, r.rate, fee), tierMin: r.tierMin };
+  return { ok: true, type, cny: fen / 100, rate: r.rate, vip: r.src === 'vip', fee, total: totalOf(fen, r.rate, fee), tierMin: r.tierMin };
 }
 // Cap nhat ty gia von / bang gia -> tinh lai cac don dang mo
 function setCost(db, text, by) {
@@ -168,7 +186,7 @@ function reprice(db, by) {
   return tx(db, () => {
     let unpaid = 0, needPay = 0;
     for (const r of db.prepare("SELECT * FROM tth_orders WHERE status IN ('UNPAID','NEED_PAY','QUEUED')").all()) {
-      const q = rateFor(db, r.type, r.cny, r.brand); if (q.error) continue;
+      const q = orderRate(db, r); if (q.error) continue;
       const d = JSON.parse(r.data);
       if (r.status === 'UNPAID' || (r.status === 'NEED_PAY' && r.paid === 0)) {
         if (q.rate === r.rate) continue;
@@ -229,7 +247,7 @@ function rowOut(r, view) {
     recipient: d.recipient, note: d.note || null, bills: d.bills || [], created: r.created_at, modified: r.updated_at || r.created_at, paidAt: r.paid_at, doneAt: r.done_at,
     needReason: r.status === 'NEED_PAY' ? (d.needReason || null) : null, refundLabel: r.refunded > 0 ? (r.refunded >= r.paid + r.refunded ? 'Đã hoàn hết' : 'Hoàn 1 phần') : null };
   if (view === 'admin') Object.assign(o, { username: r.username, owner: r.owner, brand: r.brand, test: !!r.test, staff: r.staff, claimedAt: r.claimed_at, fund: r.fund,
-    newRecipient: !!d.newRecipient, dupOf: d.dupOf || null, edited: d.edited || null, cancelReq: d.cancelReq || null, staffNote: d.staffNote || null, day: dayOf(r.code), cost_vnd: r.cost_vnd, costRate: d.costRate || null });
+    newRecipient: !!d.newRecipient, dupOf: d.dupOf || null, edited: d.edited || null, cancelReq: d.cancelReq || null, staffNote: d.staffNote || null, day: dayOf(r.code), cost_vnd: r.cost_vnd, costRate: d.costRate || null, deal: d.deal || null });
   if (view === 'khach' && r.status === 'CANCELLED') o.cancelReason = d.cancelReason || null;
   return o;
 }
@@ -237,7 +255,7 @@ const getRow = (db, code) => db.prepare('SELECT * FROM tth_orders WHERE code = ?
 // input: { username, owner, brand, test, type, cny, recipient{}, note, saveRecipient, label, confirmDup, ip, by, uploadOk }
 function create(db, b) {
   if (!TYPES[b.type]) return { code: 400, error: 'Chọn loại giao dịch' };
-  const q = quote(db, { type: b.type, cny: b.cny, brand: b.brand }); if (q.error) return { code: 400, error: q.error };
+  const q = quote(db, { type: b.type, cny: b.cny, brand: b.brand, owner: b.owner }); if (q.error) return { code: 400, error: q.error };
   const c = cleanRecipient(b.type, b.recipient || {}, b.uploadOk); if (c.error) return { code: 400, error: c.error };
   const note = str(b.note, 200);
   const fen = Math.round(Number(b.cny) * 100); const key = acctKey(b.type, c.r);
@@ -269,7 +287,7 @@ function pay(db, { owner, code, idem, expect, by, test }) {
     if (!['UNPAID', 'NEED_PAY'].includes(r.status)) return { code: 409, error: 'Đơn đang ở trạng thái ' + LABEL_KHACH[r.status] + ', không cần thanh toán' };
     let row = r;
     if (r.paid === 0) { // chua tra dong nao: chot theo ty gia hien tai
-      const q = rateFor(db, r.type, r.cny, r.brand); if (q.error) return { code: 409, error: q.error };
+      const q = orderRate(db, r); if (q.error) return { code: 409, error: q.error };
       if (q.rate !== r.rate) { const total = totalOf(r.cny, q.rate, r.fee); db.prepare('UPDATE tth_orders SET rate = ?, total = ? WHERE seq = ?').run(q.rate, total, r.seq); row = Object.assign({}, r, { rate: q.rate, total }); }
     }
     const need = row.total - row.paid;
@@ -293,7 +311,7 @@ function autoPayFromContent(db, owner, content, ref, by, test) {
   const out = [];
   for (const c of cands) {
     const r = getRow(db, c); if (!r || r.owner !== owner || !['UNPAID', 'NEED_PAY'].includes(r.status)) continue;
-    const q = r.paid === 0 ? rateFor(db, r.type, r.cny, r.brand) : { rate: r.rate };
+    const q = r.paid === 0 ? orderRate(db, r) : { rate: r.rate };
     const need = (r.paid === 0 && !q.error ? totalOf(r.cny, q.rate, r.fee) : r.total) - r.paid;
     out.push(pay(db, { owner, code: c, idem: 'AUTO-' + crypto.createHash('sha256').update(String(ref) + c).digest('hex').slice(0, 24), expect: need, by, test }));
   }
@@ -341,7 +359,7 @@ function edit(db, code, actor, b) {
     if (b.cny != null) {
       const fen = Math.round(Number(b.cny) * 100); if (!(fen >= 100 && fen <= 1e10)) return { code: 400, error: 'Số tệ không hợp lệ' };
       if (fen !== r.cny) {
-        const q = rateFor(db, r.type, fen, r.brand); if (q.error) return { code: 409, error: q.error };
+        const q = orderRate(db, r, fen); if (q.error) return { code: 409, error: q.error };
         rate = r.paid > 0 ? Math.max(r.rate, q.rate) : q.rate; // da tra: khong cho loi dung ty gia giam
         total = totalOf(fen, rate, r.fee);
         ch.push(['Số tệ', cnyTxt(r.cny), cnyTxt(fen)], ['Tỷ giá', r.rate, rate], ['Thành tiền', vnd(r.total), vnd(total)]);
@@ -512,7 +530,44 @@ function saveFund(db, b, by) {
   return { ok: true };
 }
 
+// ---------- gia rieng ----------
+// Gia VIP: delta dong/te cong vao bang (am = re hon). Chi admin.
+function setCustPrice(db, owner, delta, note, by) {
+  delta = Math.round(Number(delta)); if (!(delta >= -300 && delta <= 300)) return { code: 400, error: 'Mức điều chỉnh phải trong khoảng -300..300 đ/¥' };
+  const old = db.prepare('SELECT delta FROM tth_cust_price WHERE owner = ?').get(owner);
+  if (delta === 0) db.prepare('DELETE FROM tth_cust_price WHERE owner = ?').run(owner);
+  else db.prepare('INSERT INTO tth_cust_price (owner, delta, note, by, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner) DO UPDATE SET delta = excluded.delta, note = excluded.note, by = excluded.by, updated_at = excluded.updated_at').run(owner, delta, str(note, 200) || null, by, nowIso());
+  db.prepare('INSERT INTO tth_log (code, who, action, detail) VALUES (?, ?, ?, ?)').run('VIP:' + owner, by, 'Đặt giá riêng thanh toán hộ', JSON.stringify({ changes: [['Điều chỉnh đ/¥', old ? old.delta : 0, delta]], note }));
+  return Object.assign({ ok: true }, reprice(db, by));
+}
+function custPrices(db) { return db.prepare('SELECT * FROM tth_cust_price ORDER BY owner').all(); }
+// Gia deal tren don (don chua tra tien). mode 'fixed' (ty gia co dinh, nen co han) | 'delta' (cong/tru vao bang, chay theo PLA).
+// Thap hon gia von -> chi admin.
+function setDeal(db, code, staff, b, isAdmin) {
+  return tx(db, () => {
+    const r = getRow(db, code); if (!r) return { code: 404, error: 'Không tìm thấy đơn' };
+    if (!(['UNPAID', 'NEED_PAY'].includes(r.status) && r.paid === 0)) return { code: 409, error: 'Chỉ sửa giá khi khách chưa thanh toán' };
+    const d = JSON.parse(r.data); const old = d.deal || null;
+    if (b.mode === 'clear') delete d.deal;
+    else {
+      const mode = b.mode === 'fixed' ? 'fixed' : 'delta'; const value = Math.round(Number(b.value));
+      if (mode === 'fixed' && !(value >= 2000 && value <= 6000)) return { code: 400, error: 'Tỷ giá không hợp lý' };
+      if (mode === 'delta' && !(value >= -500 && value <= 500)) return { code: 400, error: 'Mức điều chỉnh không hợp lý' };
+      const until = b.until ? new Date(b.until) : null; if (until && !(until.getTime() > Date.now())) return { code: 400, error: 'Hạn giá deal phải ở tương lai' };
+      d.deal = { mode, value, until: until ? until.toISOString() : null, by: staff, at: nowIso(), note: str(b.note, 200) || null };
+    }
+    const q = rateFor(db, r.type, r.cny, r.brand, r.owner, d.deal); if (q.error) return { code: 409, error: q.error };
+    if (q.cost && q.rate < q.cost && !isAdmin) return { code: 403, error: 'Giá ' + q.rate + ' thấp hơn giá vốn — chỉ anh (admin) được đặt' };
+    const total = totalOf(r.cny, q.rate, r.fee);
+    db.prepare('UPDATE tth_orders SET rate = ?, total = ?, data = ?, updated_at = ? WHERE seq = ?').run(q.rate, total, JSON.stringify(d), nowIso(), r.seq);
+    log(db, r.code, 'staff:' + staff, d.deal ? 'Sửa giá deal' : 'Bỏ giá deal', [['Tỷ giá', r.rate, q.rate], ['Thành tiền', vnd(r.total), vnd(total)]], { old, deal: d.deal || null });
+    notify(db, r.username, r.code, 'Đơn ' + fmtCode(r.code) + ' được cập nhật tỷ giá ' + q.rate + ', thành tiền ' + vnd(total) + '. Anh/chị xem và thanh toán khi đồng ý.');
+    return { ok: true, rate: q.rate, total };
+  });
+}
+
 module.exports = {
+  setCustPrice, custPrices, setDeal,
   TYPE_PREFIX, TYPES, STATUSES, LABEL_KHACH, LABEL_ADMIN, init, damm, validOrderCode, makeCode, fmtCode, dayOf,
   parsePLA, costRates, priceTable, validatePriceTable, rateFor, quote, setCost, setPrice, reprice, latest,
   recipients, saveRecipient, deleteRecipient, create, pay, autoPayFromContent, cancel, edit, claim, release, requestCancel, addBill, complete, autoExpire,
