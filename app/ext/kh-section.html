@@ -126,7 +126,9 @@
             </div>
           </div>
 
-          <!-- Ngan chi tiet khach -->
+        </section>
+
+          <!-- Ngan chi tiet khach (dung chung trang Khach hang + Viec can lam ban Sale) -->
           <div x-show="khShow" @keydown.window.escape="khShow=false" style="display:none">
             <div class="fixed inset-0 z-[100] bg-slate-900/60" @click="khShow=false"></div>
             <div class="fixed right-0 top-0 z-[101] flex h-full w-full flex-col bg-white dark:bg-navy-700 sm:max-w-2xl">
@@ -252,4 +254,120 @@
               </template>
             </div>
           </div>
+
+        <!-- ===== VIEC CAN LAM BAN SALE / CSKH ===== -->
+        <section x-show="page==='sale'" style="display:none">
+          <div class="flex flex-wrap items-end justify-between gap-3 py-5 lg:py-6">
+            <div class="min-w-0">
+              <h2 class="text-xl font-medium text-slate-800 dark:text-navy-50 lg:text-2xl">Bàn Sale / CSKH</h2>
+              <p class="mt-1 text-xs-plus text-slate-400 dark:text-navy-300">Việc cần làm hôm nay<span x-show="td" x-text="' · ' + (td ? td.today.split('-').reverse().join('/') : '')"></span></p>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex rounded-full bg-slate-150 p-1 dark:bg-navy-800">
+                <template x-for="w in [['mine','Của tôi'],['all','Tất cả']]" :key="w[0]">
+                  <button @click="tdScope=w[0]" class="btn h-8 shrink-0 rounded-full px-4 text-xs-plus font-medium" :class="tdScope===w[0] ? 'bg-white text-primary shadow-sm dark:bg-navy-500 dark:text-accent-light' : 'text-slate-600 dark:text-navy-200'" x-text="w[1]"></button>
+                </template>
+              </div>
+              <button @click="tdLoad()" class="btn size-10 rounded-full border border-slate-300 p-0 dark:border-navy-450" title="Làm mới"><i class="fa-solid fa-rotate"></i></button>
+            </div>
+          </div>
+          <p x-show="tdErr" class="mb-3 text-error" x-text="tdErr"></p>
+
+          <div class="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-4 lg:gap-6">
+            <button @click="tdTab='remind'" class="card p-4 text-left sm:p-5" :class="tdTab==='remind' ? 'ring-2 ring-primary/40 dark:ring-accent/40' : ''">
+              <div class="flex justify-between"><p class="text-xl font-semibold" :class="tdDue().length ? 'text-error' : 'text-slate-700 dark:text-navy-100'" x-text="tdDue().length"></p><i class="fa-regular fa-bell text-lg text-error"></i></div>
+              <p class="mt-1 text-xs-plus font-medium text-slate-600 dark:text-navy-200">Việc nhắc tới hạn</p>
+              <p class="mt-1 truncate text-xs text-slate-400 dark:text-navy-300" x-text="tdDue().filter(x=>x.late).length + ' trễ · ' + tdSoon().length + ' trong 7 ngày tới'"></p>
+            </button>
+            <button @click="tdTab='ticket'" class="card p-4 text-left sm:p-5" :class="tdTab==='ticket' ? 'ring-2 ring-primary/40 dark:ring-accent/40' : ''">
+              <div class="flex justify-between"><p class="text-xl font-semibold text-slate-700 dark:text-navy-100" x-text="tdTickets().length"></p><i class="fa-solid fa-ticket text-lg text-warning"></i></div>
+              <p class="mt-1 text-xs-plus font-medium text-slate-600 dark:text-navy-200">Ticket đang mở</p>
+              <p class="mt-1 truncate text-xs text-slate-400 dark:text-navy-300" x-text="tdTickets().filter(r=>r.st==='NEW').length + ' ticket mới chưa nhận'"></p>
+            </button>
+            <button @click="tdTab='risk'" class="card p-4 text-left sm:p-5" :class="tdTab==='risk' ? 'ring-2 ring-primary/40 dark:ring-accent/40' : ''">
+              <div class="flex justify-between"><p class="text-xl font-semibold text-slate-700 dark:text-navy-100" x-text="td ? td.riskN : '…'"></p><i class="fa-solid fa-user-clock text-lg text-warning"></i></div>
+              <p class="mt-1 text-xs-plus font-medium text-slate-600 dark:text-navy-200">Khách sắp rời</p>
+              <p class="mt-1 truncate text-xs text-slate-400 dark:text-navy-300" x-text="td ? td.riskMine + ' khách của tôi · 31–90 ngày chưa lên đơn' : ''"></p>
+            </button>
+            <button @click="tdTab='debt'" class="card p-4 text-left sm:p-5" :class="tdTab==='debt' ? 'ring-2 ring-primary/40 dark:ring-accent/40' : ''">
+              <div class="flex justify-between"><p class="text-xl font-semibold text-slate-700 dark:text-navy-100" x-text="td ? td.debtN : '…'"></p><i class="fa-solid fa-hand-holding-dollar text-lg text-info"></i></div>
+              <p class="mt-1 text-xs-plus font-medium text-slate-600 dark:text-navy-200">Khách còn thiếu tiền</p>
+              <p class="mt-1 truncate text-xs text-slate-400 dark:text-navy-300" x-text="tdPeer().length + ' thanh toán hộ chờ xử lý'"></p>
+            </button>
+          </div>
+
+          <div class="card mt-4 sm:mt-5 lg:mt-6">
+            <div class="is-scrollbar-hidden overflow-x-auto rounded-t-lg border-b border-slate-150 dark:border-navy-500">
+              <div class="flex px-2">
+                <template x-for="t in [['remind','Việc nhắc'],['ticket','Ticket'],['risk','Khách sắp rời'],['fresh','Khách mới chưa chăm sóc'],['debt','Còn thiếu tiền']]" :key="t[0]">
+                  <button @click="tdTab=t[0]" class="btn shrink-0 rounded-none border-b-2 px-3 py-2.5 font-medium" :class="tdTab===t[0] ? 'border-primary text-primary dark:border-accent dark:text-accent-light' : 'border-transparent hover:text-slate-800 dark:hover:text-navy-100'" x-text="t[1]"></button>
+                </template>
+              </div>
+            </div>
+
+            <!-- Viec nhac -->
+            <div x-show="tdTab==='remind'" class="divide-y divide-slate-150 dark:divide-navy-500">
+              <template x-for="x in tdDue().concat(tdSoon())" :key="x.id">
+                <div class="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
+                  <div class="flex min-w-0 grow space-x-3">
+                    <div class="flex size-9 shrink-0 items-center justify-center rounded-full" :class="x.late ? 'bg-error/10 text-error' : x.due ? 'bg-warning/10 text-warning' : 'bg-slate-150 text-slate-500 dark:bg-navy-500 dark:text-navy-100'"><i class="fa-solid text-xs" :class="khKind(x.kind)[2]"></i></div>
+                    <div class="min-w-0 grow">
+                      <p class="text-xs-plus"><button @click="tdOpenKh(x.u)" class="font-semibold text-primary hover:underline dark:text-accent-light" x-text="x.u"></button>
+                        <span class="text-slate-400 dark:text-navy-300" x-text="[x.code, x.fn].filter(Boolean).join(' · ')"></span></p>
+                      <p class="mt-0.5 line-clamp-2 whitespace-pre-line text-slate-700 dark:text-navy-100" x-text="x.text"></p>
+                      <p class="mt-0.5 text-xs text-slate-400 dark:text-navy-300" x-text="khKind(x.kind)[1] + ' · ' + khStaff(x.by) + ' ghi ' + String(x.ts).slice(0,10) + (x.sale ? ' · Sale: ' + khStaff(x.sale) : '')"></p>
+                    </div>
+                  </div>
+                  <div class="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
+                    <span class="badge rounded-full px-2 py-0.5 text-tiny" :class="x.late ? 'bg-error/10 text-error' : x.due ? 'bg-warning/10 text-warning' : 'bg-slate-150 text-slate-600 dark:bg-navy-500 dark:text-navy-100'" x-text="tdDays(x.remind)"></span>
+                    <a x-show="x.ph" :href="'tel:' + khPh(x.ph)" class="btn size-8 rounded-full bg-success/10 p-0 text-success" title="Gọi"><i class="fa-solid fa-phone text-xs"></i></a>
+                    <a x-show="khZalo(x.ph)" :href="khZalo(x.ph)" target="_blank" rel="noopener" class="btn size-8 rounded-full bg-info/10 p-0 text-info" title="Zalo"><i class="fa-solid fa-comment-dots text-xs"></i></a>
+                    <button @click="tdOpenKh(x.u)" class="btn h-8 rounded-full border border-slate-300 px-3 text-xs font-medium dark:border-navy-450">Ghi chú</button>
+                    <button @click="tdDone(x)" class="btn h-8 rounded-full bg-success px-3 text-xs font-medium text-white">Xong</button>
+                  </div>
+                </div>
+              </template>
+              <div x-show="!tdRem().length" class="flex flex-col items-center py-12 text-slate-400"><i class="fa-regular fa-calendar-check text-3xl"></i>
+                <p class="mt-2">Không có việc nhắc trong 7 ngày tới</p>
+                <p class="mt-1 text-xs">Đặt nhắc lại khi ghi chú chăm sóc ở trang <button @click="go('kh','')" class="text-primary underline dark:text-accent-light">Khách hàng</button></p></div>
+            </div>
+
+            <!-- Ticket -->
+            <div x-show="tdTab==='ticket'" class="divide-y divide-slate-150 dark:divide-navy-500">
+              <template x-for="r in tdTickets().slice(0,50)" :key="r.code">
+                <div class="flex items-center gap-3 px-4 py-3 sm:px-5">
+                  <div class="min-w-0 grow">
+                    <p class="text-xs-plus"><b class="text-slate-700 dark:text-navy-100" x-text="r.code"></b> · <button @click="tdOpenKh(r.cu || r.rc)" class="text-primary hover:underline dark:text-accent-light" x-text="r.cu || r.rc || '—'"></button> · <span class="text-slate-400" x-text="r.ro || ''"></span></p>
+                    <p class="truncate text-slate-600 dark:text-navy-200" x-text="r.name || r.de || '—'"></p>
+                  </div>
+                  <span class="badge shrink-0 rounded-full px-2 py-0.5 text-tiny" :class="ckClass(r.st)" x-text="ckLabel(r.st)"></span>
+                  <span class="hidden shrink-0 text-xs text-slate-400 sm:inline" x-text="kAgeDays(r.ca) + ' ngày'"></span>
+                  <button @click="ckOrder(r)" class="btn h-8 shrink-0 rounded-full border border-slate-300 px-3 text-xs font-medium dark:border-navy-450">Xem đơn</button>
+                </div>
+              </template>
+              <div class="px-4 py-3 text-right sm:px-5"><button @click="go('ticket','')" class="text-xs-plus font-medium text-primary dark:text-accent-light">Mở danh sách ticket <i class="fa-solid fa-arrow-right text-xs"></i></button></div>
+            </div>
+
+            <!-- Danh sach khach (sap roi / moi / con thieu) -->
+            <template x-for="T in ['risk','fresh','debt']" :key="T">
+              <div x-show="tdTab===T" class="divide-y divide-slate-150 dark:divide-navy-500">
+                <p class="bg-slate-50 px-4 py-2 text-xs text-slate-500 dark:bg-navy-800 dark:text-navy-200 sm:px-5" x-text="{risk:'31–90 ngày chưa lên đơn, chưa ai chăm sóc 14 ngày qua · xếp theo chi tiêu 90 ngày',fresh:'Tạo tài khoản trong 30 ngày, chưa có ghi chú chăm sóc nào',debt:'Đơn còn thiếu tiền · xếp theo số tiền thiếu'}[T]"></p>
+                <template x-for="c in ((td||{})[T]||[])" :key="T+c.k">
+                  <div class="flex items-center gap-3 px-4 py-3 sm:px-5">
+                    <div class="min-w-0 grow">
+                      <p class="text-xs-plus"><button @click="tdOpenKh(c.u)" class="font-semibold text-primary hover:underline dark:text-accent-light" x-text="c.u"></button> <span class="text-slate-400" x-text="[c.code, c.fn, khGrp(c.grp)].filter(Boolean).join(' · ')"></span></p>
+                      <p class="text-xs text-slate-500 dark:text-navy-200" x-text="(c.last ? 'Đơn gần nhất ' + khAgo(c.age) : 'Chưa lên đơn') + (money() && c.v90 ? ' · chi 90 ngày ' + vnd(c.v90) : '') + (c.sale ? ' · Sale: ' + khStaff(c.sale) : ' · chưa ai phụ trách')"></p>
+                    </div>
+                    <span x-show="money() && T==='debt'" class="shrink-0 text-xs-plus font-medium text-error" x-text="'Thiếu ' + vnd(c.unpaid)"></span>
+                    <a x-show="c.ph" :href="'tel:' + khPh(c.ph)" class="btn size-8 shrink-0 rounded-full bg-success/10 p-0 text-success" title="Gọi"><i class="fa-solid fa-phone text-xs"></i></a>
+                    <a x-show="khZalo(c.ph)" :href="khZalo(c.ph)" target="_blank" rel="noopener" class="btn size-8 shrink-0 rounded-full bg-info/10 p-0 text-info" title="Zalo"><i class="fa-solid fa-comment-dots text-xs"></i></a>
+                    <button @click="tdOpenKh(c.u)" class="btn h-8 shrink-0 rounded-full border border-slate-300 px-3 text-xs font-medium dark:border-navy-450">Ghi chú</button>
+                  </div>
+                </template>
+                <p x-show="!((td||{})[T]||[]).length" class="py-12 text-center text-slate-400">Không có khách nào</p>
+                <div class="px-4 py-3 text-right sm:px-5"><button @click="khF.seg={risk:'risk',fresh:'isNew',debt:'debt'}[T]; khF.p=1; go('kh','')" class="text-xs-plus font-medium text-primary dark:text-accent-light">Xem tất cả ở trang Khách hàng <i class="fa-solid fa-arrow-right text-xs"></i></button></div>
+              </div>
+            </template>
+          </div>
+          <p x-show="td && td.noOwner" class="mt-3 text-xs-plus text-slate-500 dark:text-navy-200"><i class="fa-solid fa-circle-info mr-1 text-info"></i><span x-text="td ? td.noOwner : ''"></span> khách đang hoạt động chưa có sale/CSKH phụ trách — <button @click="khF.seg='active'; khF.owner='-'; khF.p=1; go('kh','')" class="text-primary underline dark:text-accent-light">gán ngay</button></p>
         </section>

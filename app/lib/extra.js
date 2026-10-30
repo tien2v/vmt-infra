@@ -106,4 +106,12 @@ function setOwner(u, b, by) {
   return { ok: true };
 }
 
-module.exports = { init, ingest, version, attachShips, allCust, custCount, getCust, owners, noteStats, notes, log, addNote, doneNote, setOwner };
+// Viec nhac chua xong, han toi 'until' (YYYY-MM-DD), kem thong tin khach rut gon
+function reminders(until) {
+  return db.prepare("SELECT n.*, c.d AS cd, o.sale, o.cskh FROM cust_note n LEFT JOIN gz_cust c ON c.u = n.u LEFT JOIN cust_owner o ON o.u = n.u WHERE n.done = 0 AND n.remind IS NOT NULL AND substr(n.remind, 1, 10) <= ? ORDER BY n.remind, n.id LIMIT 500").all(until).map((r) => {
+    let c = {}; try { c = r.cd ? JSON.parse(r.cd) : {}; } catch {}
+    return { id: r.id, u: c.u || r.u, k: r.u, code: c.code || null, fn: c.fn || null, ph: c.ph || null, grp: c.grp || null, kind: r.kind, text: r.text, remind: r.remind, by: r.by, ts: r.ts, sale: r.sale || null, cskh: r.cskh || null };
+  });
+}
+
+module.exports = { reminders, init, ingest, version, attachShips, allCust, custCount, getCust, owners, noteStats, notes, log, addNote, doneNote, setOwner };

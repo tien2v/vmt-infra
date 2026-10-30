@@ -345,6 +345,23 @@ async function handle(req, res) {
     if (!['admin', 'sale', 'tc'].includes(user.role)) return json(req, res, 403, { error: 'forbidden' });
     const by = user.username;
     if (req.method === 'GET' && p === '/api/kh') return json(req, res, 200, khList(url.searchParams, user));
+    if (req.method === 'GET' && p === '/api/kh/todo') {
+      const vn = (d) => new Date(Date.now() + 7 * 3600e3 + d * 86400e3).toISOString().slice(0, 10);
+      const today = vn(0), me = user.username;
+      const list = extra.reminders(vn(7)).map((r) => Object.assign(r, { due: r.remind.slice(0, 10) <= today, late: r.remind.slice(0, 10) < today, mine: r.by === me || r.sale === me || r.cskh === me }));
+      const rows = khRows(), mineOf = (r) => r.sale === me || r.cskh === me;
+      const cnt = (f) => rows.filter(f).length;
+      const top = (f, key) => rows.filter(f).sort((a, b) => (Number(b[key]) || 0) - (Number(a[key]) || 0)).slice(0, 30).map((r) => ({ u: r.u, k: r.k, code: r.code, fn: r.fn, ph: r.ph, grp: r.grp, last: r.last, age: r.age, v90: user.role === 'kho' ? null : r.v90, unpaid: r.unpaid, bal: r.bal, sale: r.sale, cskh: r.cskh, nNote: r.nNote, lastNote: r.lastNote }));
+      // khach sap roi: chi tieu 90 ngay lon truoc; uu tien khach chua co ghi cham soc 14 ngay
+      const stale = (r) => !r.lastNote || r.lastNote.slice(0, 10) < vn(-14);
+      return json(req, res, 200, {
+        today, me, reminders: list, staff: store.listUsers().filter((x) => x.active && ['admin', 'sale'].includes(x.role)).map((x) => ({ u: x.username, n: x.name })),
+        risk: top((r) => r.seg === 'risk' && stale(r), 'v90'), riskN: cnt((r) => r.seg === 'risk'), riskMine: cnt((r) => r.seg === 'risk' && mineOf(r)),
+        debt: top((r) => (Number(r.unpaid) || 0) > 0, 'unpaid'), debtN: cnt((r) => (Number(r.unpaid) || 0) > 0),
+        fresh: top((r) => r.isNew && !r.nNote, 'v90'), freshN: cnt((r) => r.isNew && !r.nNote),
+        noOwner: cnt((r) => r.seg === 'active' && !r.sale && !r.cskh),
+      });
+    }
     const mk = p.match(/^\/api\/kh\/([^/]{1,80})(\/note(?:\/(\d+)\/done)?|\/owner)?$/);
     if (!mk) return json(req, res, 404, { error: 'not found' });
     const u = decodeURIComponent(mk[1]).toLowerCase();

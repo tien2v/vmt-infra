@@ -11,6 +11,7 @@
   const GRP = { default: 'Vominhthien', vmtglobal: 'VMT Global' };
   const SORT = [['last', 'Hoạt động gần nhất'], ['old', 'Lâu không lên đơn'], ['v90', 'Chi tiêu 90 ngày'], ['n90', 'Số đơn 90 ngày'], ['debt', 'Còn thiếu nhiều'], ['bal', 'Số dư Gobiz'], ['remind', 'Ngày nhắc'], ['created', 'Khách mới tạo']];
   const PEER = { payment: 'Uỷ quyền', payment_ali_vn: 'Alipay VN', payment_ali_cn: 'Alipay TQ', payment_wechat: 'WeChat', transfer: 'Chuyển khoản' };
+  const D_CLAIMS = () => (window.VMT_DATA && window.VMT_DATA.claims) || [];
   const today = () => new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
 
   function extend(o) {
@@ -21,11 +22,43 @@
       khErr: '', khBusy: false, khShow: false, khD: null, khTab: 'care', khMsg: '',
       khN: { kind: 'call', text: '', remind: '' }, khO: { sale: '', cskh: '', tags: '' },
 
+      td: null, tdScope: 'mine', tdTab: 'remind', tdErr: '',
       init() {
         if (origInit) origInit.call(this);
-        this.$watch('page', (p) => { if (p === 'kh') this.khLoad(); });
+        if (this.role === 'admin') this.tdScope = 'all';
+        this.$watch('page', (p) => { if (p === 'kh') this.khLoad(); if (p === 'sale') this.tdLoad(); });
         if (this.page === 'kh') this.khLoad();
+        if (this.canDesk && this.canDesk('sale')) { this.tdLoad(); setInterval(() => this.tdLoad(), 5 * 60e3); }
+        // dong ngan chi tiet khach thi lam moi viec can lam (vua ghi chu / xong viec nhac)
+        this.$watch('khShow', (v) => { if (!v && this.page === 'sale') this.tdLoad(); });
       },
+
+      // ---- Viec can lam ban Sale / CSKH ----
+      async tdLoad() {
+        try {
+          const r = await fetch('/api/kh/todo', { cache: 'no-store' });
+          if (!r.ok) { if (r.status !== 403) this.tdErr = 'Không tải được việc cần làm'; return; }
+          this.td = await r.json(); this.tdErr = '';
+          if (this.td.staff && !(this.kh.staff || []).length) this.kh.staff = this.td.staff;
+          const n = this.tdRem().filter((x) => x.due).length;
+          for (const d of this.desks) for (const m of d.menu) if (m.p === 'sale') m.n = n || undefined;
+        } catch (e) { this.tdErr = 'Mất kết nối'; }
+      },
+      tdRem() { const a = (this.td && this.td.reminders) || []; return this.tdScope === 'mine' ? a.filter((x) => x.mine) : a; },
+      tdDue() { return this.tdRem().filter((x) => x.due); },
+      tdSoon() { return this.tdRem().filter((x) => !x.due); },
+      tdTickets() { return (D_CLAIMS() || []).filter((r) => r.st === 'NEW' || r.st === 'ACCEPTED' || r.st === 'PROCESSING'); },
+      tdPeer() { return (window.VMT_DATA && window.VMT_DATA.peer || []).filter((p) => p.st === 'REQUEST_FOR_PAY' || p.st === 'PAYMENT_PAID'); },
+      tdDays(d) { const t = this.td ? this.td.today : ''; if (!d) return ''; const x = Math.round((Date.parse(d.slice(0, 10)) - Date.parse(t)) / 86400e3); return x === 0 ? 'Hôm nay' : x < 0 ? 'Trễ ' + (-x) + ' ngày' : x === 1 ? 'Ngày mai' : 'Còn ' + x + ' ngày'; },
+      async tdDone(x) {
+        try {
+          const r = await fetch('/api/kh/' + encodeURIComponent(x.k) + '/note/' + x.id + '/done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+          if (!r.ok) { const j = await r.json().catch(() => ({})); window.dispatchEvent(new CustomEvent('vmt-toast', { detail: j.error || 'Lỗi lưu' })); return; }
+          window.dispatchEvent(new CustomEvent('vmt-toast', { detail: 'Đã xong việc nhắc · ' + x.u }));
+          this.tdLoad();
+        } catch (e) { window.dispatchEvent(new CustomEvent('vmt-toast', { detail: 'Mất kết nối' })); }
+      },
+      tdOpenKh(u, tab) { this.khOpen(u); if (tab) this.$nextTick(() => { this.khTab = tab; }); },
       khSegs: () => SEG,
       khSegTip: (k) => SEG_TIP[k] || '',
       khKinds: () => KIND,
