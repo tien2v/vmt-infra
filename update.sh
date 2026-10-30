@@ -85,8 +85,14 @@ if [ -f appdata/admin-password.txt ]; then
 fi
 echo
 cp app/VERSION .deployed 2>/dev/null || true
+# Tam thoi: gui ma giao dien admin cho phien Claude dang sua giao dien, MA HOA bang khoa cong khai cua phien do
+# (chi khoa rieng trong phien Claude mo duoc). Khong co file khoa thi xoa ban cu.
+if [ -s /tmp/vmt-src/tools/keyrecv.pub.pem ] && [ -s .uikey ]; then
+  UKENC="$(openssl pkeyutl -encrypt -pubin -inkey /tmp/vmt-src/tools/keyrecv.pub.pem -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -in .uikey | base64 -w0 || true)"
+fi
 # Tinh trang de Claude xem tu xa (khong chua bi mat)
 printf 'version=%s\nkhach_key=%s\nkhach_ok=%s\ntime=%s\n' "$(cat app/VERSION 2>/dev/null)" "$([ -s .khkey ] && echo co || echo chua)" "${kok:-0}" "$(date '+%F %T')" > www/deploy-status.txt
+[ -n "${UKENC:-}" ] && printf 'uk=%s\n' "$UKENC" >> www/deploy-status.txt || true
 if [ -f khachdata/test-account.txt ]; then
   echo "=============================================="
   echo " TAI KHOAN KHACH TEST app.vominhthien.com:"
