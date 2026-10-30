@@ -206,7 +206,7 @@ async function handle(req, res) {
     const db = store.rawDb(), o = owner(user);
     if (p === '/api/wallet' && req.method === 'GET') {
       const code = ledger.codeOf(db, o, gobizNames());
-      return json(req, res, 200, { code, canTopup: store.depositAccounts().length > 0, wallet: ledger.walletView(db, o), hasPin: ledger.hasPin(db, o), txns: ledger.txnsOf(db, o, 100) });
+      return json(req, res, 200, { code, canTopup: store.depositAccounts().length > 0, wallet: ledger.walletView(db, o), hasPin: ledger.hasPin(db, o), txns: ledger.txnsOf(db, o, 100), claims: ledger.claims(db, null, o).slice(0, 10).map((c) => ({ id: c.id, amount: c.amount, at: c.at, status: c.status, note: c.decide_note, created: c.created_at })) });
     }
     // QR nap tien: phai nhap so tien truoc; tai khoan nhan chon theo so tien + gio (luat giong Gobiz)
     if (p === '/api/wallet/qr' && req.method === 'GET') {
@@ -225,6 +225,10 @@ async function handle(req, res) {
       if (tooMany('pinset:' + user.username)) return json(req, res, 429, { error: 'Thử quá nhiều lần, đợi 15 phút' });
       if (!store.checkPassword(user.username, String(b.password || ''))) { addFail('pinset:' + user.username); return json(req, res, 401, { error: 'Mật khẩu đăng nhập không đúng' }); }
       const r = ledger.setPin(db, o, String(b.pin || ''), 'khach:' + user.username + ' ' + clientIp(req));
+      return json(req, res, r.error ? r.code : 200, r);
+    }
+    if (p === '/api/wallet/claim') {
+      const r = ledger.claimCreate(db, o, b, 'khach:' + user.username);
       return json(req, res, r.error ? r.code : 200, r);
     }
     if (p === '/api/pay') {

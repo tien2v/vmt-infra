@@ -146,6 +146,7 @@
         try {
           const [a, b, c] = await Promise.all([fetch('/api/fin/wallets', { cache: 'no-store' }).then((r) => r.json()), fetch('/api/fin/requests?status=pending', { cache: 'no-store' }).then((r) => r.json()), fetch('/api/fin/deposits?status=hold', { cache: 'no-store' }).then((r) => r.json())]);
           this.wlHolds = c.items || [];
+          fetch('/api/fin/claims?status=open', { cache: 'no-store' }).then((r) => r.json()).then((j) => { this.wlClaims = j.items || []; }).catch(() => {});
           this.wl = (a.items || []).map((x) => Object.assign(x, { _q: norm([x.u, x.code, x.gobizCode, x.fn].join(' ')) })); this.wlRole = a.role; this.wlPend = a.pending; this.wlReqs = b.items || [];
         } catch (e) { this.wlErr = 'Không tải được ví'; }
       },
@@ -175,6 +176,14 @@
       async wlAccLoad() { try { const j = await fetch('/api/fin/accounts', { cache: 'no-store' }).then((r) => r.json()); this.wlAccs = j.items || []; this.wlBanks = j.banks || {}; } catch (e) {} },
       wlAccAdd() { this.wlAccs.push({ id: '', label: '', bank: 'TPB', acct: '', holder: '', active: true }); },
       async wlAccSave() { const j = await this.wlPost('/api/fin/accounts', { items: this.wlAccs }); if (j) { this.wlAccs = j.items; this.wlMsg = 'Đã lưu tài khoản nhận nạp tiền'; } },
+      wlClaims: [],
+      async wlClaim(c, ref) {
+        let note = '';
+        if (ref) { const d = c.suggest.find((x) => x.ref === ref); if (d && d.status === 'ignored' && !confirm('Khoản này KHÔNG có mã khách nên có thể đã được nạp bên Gobiz. Anh/chị đã kiểm tra Gobiz chưa nạp khoản này?')) return; }
+        else { note = prompt('Lý do chưa tìm thấy tiền (khách sẽ thấy dòng này)?') || ''; if (!note) return; }
+        const j = await this.wlPost('/api/fin/claim', { id: c.id, action: ref ? 'assign' : 'reject', ref, note });
+        if (j) { this.wlMsg = ref ? 'Đã gán, yêu cầu nạp tay #' + j.requestId + ' chờ anh duyệt' : 'Đã từ chối, khách được báo'; this.wlLoad(); }
+      },
       wlHolds: [],
       async wlHold(d, act) {
         let owner = '';

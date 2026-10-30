@@ -34,6 +34,7 @@ function genCode(taken, gobizNames) {
 }
 
 // ---------- bang ----------
+function addCol(db, t, c, def) { if (!db.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?').get(t, c)) db.exec('ALTER TABLE ' + t + ' ADD COLUMN ' + c + ' ' + def); }
 function init(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS cust_codes (owner TEXT PRIMARY KEY, code TEXT UNIQUE NOT NULL, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
@@ -58,8 +59,13 @@ function init(db) {
       ref TEXT PRIMARY KEY, src TEXT, bank_ref TEXT, rec TEXT, amount INTEGER NOT NULL, content TEXT, at TEXT,
       status TEXT NOT NULL, owner TEXT, code TEXT, reason TEXT, txn TEXT, req_id INTEGER,
       created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), decided_by TEXT, decided_at TEXT);
+    CREATE TABLE IF NOT EXISTS deposit_claims (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, amount INTEGER NOT NULL, at TEXT NOT NULL, note TEXT, photos TEXT,
+      status TEXT NOT NULL DEFAULT 'open', match_ref TEXT, req_id INTEGER, decided_by TEXT, decided_at TEXT, decide_note TEXT,
+      notified INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
     CREATE TABLE IF NOT EXISTS wallet_log (ts TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), owner TEXT, by TEXT, action TEXT, detail TEXT);
   `);
+  addCol(db, 'deposits', 'notified', 'INTEGER NOT NULL DEFAULT 0');
 }
 const nowIso = () => new Date().toISOString();
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
@@ -325,6 +331,77 @@ function resolveDeposit(db, ref, action, owner, by, note) {
   });
 }
 
+// ---------- khach bao "Toi da chuyen khoan" (tien chua vao vi) ----------
+function claimCreate(db, owner, b, by) {
+  const amount = Math.round(Number(b.amount)); if (!(amount >= 10000 && amount <= 5e9)) return { code: 400, error: 'Số tiền không hợp lệ (từ 10.000đ)' };
+  const at = Date.parse(b.at); if (!at || at > Date.now() + 10 * 60e3 || at < Date.now() - 30 * 86400e3) return { code: 400, error: 'Giờ chuyển không hợp lệ' };
+  const n = db.prepare("SELECT COUNT(*) AS n FROM deposit_claims WHERE owner = ? AND status = 'open'").get(owner).n; if (n >= 5) return { code: 429, error: 'Anh/chị đang có 5 yêu cầu chờ xử lý, vui lòng đợi nhân viên kiểm tra' };
+  const photos = (Array.isArray(b.photos) ? b.photos : []).filter((x) => /^[a-f0-9]{32}$/.test(x)).slice(0, 5);
+  const id = Number(db.prepare('INSERT INTO deposit_claims (owner, amount, at, note, photos) VALUES (?, ?, ?, ?, ?)').run(owner, amount, new Date(at).toISOString(), String(b.note || '').slice(0, 300), JSON.stringify(photos)).lastInsertRowid);
+  for (const p of photos) db.prepare("UPDATE uploads SET code = ?, kind = 'claim' WHERE id = ? AND by = ? AND code IS NULL").run('DC' + id, p, by);
+  wlog(db, owner, by, 'Báo đã chuyển khoản #' + id, { amount, at: b.at });
+  return { ok: true, id };
+}
+// Goi y khoan tien khop: cung so tien, lech gio <= 3h, dang treo hoac bi bo qua (khong co ma khach)
+function claimSuggest(db, c) {
+  return db.prepare("SELECT ref, src, bank_ref, amount, content, at, status, reason FROM deposits WHERE amount = ? AND status IN ('hold','ignored') AND abs(julianday(at) - julianday(?)) <= 0.125 ORDER BY abs(julianday(at) - julianday(?)) LIMIT 5").all(c.amount, c.at, c.at);
+}
+function claims(db, status, owner) {
+  const rows = db.prepare('SELECT * FROM deposit_claims' + (owner ? ' WHERE owner = ?' : (status ? ' WHERE status = ?' : '')) + ' ORDER BY id DESC LIMIT 200').all(...(owner ? [owner] : status ? [status] : []));
+  return rows.map((c) => Object.assign(c, { photos: JSON.parse(c.photos || '[]'), suggest: owner ? undefined : (c.status === 'open' ? claimSuggest(db, c) : []) }));
+}
+// Tai chinh xu ly: gan voi 1 khoan tien (-> yeu cau nap tay cho anh duyet) hoac tu choi
+function claimResolve(db, id, action, ref, by, note) {
+  return tx(db, () => {
+    const c = db.prepare('SELECT * FROM deposit_claims WHERE id = ?').get(Number(id));
+    if (!c) return { code: 404, error: 'Không có yêu cầu này' };
+    if (c.status !== 'open') return { code: 409, error: 'Yêu cầu đã xử lý' };
+    const u = db.prepare('SELECT username FROM users WHERE lower(gobiz) = ? LIMIT 1').get(c.owner);
+    if (action === 'reject') {
+      db.prepare("UPDATE deposit_claims SET status = 'rejected', decided_by = ?, decided_at = ?, decide_note = ? WHERE id = ?").run(by, nowIso(), note || null, c.id);
+      if (u) notify(db, u.username, null, 'Yêu cầu kiểm tra khoản chuyển ' + vnd(c.amount) + ' chưa tìm thấy tiền về' + (note ? ': ' + note : '') + '. Anh/chị liên hệ nhân viên để được hỗ trợ.');
+      return { ok: true };
+    }
+    const d = db.prepare('SELECT * FROM deposits WHERE ref = ?').get(String(ref || ''));
+    if (!d) return { code: 404, error: 'Không có khoản tiền này' };
+    if (d.amount !== c.amount) return { code: 409, error: 'Số tiền không khớp' };
+    if (!['hold', 'ignored'].includes(d.status)) return { code: 409, error: 'Khoản tiền này đã được xử lý (' + d.status + ')' };
+    const r = request(db, { kind: 'TOPUP_MANUAL', owner: c.owner, amount: d.amount, note: 'Khách báo đã CK (#' + c.id + ') — gán khoản ' + (d.bank_ref || d.ref) + ' "' + String(d.content).slice(0, 60) + '"' + (d.status === 'ignored' ? ' — KHOẢN KHÔNG CÓ MÃ KHÁCH: kiểm tra Gobiz chưa nạp khoản này' : '') + (note ? ' — ' + note : ''), by });
+    if (r.error) return r;
+    db.prepare("UPDATE deposits SET status = 'assigned', owner = ?, req_id = ?, decided_by = ?, decided_at = ? WHERE ref = ? AND status IN ('hold','ignored')").run(c.owner, r.id, by, nowIso(), d.ref);
+    db.prepare("UPDATE deposit_claims SET status = 'matched', match_ref = ?, req_id = ?, decided_by = ?, decided_at = ? WHERE id = ?").run(d.ref, r.id, by, nowIso(), c.id);
+    if (u) notify(db, u.username, null, 'Đã tìm thấy khoản chuyển ' + vnd(c.amount) + ' của anh/chị, tiền sẽ vào ví sau khi được duyệt.');
+    return { ok: true, requestId: r.id };
+  });
+}
+// Canh bao moi (khoan treo, khach bao chua nhan tien) — moi muc chi bao 1 lan
+function alertsTake(db) {
+  const holds = db.prepare("SELECT ref, amount, content, reason, src FROM deposits WHERE status = 'hold' AND notified = 0").all();
+  const cl = db.prepare("SELECT c.id, c.owner, c.amount, c.at, c.note, (SELECT code FROM cust_codes WHERE owner = c.owner) AS code FROM deposit_claims c WHERE status = 'open' AND notified = 0").all();
+  if (holds.length) db.prepare("UPDATE deposits SET notified = 1 WHERE status = 'hold' AND notified = 0").run();
+  if (cl.length) db.prepare("UPDATE deposit_claims SET notified = 1 WHERE status = 'open' AND notified = 0").run();
+  return { holds, claims: cl.map((c) => Object.assign(c, { suggest: claimSuggest(db, c).length })) };
+}
+// Doi soat + tong ket ngay (gio VN)
+function report(db) {
+  const v = verify(db); const errs = v.errs.slice();
+  for (const d of db.prepare("SELECT ref, amount FROM deposits WHERE status = 'credited'").all()) {
+    const l = db.prepare('SELECT amount FROM ledger WHERE idem = ?').get('DEP:' + d.ref);
+    if (!l || l.amount !== d.amount) errs.push('Khoản nạp ' + d.ref + ' không khớp sổ cái');
+  }
+  const nTop = db.prepare("SELECT COUNT(*) AS n FROM ledger WHERE kind = 'TOPUP'").get().n, nDep = db.prepare("SELECT COUNT(*) AS n FROM deposits WHERE status = 'credited'").get().n;
+  if (nTop !== nDep) errs.push('Số giao dịch nạp (' + nTop + ') khác số khoản đã cộng (' + nDep + ')');
+  const vn = new Date(Date.now() + 7 * 3600e3); const start = new Date(Date.UTC(vn.getUTCFullYear(), vn.getUTCMonth(), vn.getUTCDate()) - 7 * 3600e3).toISOString();
+  const sum = (kind, test) => db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS s FROM ledger WHERE kind = ? AND created_at >= ? AND test = ?').get(kind, start, test ? 1 : 0);
+  const day = {}; for (const k of ['TOPUP', 'TOPUP_MANUAL', 'PAY', 'REFUND', 'ADJUST']) day[k] = sum(k, false);
+  const dayTest = {}; for (const k of ['TOPUP', 'TOPUP_MANUAL', 'PAY', 'REFUND', 'ADJUST']) dayTest[k] = sum(k, true);
+  const depBySrc = db.prepare("SELECT src, COUNT(*) AS n, COALESCE(SUM(amount),0) AS s FROM deposits WHERE status = 'credited' AND created_at >= ? GROUP BY src").all(start);
+  const open = { holds: db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS s FROM deposits WHERE status = 'hold'").get(), claims: db.prepare("SELECT COUNT(*) AS n FROM deposit_claims WHERE status = 'open'").get().n, requests: db.prepare("SELECT COUNT(*) AS n FROM fin_requests WHERE status = 'pending'").get().n };
+  const neg = db.prepare('SELECT owner, balance, credit_limit, neg_since, credit_days FROM wallets WHERE balance < 0').all().map((w) => Object.assign(w, { dueAt: new Date(Date.parse(w.neg_since) + w.credit_days * 86400e3).toISOString() }));
+  const total = db.prepare('SELECT COALESCE(SUM(balance),0) AS s, COUNT(*) AS n FROM wallets WHERE test = 0').get();
+  return { ok: !errs.length, errs, day, dayTest, depBySrc, open, neg, total, at: nowIso() };
+}
+
 // ---------- tra cuu ----------
 function txnsOf(db, owner, limit) {
   return db.prepare('SELECT txn, kind, amount, balance_after, note, by, created_at FROM ledger WHERE owner = ? ORDER BY id DESC LIMIT ?').all(owner, limit || 100)
@@ -354,4 +431,4 @@ function verify(db) {
   return { ok: !errs.length, errs, at: nowIso() };
 }
 
-module.exports = { tx, post, deposit, deposits, resolveDeposit, findCodes, init, validCode, normCode, genCode, codeOf, walletView, pay, request, decide, requests, setCredit, setPin, hasPin, checkPin, txnsOf, txnsOfOrder, verify, KIND };
+module.exports = { claimCreate, claims, claimResolve, alertsTake, report, tx, post, deposit, deposits, resolveDeposit, findCodes, init, validCode, normCode, genCode, codeOf, walletView, pay, request, decide, requests, setCredit, setPin, hasPin, checkPin, txnsOf, txnsOfOrder, verify, KIND };
