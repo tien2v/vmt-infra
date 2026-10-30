@@ -59,6 +59,7 @@ function upsertTest(username, gobiz, passHash, note) {
   const r = getUser(username);
   if (!r) db.prepare('INSERT INTO users (username, gobiz, pass, note) VALUES (?, ?, ?, ?)').run(username, gobiz, passHash, note || null);
   else if (r.pass !== passHash || r.gobiz !== gobiz) db.prepare('UPDATE users SET gobiz = ?, pass = ?, pv = pv + 1, note = ? WHERE username = ?').run(gobiz, passHash, note || null, username);
+  else if (r.note !== (note || null)) db.prepare('UPDATE users SET note = ? WHERE username = ?').run(note || null, username);
 }
 function logLogin(u, ip, ok) {
   db.prepare('INSERT INTO login_log (username, ip, ok) VALUES (?, ?, ?)').run(String(u || '').slice(0, 64), ip, ok ? 1 : 0);

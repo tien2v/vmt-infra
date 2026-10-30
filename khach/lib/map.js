@@ -75,13 +75,15 @@ function buildIndex(raw) {
   return { gen: raw.gen, from: raw.from || null, byUser };
 }
 
-// Chon khach co nhieu don nhat trong nhom (dung cho tai khoan test)
+// Chon khach cho tai khoan test: uu tien khach co du 3 loai (dat hang, ky gui, thanh toan ho), roi nhieu don dat hang nhat
+const cmp = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i]; return 0; };
 function busiest(index, grp) {
-  let best = null, bestN = -1;
+  let best = null, bestK = null;
   for (const [u, s] of index.byUser) {
     if (!s.cust || (grp && String(s.cust.grp || '').toLowerCase() !== grp)) continue;
-    const k = s.orders.length + s.shipments.length + s.peer.length;
-    if (k > bestN) { best = u; bestN = k; }
+    const kinds = (s.orders.length > 0) + (s.shipments.length > 0) + (s.peer.length > 0);
+    const k = [s.orders.length > 0 ? 1 : 0, kinds, Math.min(s.orders.length, 40), s.orders.length + s.shipments.length + s.peer.length];
+    if (!bestK || cmp(k, bestK) > 0) { best = u; bestK = k; }
   }
   return best;
 }

@@ -77,9 +77,10 @@ function index() {
 function resolveTest() {
   if (!TEST || !TEST.username || !TEST.hash) return;
   const cur = store.getUser(TEST.username);
-  let g = TEST.gobiz && TEST.gobiz !== 'auto' ? TEST.gobiz : (cur && cur.gobiz !== 'auto' ? cur.gobiz : null);
+  const tag = 'tai khoan test ' + (TEST.pick || 1); // doi "pick" trong test-user.json -> chon lai khach
+  let g = TEST.gobiz && TEST.gobiz !== 'auto' ? TEST.gobiz : (cur && cur.gobiz !== 'auto' && cur.note === tag ? cur.gobiz : null);
   if (!g && idx.index) g = busiest(idx.index, TEST.group || 'default');
-  store.upsertTest(TEST.username, g || 'auto', TEST.hash, 'tai khoan test');
+  store.upsertTest(TEST.username, g || 'auto', TEST.hash, g ? tag : 'tai khoan test');
 }
 resolveTest();
 
@@ -95,7 +96,7 @@ function payload(user) {
   const c = s && s.cust;
   const brand = c ? brandOf(c.grp) : 'green';
   const me = {
-    username: user.username, gobiz: user.gobiz, test: user.note === 'tai khoan test',
+    username: user.username, gobiz: user.gobiz, test: String(user.note || '').startsWith('tai khoan test'),
     name: (c && c.fn) || user.gobiz, code: (c && c.code) || '', balance: c ? Number(c.bal) : null, brand,
   };
   const data = { orders: s ? s.orders : [], shipments: s ? s.shipments : [], peer: s ? s.peer : [], pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
