@@ -307,6 +307,7 @@ async function handle(req, res) {
       db.prepare('INSERT INTO wallet_log (owner, by, action, detail) VALUES (?, ?, ?, ?)').run(o, by, 'Xem ví', '{}');
       return json(req, res, 200, { wallet: L.walletView(db, o), txns: L.txnsOf(db, o, 200), log: db.prepare('SELECT * FROM wallet_log WHERE owner = ? ORDER BY ts DESC LIMIT 100').all(o) });
     }
+    if (p === '/api/fin/accounts' && req.method === 'GET') return json(req, res, 200, { items: JSON.parse(store.kvGet('deposit_accounts') || '[]'), banks: require('./lib/vietqr').BANKS });
     if (p === '/api/fin/deposits' && req.method === 'GET') return json(req, res, 200, { items: L.deposits(db, url.searchParams.get('status') || '') });
     if (p === '/api/fin/requests' && req.method === 'GET') return json(req, res, 200, { items: L.requests(db, url.searchParams.get('status') || '') });
     if (req.method !== 'POST' || !sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
@@ -322,6 +323,21 @@ async function handle(req, res) {
       if (!['admin', 'tc'].includes(user.role)) return json(req, res, 403, { error: 'Chỉ tài chính / admin được tạo yêu cầu' });
       if (!known()) return json(req, res, 400, { error: 'Không có khách này' });
       const r = L.request(db, { kind: String(b.kind || ''), owner, amount: b.amount, codes: b.codes, note: b.note, by }); return json(req, res, r.error ? r.code : 200, r);
+    }
+    if (p === '/api/fin/accounts') {
+      if (user.role !== 'admin') return json(req, res, 403, { error: 'Chỉ anh (admin) được sửa tài khoản nhận tiền' });
+      const Q = require('./lib/vietqr'); const items = [];
+      for (const x of (Array.isArray(b.items) ? b.items : []).slice(0, 20)) {
+        const it = { id: String(x.id || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10), label: String(x.label || '').trim().slice(0, 60), bank: String(x.bank || ''), acct: String(x.acct || '').replace(/\s/g, ''), holder: String(x.holder || '').trim().toUpperCase().slice(0, 60), active: !!x.active };
+        if (!it.id || !it.label || !it.holder) return json(req, res, 400, { error: 'Mỗi tài khoản cần mã quỹ, tên hiển thị, tên chủ tài khoản' });
+        try { Q.payload(it.bank, it.acct, 10000, 'TEST'); } catch (e) { return json(req, res, 400, { error: it.id + ': ' + e.message }); }
+        if (items.some((y) => y.id === it.id)) return json(req, res, 400, { error: 'Trùng mã quỹ ' + it.id });
+        items.push(it);
+      }
+      const old = store.kvGet('deposit_accounts') || '[]';
+      store.kvSet('deposit_accounts', JSON.stringify(items));
+      db.prepare('INSERT INTO wallet_log (owner, by, action, detail) VALUES (?, ?, ?, ?)').run('*', by, 'Sửa tài khoản nhận nạp tiền', JSON.stringify({ old: JSON.parse(old), new: items }));
+      return json(req, res, 200, { ok: true, items });
     }
     if (p === '/api/fin/hold') {
       if (!['admin', 'tc'].includes(user.role)) return json(req, res, 403, { error: 'Chỉ tài chính / admin' });

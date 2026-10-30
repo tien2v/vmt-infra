@@ -293,6 +293,7 @@ function deposit(db, item, gobizSet, isLive) {
       if (g) { status = 'hold'; reason = 'Nội dung có cả mã khách và username Gobiz "' + g + '" — kiểm tra Gobiz đã nạp chưa'; }
       else if (amount < 10000) { status = 'hold'; reason = 'Dưới mức nạp tối thiểu 10.000đ'; }
       else if (!isLive(owner)) { status = 'hold'; reason = 'Ví mới chưa mở cho khách này'; }
+      else if (String(item.src || '').startsWith('bill-') && db.prepare("SELECT 1 FROM deposits WHERE owner = ? AND amount = ? AND status = 'credited' AND ref <> ? AND abs(julianday(created_at) - julianday('now')) < 1").get(owner, amount, ref)) { status = 'hold'; reason = 'Cùng khách, cùng số tiền với 1 bill khác trong 24h (có thể khách gửi bill 2 nơi)'; }
       else {
         const p = post(db, { owner, kind: 'TOPUP', amount, idem: 'DEP:' + ref, note: 'Chuyển khoản ' + (item.bankRef || '') + ': ' + content.slice(0, 120), by: 'ngan-hang:' + (item.src || 'b1'), test: isLive(owner) === 'test' });
         status = 'credited'; reason = null; txn = p.txn;

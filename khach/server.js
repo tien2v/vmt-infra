@@ -204,7 +204,17 @@ async function handle(req, res) {
     const isTest = String(user.note || '').startsWith('tai khoan test');
     if (!isTest) return json(req, res, 403, { error: 'Ví mới đang chạy thử, chưa mở cho tài khoản này' });
     const db = store.rawDb(), o = owner(user);
-    if (p === '/api/wallet' && req.method === 'GET') return json(req, res, 200, { code: ledger.codeOf(db, o, gobizNames()), wallet: ledger.walletView(db, o), hasPin: ledger.hasPin(db, o), txns: ledger.txnsOf(db, o, 100) });
+    if (p === '/api/wallet' && req.method === 'GET') {
+      const code = ledger.codeOf(db, o, gobizNames()); const Q = require('./lib/vietqr');
+      const accounts = store.depositAccounts().map((x) => ({ id: x.id, label: x.label, bankName: (Q.BANKS[x.bank] || [])[1] || x.bank, acct: x.acct, holder: x.holder, qr: Q.payload(x.bank, x.acct, 0, code) }));
+      return json(req, res, 200, { code, accounts, wallet: ledger.walletView(db, o), hasPin: ledger.hasPin(db, o), txns: ledger.txnsOf(db, o, 100) });
+    }
+    if (p === '/api/wallet/qr' && req.method === 'GET') {
+      const code = ledger.codeOf(db, o, gobizNames()); const Q = require('./lib/vietqr');
+      const x = store.depositAccounts().find((a) => a.id === url.searchParams.get('acc')); if (!x) return json(req, res, 404, { error: 'Không có tài khoản này' });
+      const amt = Math.round(Number(url.searchParams.get('amount') || 0)); if (amt && !(amt >= 10000 && amt <= 5e9)) return json(req, res, 400, { error: 'Số tiền từ 10.000đ' });
+      return json(req, res, 200, { qr: Q.payload(x.bank, x.acct, amt || 0, code) });
+    }
     if (req.method !== 'POST' || !sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
     let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
     if (p === '/api/wallet/pin') {
