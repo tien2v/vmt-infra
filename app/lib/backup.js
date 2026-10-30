@@ -94,7 +94,8 @@ function dbBlob(file) {
   try { d.exec("VACUUM INTO '" + tmp.replace(/'/g, "''") + "'"); } finally { d.close(); }
   try { return zlib.gzipSync(fs.readFileSync(tmp), { level: 9 }); } finally { fs.rmSync(tmp, { force: true }); }
 }
-const stamp = (d) => d.toISOString().slice(0, 16).replace('T', '-').replace(':', '');
+// Ten file khong bao gio trung (R2 khoa chong ghi de): gio phut giay + 4 ky tu ngau nhien
+const stamp = (d) => d.toISOString().slice(0, 19).replace('T', '-').replace(/:/g, '') + '-' + crypto.randomBytes(2).toString('hex');
 
 let running = false;
 async function run(force) {
@@ -111,14 +112,14 @@ async function run(force) {
         await put(c, 'db/hourly/' + ymd + '/khach-' + stamp(now) + '.db.gz.vmt', seal(c.pub, kb)); done.push('khach.db');
         st.khachHash = h;
       }
-      if (st.khachDaily !== ymd) { await put(c, 'db/daily/khach-' + ymd + '.db.gz.vmt', seal(c.pub, kb)); st.khachDaily = ymd; done.push('khach.db (ngày)'); }
+      if (st.khachDaily !== ymd) { await put(c, 'db/daily/khach-' + ymd + '-' + crypto.randomBytes(2).toString('hex') + '.db.gz.vmt', seal(c.pub, kb)); st.khachDaily = ymd; done.push('khach.db (ngày)'); }
       const ym = ymd.slice(0, 7);
-      if (st.khachMonthly !== ym) { await put(c, 'db/monthly/khach-' + ym + '.db.gz.vmt', seal(c.pub, kb)); st.khachMonthly = ym; }
+      if (st.khachMonthly !== ym) { await put(c, 'db/monthly/khach-' + ym + '-' + crypto.randomBytes(2).toString('hex') + '.db.gz.vmt', seal(c.pub, kb)); st.khachMonthly = ym; }
     }
     // vmt.db moi ngay
     if (force || st.adminDaily !== ymd) {
       const ab = dbBlob(ADMIN_DB);
-      if (ab) { await put(c, 'db/daily/admin-' + ymd + '.db.gz.vmt', seal(c.pub, ab)); st.adminDaily = ymd; done.push('vmt.db'); }
+      if (ab) { await put(c, (st.adminDaily === ymd ? 'db/hourly/' + ymd + '/admin-' + stamp(now) : 'db/daily/admin-' + ymd) + '.db.gz.vmt', seal(c.pub, ab)); st.adminDaily = ymd; done.push('vmt.db'); }
     }
     // anh moi
     const dir = path.join(KDIR, 'uploads'); let nImg = 0;
