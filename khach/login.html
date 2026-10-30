@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="vi" data-brand="{{BRAND}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Đăng nhập · {{NAME}}</title>
+<style>
+@font-face{font-family:Manrope;src:url(/assets/manrope.woff2) format("woff2");font-weight:200 800;font-display:swap}
+:root{--ink:#0f1922;--a1:#9fe07f;--a2:#4db531;--a3:#379e1a;--soft:#e3f5da;--bg:#e2e9df;--mark:#0f1922}
+[data-brand=yellow]{--ink:#172530;--a1:#ffda75;--a2:#f5bc34;--a3:#e8a817;--soft:#fff0c8;--bg:#eee9df;--mark:#172530}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;font-family:Manrope,system-ui,sans-serif;color:var(--ink);background:radial-gradient(1200px 600px at 10% -10%,var(--soft),transparent 60%),var(--bg);display:grid;place-items:center;padding:24px}
+.card{width:100%;max-width:400px;background:#fffdf8;border:1px solid #fff;border-radius:28px;padding:32px 28px;box-shadow:0 30px 60px -30px rgba(40,35,20,.35)}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:26px}
+.mark{width:52px;height:46px;border-radius:14px;background:var(--mark);display:grid;place-items:center;flex:none}
+.mark svg{width:34px;height:26px}
+.name{font-weight:900;font-size:20px;line-height:1.05;text-transform:uppercase;letter-spacing:-.2px}
+.name small{display:block;font-size:11px;font-weight:700;letter-spacing:.16em;color:var(--a3);margin-top:3px}
+[data-brand=yellow] .name small{text-transform:none;letter-spacing:0;font-weight:500;color:#7b6a45;font-size:12px}
+h1{font-size:22px;margin:0 0 6px}
+p.sub{margin:0 0 22px;color:#7a7365;font-size:14px}
+label{display:block;font-size:13px;font-weight:700;margin:14px 0 6px}
+input{width:100%;font:inherit;font-size:16px;padding:13px 14px;border-radius:14px;border:1px solid #e3dccb;background:#fff;color:var(--ink);outline:none}
+input:focus{border-color:var(--a3);box-shadow:0 0 0 3px var(--soft)}
+button{width:100%;margin-top:22px;font:inherit;font-weight:800;font-size:15px;padding:14px;border-radius:14px;border:1px solid var(--a3);color:var(--ink);background:linear-gradient(120deg,var(--a1),var(--a2));cursor:pointer}
+button[disabled]{opacity:.6;cursor:wait}
+.err{min-height:20px;margin-top:12px;color:#b5310a;font-size:13px;font-weight:600}
+.foot{margin-top:18px;font-size:12px;color:#8b8170;text-align:center}
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="brand"><span class="mark" id="mark"></span><span class="name">{{NAME}}<small>{{TAG}}</small></span></div>
+  <h1>Đăng nhập</h1>
+  <p class="sub">Dùng tài khoản đặt hàng của anh/chị.</p>
+  <form id="f" autocomplete="on">
+    <label for="u">Tên đăng nhập</label>
+    <input id="u" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+    <label for="p">Mật khẩu</label>
+    <input id="p" name="password" type="password" autocomplete="current-password" required>
+    <button id="b" type="submit">Đăng nhập</button>
+    <div class="err" id="e" role="alert"></div>
+  </form>
+  <div class="foot">Quên mật khẩu? Nhắn nhân viên chăm sóc để được hỗ trợ.</div>
+</main>
+<script>
+var Y='<svg viewBox="0 0 470 300" aria-hidden="true"><g fill="#FFCB31"><polygon points="4,2 113,2 270,149 113,297 4,297 67,149"/><polygon points="221,2 303,2 403,149 303,297 221,297 274,149"/><polygon points="383,2 407,2 465,149 407,297 383,297 410,149"/></g></svg>';
+var G='<svg viewBox="0 0 51 33" aria-hidden="true"><path d="M44.3386 0H41.7581L45.1475 16.4497L32.6517 0H23.7895L30.4283 16.4954L11.6055 0H0L7.28055 16.5L0 33H11.6055L30.4283 16.5092L23.7895 33H32.6517L45.1475 16.5549L41.7581 33H44.3386L51 16.5L44.3386 0Z" fill="#379E1A"/></svg>';
+document.getElementById('mark').innerHTML=document.documentElement.dataset.brand==='yellow'?Y:G;
+document.getElementById('f').addEventListener('submit',async function(ev){ev.preventDefault();var b=document.getElementById('b'),e=document.getElementById('e');b.disabled=true;e.textContent='';
+ try{var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});
+  var j=await r.json().catch(function(){return {}});if(r.ok){location.href='/';return}e.textContent=j.error||'Không đăng nhập được, thử lại sau';}
+ catch(x){e.textContent='Mất kết nối, thử lại'}b.disabled=false;});
+</script>
+</body>
+</html>

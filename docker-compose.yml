@@ -24,6 +24,17 @@ services:
       - ./appdata:/data
     # Khong mo cong ra ngoai: chi Caddy goi vao
 
+  # Trang khach (app.vominhthien.com): doc snapshot Gobiz tu DB admin, du lieu rieng trong ./khachdata
+  khach:
+    build: ./khach
+    restart: unless-stopped
+    volumes:
+      - ./khachdata:/data
+      - ./appdata:/admin
+    depends_on:
+      - app
+    # Khong mo cong ra ngoai: chi Caddy goi vao
+
   db:
     image: postgres:16
     restart: unless-stopped

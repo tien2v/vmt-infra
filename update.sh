@@ -39,6 +39,7 @@ if [ -d /tmp/vmt-src/khach ]; then
     rm -rf khach.new && cp -r /tmp/vmt-src/khach khach.new && mkdir -p khach.new/public
     if openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in khach.new/ui.tar.gz.enc -pass file:.khkey | tar -xz -C khach.new/public; then
       rm -f khach.new/ui.tar.gz.enc
+      cp app/VERSION khach.new/VERSION 2>/dev/null || true
       rm -rf khach && mv khach.new khach
       mkdir -p khachdata && chown 1000:1000 khachdata && chmod 700 khachdata
       echo "Giao dien khach: OK"
@@ -67,6 +68,12 @@ for i in $(seq 1 30); do
 done
 docker compose ps
 if [ "$ok" != "1" ]; then echo "APP CHUA CHAY. Xem loi: docker compose logs --tail 50 app"; exit 1; fi
+kok=0
+for i in $(seq 1 30); do
+  if docker compose exec -T khach wget -qO- http://127.0.0.1:3001/healthz >/dev/null 2>&1; then kok=1; break; fi
+  sleep 2
+done
+[ "$kok" = "1" ] && echo "Trang khach: OK" || echo "CANH BAO: trang khach chua chay (docker compose logs --tail 50 khach)"
 
 if [ -f appdata/admin-password.txt ]; then
   echo
@@ -79,7 +86,7 @@ fi
 echo
 cp app/VERSION .deployed 2>/dev/null || true
 # Tinh trang de Claude xem tu xa (khong chua bi mat)
-printf 'version=%s\nkhach_key=%s\ntime=%s\n' "$(cat app/VERSION 2>/dev/null)" "$([ -s .khkey ] && echo co || echo chua)" "$(date '+%F %T')" > www/deploy-status.txt
+printf 'version=%s\nkhach_key=%s\nkhach_ok=%s\ntime=%s\n' "$(cat app/VERSION 2>/dev/null)" "$([ -s .khkey ] && echo co || echo chua)" "${kok:-0}" "$(date '+%F %T')" > www/deploy-status.txt
 if [ -f khachdata/test-account.txt ]; then
   echo "=============================================="
   echo " TAI KHOAN KHACH TEST app.vominhthien.com:"

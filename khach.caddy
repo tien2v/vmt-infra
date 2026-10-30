@@ -1,3 +1,1 @@
-root * /srv/www
-rewrite * /app.html
-file_server
+reverse_proxy khach:3001
