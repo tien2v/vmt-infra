@@ -24,6 +24,8 @@ try { VERSION = fs.readFileSync(path.join(__dirname, 'VERSION'), 'utf8').trim().
 store.init();
 const SECRET = store.sessionSecret();
 store.ensureAdmin();
+let UIINS = null; try { UIINS = JSON.parse(fs.readFileSync(path.join(__dirname, 'ui-inspect.json'), 'utf8')); } catch {}
+store.syncUiInspect(UIINS);
 
 // ---------- tien ich ----------
 const b64u = (b) => Buffer.from(b).toString('base64url');
@@ -179,6 +181,11 @@ async function handle(req, res) {
   if (p === '/cn') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     return fs.readFile(path.join(__dirname, 'cn.html'), (err, buf) => err ? send(res, 500, 'Server error') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8' }));
+  }
+  if (p.startsWith('/api/cn') && user && !(user.role in cn.CAN_EDIT)) return json(req, res, 403, { error: 'forbidden' });
+  if (p === '/api/cn/summary') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    return json(req, res, 200, cn.summary());
   }
   if (p === '/api/cn' && req.method === 'GET') {
     if (!user) return json(req, res, 401, { error: 'login' });

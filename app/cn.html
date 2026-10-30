@@ -52,6 +52,7 @@ dt{color:var(--mute)}dd{margin:0;word-break:break-word}
 .form{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .form label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;color:var(--mute)}
 .form .full{grid-column:1/-1}
+.form label span input{min-width:0;width:100%}
 .form input,.form select,.form textarea{border:1px solid var(--line);border-radius:9px;padding:9px 10px;font:inherit;color:var(--ink);background:#fff}
 .err{color:var(--red);font-weight:600;min-height:18px}
 .ok{color:#1d5c0c;font-weight:600}
@@ -65,6 +66,10 @@ dt{color:var(--mute)}dd{margin:0;word-break:break-word}
   td[data-l]:before{content:attr(data-l);display:block;font-size:11px;color:var(--mute);text-transform:uppercase}
   .num{text-align:left}.form{grid-template-columns:1fr}
 }
+.toast{position:fixed;right:16px;bottom:16px;z-index:30;background:#1f2328;color:#fff;border-radius:12px;padding:12px 16px;box-shadow:0 10px 30px -10px #0006;font-weight:600;max-width:320px;cursor:pointer}
+.toast small{display:block;color:#c9c4b8;font-weight:400;margin-top:3px}
+.newrow td{background:#f2fbe9!important}
+.notify{font-size:13px}
 </style>
 </head>
 <body>
@@ -80,6 +85,7 @@ dt{color:var(--mute)}dd{margin:0;word-break:break-word}
     <label><input type="checkbox" id="withTest"> Hiện đơn test</label>
     <button class="btn" id="reload">Làm mới</button>
     <button class="btn" id="csv">Xuất CSV</button>
+    <button class="btn notify" id="notif" hidden>Bật thông báo trình duyệt</button>
   </div>
   <div class="card"><table><thead id="th"></thead><tbody id="tb"></tbody></table><div class="empty" id="empty" hidden>Chưa có đơn</div></div>
 </main>
@@ -90,29 +96,32 @@ const ORDER=['PENDING','VN_WAREHOUSE','TRANSPORTING','CN_WAREHOUSE','DISPATCHED'
 const M={express_shipping:'Ưu tiên',standard_shipping:'Tiêu chuẩn',eco_shipping:'Tiết kiệm'};
 const SV={insurance:'Bảo hiểm',reinforce:'Gia cố'};
 const WH={HCM:'TP.HCM',HN:'Hà Nội'};
+const CL={thuong:'Hàng thường',kho:'Hàng khó',yen:'Yến sào',thu:'Thư, chứng từ',rieng:'Báo giá riêng'};
+const M2={express_shipping:'Nhanh',standard_shipping:'Thường',eco_shipping:'Chậm'};
 let R={orders:[],counts:{},can:[],role:''},tab='',q='';
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const vnd=n=>n==null?'—':Math.round(n).toLocaleString('vi-VN')+'đ';
 const dtt=s=>{if(!s)return '—';const d=new Date(s);return d.toLocaleDateString('vi-VN')+' '+d.toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})};
 const pill=s=>`<span class="pill s-${s}">${S[s]||s}</span>`;
-const method=o=>M[((o.fees||[]).find(f=>/shipping/.test(f.t))||{}).t]||'—';
+const method=o=>o.cat==='kho'?(M2[((o.fees||[]).find(f=>/shipping/.test(f.t))||{}).t]||'—'):(CL[o.cat]?'Theo bảng giá':(M[((o.fees||[]).find(f=>/shipping/.test(f.t))||{}).t]||'—'));
 const money=()=>R.role!=='kho';
 async function load(){const r=await fetch('/api/cn?test='+(document.getElementById('withTest').checked?1:0));if(r.status===401){location.href='/login';return;}R=await r.json();
  document.getElementById('me').textContent=(R.name||'')+' · '+R.role;render();}
-function filtered(){const s=q.toLowerCase();return R.orders.filter(o=>(!tab||o.status===tab)&&(!s||[o.code,o.username,o.gobiz,o.recvName,o.recvPhone,o.note,o.wb,o.wbCn].join(' ').toLowerCase().includes(s)));}
+function filtered(){const s=q.toLowerCase();return R.orders.filter(o=>(!tab||o.status===tab)&&(!s||[o.code,o.username,o.gobiz,o.recvName,o.recvPhone,o.note,o.wb,o.wbCn,o.refTL].join(' ').toLowerCase().includes(s)));}
 function render(){
  const total=Object.values(R.counts||{}).reduce((a,b)=>a+b,0);
  document.getElementById('tabs').innerHTML=[['','Tất cả',total],...ORDER.map(s=>[s,S[s],R.counts[s]||0])].map(([k,n,c])=>`<button data-tab="${k}" aria-pressed="${tab===k}">${n} (${c})</button>`).join('');
- document.getElementById('th').innerHTML=`<tr><th>Đơn</th><th>Ngày tạo</th><th>Khách</th><th>Người nhận (TQ)</th><th>Hàng</th><th>Vận chuyển</th><th class="num">Cân</th>${money()?'<th class="num">Phí</th><th class="num">Còn thu</th>':''}<th>Trạng thái</th></tr>`;
+ document.getElementById('th').innerHTML=`<tr><th>Đơn</th><th>Mã đối chiếu</th><th>Ngày tạo</th><th>Khách</th><th>Người nhận (TQ)</th><th>Hàng</th><th>Vận chuyển</th><th class="num">Cân</th>${money()?'<th class="num">Phí</th><th class="num">Còn thu</th>':''}<th>Trạng thái</th></tr>`;
  const L=filtered();document.getElementById('empty').hidden=!!L.length;
  document.getElementById('tb').innerHTML=L.map(o=>{const q=(o.items||[]).reduce((a,i)=>a+(+i.qty||0),0);return `<tr class="row" data-code="${o.code}">
   <td data-l="Đơn"><span class="code">${o.code}</span>${o.test?'<span class="test">TEST</span>':''}<small>${esc(o.note)}</small></td>
+  <td data-l="Mã đối chiếu">${o.refTL?`<b>${esc(o.refTL)}</b>`:'<span style="color:#b9b2a3">—</span>'}</td>
   <td data-l="Ngày tạo">${dtt(o.created)}</td>
   <td data-l="Khách">${esc(o.gobiz||o.username)}${o.test?`<small>tk ${esc(o.username)}</small>`:''}</td>
   <td data-l="Người nhận">${esc(o.recvName)}<small>${esc(o.recvPhone)}</small></td>
-  <td data-l="Hàng">${q} cái · ${(o.items||[]).length} dòng<small>${esc(o.cat||'')}</small></td>
+  <td data-l="Hàng">${q} cái · ${(o.items||[]).length} dòng<small>${esc(CL[o.cat]||o.cat||'')}</small></td>
   <td data-l="Vận chuyển">${method(o)} · ${WH[o.wh]||o.wh} → TQ<small>${esc(o.wb||'chưa có mã vận đơn')}</small></td>
-  <td data-l="Cân" class="num">${o.w!=null?o.w+' kg':'—'}${o.pk?`<small>${o.pk} kiện</small>`:''}</td>
+  <td data-l="Cân" class="num">${o.cw!=null?o.cw+' kg':o.w!=null?o.w+' kg':'—'}${o.pk?`<small>${o.pk} kiện</small>`:''}</td>
   ${money()?`<td data-l="Phí" class="num">${vnd(o.fee)}</td><td data-l="Còn thu" class="num">${vnd(o.unpaid)}</td>`:''}
   <td data-l="Trạng thái">${pill(o.status)}</td></tr>`}).join('');}
 function openD(code){const o=R.orders.find(x=>x.code===code);if(!o)return;const can=R.can||[];
@@ -122,36 +131,50 @@ function openD(code){const o=R.orders.find(x=>x.code===code);if(!o)return;const 
  const form=can.length?`<div class="sec"><h3>Cập nhật</h3><form class="form" id="upd">
   ${f('status')?`<label>Trạng thái<select name="status">${ORDER.map(s=>`<option value="${s}" ${s===o.status?'selected':''}>${S[s]}</option>`).join('')}</select></label>`:''}
   ${f('w')?`<label>Cân tính phí (kg)<input name="w" inputmode="decimal" value="${o.w??''}"></label>`:''}
+  ${f('dims')?`<label>Kích thước D × R × C (cm)<span style="display:flex;gap:6px"><input name="dL" inputmode="decimal" value="${o.dims?o.dims[0]:''}" placeholder="D"><input name="dW" inputmode="decimal" value="${o.dims?o.dims[1]:''}" placeholder="R"><input name="dH" inputmode="decimal" value="${o.dims?o.dims[2]:''}" placeholder="C"></span></label>`:''}
+  ${f('refTL')?`<label>Mã đối chiếu (Tài Lộc)<input name="refTL" maxlength="60" value="${esc(o.refTL||'')}"></label>`:''}
   ${f('pk')?`<label>Số kiện<input name="pk" inputmode="numeric" value="${o.pk??''}"></label>`:''}
   ${f('wbCn')?`<label>Mã vận chuyển tại TQ<input name="wbCn" maxlength="200" value="${esc(o.wbCn||'')}"></label>`:''}
-  ${f('fee')?`<label>Phí vận chuyển (đ)<input name="fee" inputmode="numeric" value="${o.fee??''}"></label>`:''}
+  ${f('fee')?`<label>Phí thu khách (đ) <small style="font-weight:400">${o.feeManual?'đang nhập tay':'tự tính theo bảng giá'}</small><input name="fee" inputmode="numeric" value="${o.fee??''}"></label>`:''}
   ${f('paid')?`<label>Đã thanh toán (đ)<input name="paid" inputmode="numeric" value="${o.paid??''}"></label>`:''}
   ${f('staffNote')?`<label class="full">Ghi chú nội bộ<textarea name="staffNote" rows="2" maxlength="500">${esc(o.staffNote||'')}</textarea></label>`:''}
-  <div class="full err" id="uErr"></div><div class="full"><button class="btn primary" id="uBtn">Lưu</button></div></form></div>`:'';
+  <div class="full err" id="uErr"></div><div class="full" style="display:flex;gap:8px"><button class="btn primary" id="uBtn">Lưu</button>${f('recalc')&&o.feeManual?'<button type="button" class="btn" id="uRecalc">Tính lại theo bảng giá</button>':''}</div></form></div>`:'';
  document.getElementById('dBody').innerHTML=`
-  <div class="sec"><h3>Khách & lô hàng</h3><dl><dt>Khách</dt><dd>${esc(o.gobiz||'')}${o.test?' (tài khoản test)':''}</dd><dt>Tên lô</dt><dd>${esc(o.note)}</dd><dt>Loại hàng</dt><dd>${esc(o.cat||'—')}</dd><dt>Tạo lúc</dt><dd>${dtt(o.created)}</dd>${o.note2?`<dt>Ghi chú khách</dt><dd>${esc(o.note2)}</dd>`:''}</dl></div>
+  <div class="sec"><h3>Khách & lô hàng</h3><dl><dt>Khách</dt><dd>${esc(o.gobiz||'')}${o.test?' (tài khoản test)':''}</dd><dt>Tên lô</dt><dd>${esc(o.note)}</dd><dt>Loại hàng</dt><dd>${esc(CL[o.cat]||o.cat||'—')}</dd><dt>Tạo lúc</dt><dd>${dtt(o.created)}</dd>${o.note2?`<dt>Ghi chú khách</dt><dd>${esc(o.note2)}</dd>`:''}</dl></div>
   <div class="sec"><h3>Người nhận tại Trung Quốc</h3><dl><dt>Tên</dt><dd>${esc(o.recvName)}</dd><dt>SĐT</dt><dd>${esc(o.recvPhone)}</dd><dt>Địa chỉ</dt><dd>${esc(o.recvAddr)}</dd></dl></div>
   <div class="sec"><h3>Hàng gửi</h3><div class="items">${items}</div>${money()?`<dl style="margin-top:8px"><dt>Giá trị khai</dt><dd>${vnd(o.value)}</dd></dl>`:''}</div>
-  <div class="sec"><h3>Vận chuyển</h3><dl><dt>Kho nhận VN</dt><dd>${WH[o.wh]||o.wh}</dd><dt>Hình thức</dt><dd>${method(o)}</dd><dt>Dịch vụ</dt><dd>${(o.svcs||[]).map(s=>SV[s]||s).join(', ')||'Không'}</dd><dt>Vận đơn khách gửi</dt><dd>${esc(o.wb||'—')}</dd><dt>Mã VC tại TQ</dt><dd>${esc(o.wbCn||'—')}</dd><dt>Cân / kiện</dt><dd>${o.w!=null?o.w+' kg':'chưa cân'} · ${o.pk?o.pk+' kiện':'—'}</dd>${money()?`<dt>Phí</dt><dd>${vnd(o.fee)} · đã TT ${vnd(o.paid)} · còn ${vnd(o.unpaid)}</dd>`:''}${o.staffNote?`<dt>Ghi chú nội bộ</dt><dd>${esc(o.staffNote)}</dd>`:''}</dl></div>
+  <div class="sec"><h3>Vận chuyển</h3><dl><dt>Kho nhận VN</dt><dd>${WH[o.wh]||o.wh}</dd><dt>Hình thức</dt><dd>${method(o)}</dd><dt>Dịch vụ</dt><dd>${(o.svcs||[]).map(s=>SV[s]||s).join(', ')||'Không'}</dd><dt>Vận đơn khách gửi</dt><dd>${esc(o.wb||'—')}</dd><dt>Mã VC tại TQ</dt><dd>${esc(o.wbCn||'—')}</dd><dt>Cân / kiện</dt><dd>${o.w!=null?o.w+' kg':'chưa cân'} · ${o.pk?o.pk+' kiện':'—'}</dd>${o.refTL?`<dt>Mã đối chiếu</dt><dd><b>${esc(o.refTL)}</b></dd>`:''}${o.dims?`<dt>Kích thước</dt><dd>${o.dims.join(' × ')} cm (quy đổi ${Math.round(o.dims[0]*o.dims[1]*o.dims[2]/6000*100)/100} kg)</dd>`:''}${o.cw!=null?`<dt>Cân tính cước</dt><dd>${o.cw} kg</dd>`:''}${o.quoteNote?`<dt>Bảng giá</dt><dd style="color:var(--red)">${esc(o.quoteNote)}</dd>`:''}${money()?`<dt>Phí thu khách</dt><dd>${vnd(o.fee)}${o.feeManual?' (nhập tay)':''} · đã TT ${vnd(o.paid)} · còn ${vnd(o.unpaid)}</dd>${(o.feeLines||[]).map(l=>`<dt></dt><dd style="color:var(--mute);font-size:13px">${esc(l[0])}: ${vnd(l[1])}</dd>`).join('')}${o.partnerFee!=null?`<dt>Giá đối tác</dt><dd>${vnd(o.partnerFee)} <small style="color:var(--mute)">(lãi ${vnd((o.fee||0)-o.partnerFee)})</small></dd>`:''}${o.est&&o.fee==null?`<dt>Khách ước tính</dt><dd>${vnd(o.est.fee)} · ${o.est.cw} kg</dd>`:''}`:''}${o.staffNote?`<dt>Ghi chú nội bộ</dt><dd>${esc(o.staffNote)}</dd>`:''}</dl></div>
   ${form}
   <div class="sec"><h3>Lịch sử</h3><ul class="timeline">${(o.ms||[]).slice().reverse().map(m=>`<li>${S[m.s]||m.s} <small>· ${dtt(m.t)}${m.by?' · '+esc(m.by):''}</small></li>`).join('')}</ul></div>`;
  document.getElementById('drawer').classList.add('open');
  const fm=document.getElementById('upd');if(fm)fm.addEventListener('submit',async e=>{e.preventDefault();const b={};
-  for(const el of fm.elements){if(!el.name)continue;const v=el.value.trim();const old=el.name==='status'?o.status:(o[el.name]??'');if(String(v)!==String(old))b[el.name]=['w','pk','fee','paid'].includes(el.name)?(v===''?null:Number(v.replace(/[^0-9.]/g,''))):v;}
+  const dn=['dL','dW','dH'];if(fm.dL){const nv=dn.map(k=>fm[k].value.trim().replace(',','.'));const ov=o.dims?o.dims.map(String):['','',''];if(nv.join('|')!==ov.join('|'))b.dims=nv.every(v=>v==='')?null:nv.map(Number);}
+  for(const el of fm.elements){if(!el.name||dn.includes(el.name))continue;const v=el.value.trim();const old=el.name==='status'?o.status:(o[el.name]??'');if(String(v)!==String(old))b[el.name]=['w','pk','fee','paid'].includes(el.name)?(v===''?null:Number(v.replace(/[^0-9.]/g,''))):v;}
   const err=document.getElementById('uErr'),btn=document.getElementById('uBtn');if(!Object.keys(b).length){err.textContent='Chưa có gì thay đổi';return;}
   if(b.status==='CANCELLED'&&!confirm('Huỷ đơn '+o.code+'?'))return;
+  if(b.w!==undefined&&b.w!==null&&isNaN(b.w)){err.textContent='Cân không hợp lệ';return;}
   btn.disabled=true;err.textContent='';try{const r=await fetch('/api/cn/'+o.code,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const j=await r.json().catch(()=>({}));
-   if(!r.ok){err.textContent=j.error||'Lỗi lưu';btn.disabled=false;return;}Object.assign(o,j.order);await load();openD(o.code);}catch(x){err.textContent='Mất kết nối';btn.disabled=false;}});}
+   if(!r.ok){err.textContent=j.error||'Lỗi lưu';btn.disabled=false;return;}Object.assign(o,j.order);await load();openD(o.code);}catch(x){err.textContent='Mất kết nối';btn.disabled=false;}});
+ const rc=document.getElementById('uRecalc');if(rc)rc.addEventListener('click',async()=>{rc.disabled=true;const r=await fetch('/api/cn/'+o.code,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recalc:true})});const j=await r.json().catch(()=>({}));if(!r.ok){document.getElementById('uErr').textContent=j.error||'Lỗi';rc.disabled=false;return;}await load();openD(o.code);});}
 document.addEventListener('click',e=>{const t=e.target.closest('[data-tab]');if(t){tab=t.dataset.tab;render();return;}
  const r=e.target.closest('tr.row');if(r){openD(r.dataset.code);return;}if(e.target.closest('[data-close]'))document.getElementById('drawer').classList.remove('open');});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('drawer').classList.remove('open');});
 document.getElementById('q').addEventListener('input',e=>{q=e.target.value.trim();render();});
 document.getElementById('withTest').addEventListener('change',load);
 document.getElementById('reload').addEventListener('click',load);
-document.getElementById('csv').addEventListener('click',()=>{const L=filtered();const cols=['code','created','gobiz','status','note','cat','recvName','recvPhone','recvAddr','wh','wb','wbCn','w','pk'].concat(money()?['value','fee','paid','unpaid']:[]);
+document.getElementById('csv').addEventListener('click',()=>{const L=filtered();const cols=['code','refTL','created','gobiz','status','note','cat','recvName','recvPhone','recvAddr','wh','wb','wbCn','w','cw','pk'].concat(money()?['value','fee','paid','unpaid']:[]);
  const csv='﻿'+[cols.join(',')].concat(L.map(o=>cols.map(c=>{let v=c==='status'?S[o.status]:o[c];return '"'+String(v??'').replace(/"/g,'""')+'"'}).join(','))).join('\n');
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='ship-to-china.csv';a.click();});
-load();setInterval(()=>{if(!document.hidden&&!document.getElementById('drawer').classList.contains('open'))load();},60000);
+let lastSeq=null;const seen=new Set();
+function toast(t,s){const d=document.createElement('div');d.className='toast';d.innerHTML=esc(t)+(s?`<small>${esc(s)}</small>`:'');d.onclick=()=>{d.remove();tab='PENDING';render();};document.body.appendChild(d);setTimeout(()=>d.remove(),15000);}
+async function poll(){try{const r=await fetch('/api/cn/summary',{cache:'no-store'});if(!r.ok)return;const j=await r.json();
+ document.title=(j.pending?`(${j.pending}) `:'')+'Ship to China · VMT Console';
+ if(lastSeq!==null&&j.lastSeq>lastSeq){const n=j.lastSeq-lastSeq;toast(`${n} đơn Ship to China mới`,j.last?j.last.code+' · bấm để xem đơn chờ tiếp nhận':'');
+  try{if(window.Notification&&Notification.permission==='granted')new Notification('Ship to China',{body:`${n} đơn mới · ${j.last?j.last.code:''}`});}catch(e){}
+  if(!document.getElementById('drawer').classList.contains('open'))load();}
+ lastSeq=j.lastSeq;}catch(e){}}
+const nb=document.getElementById('notif');if(window.Notification&&Notification.permission==='default'){nb.hidden=false;nb.onclick=()=>Notification.requestPermission().then(()=>nb.hidden=true);}
+load();poll();setInterval(poll,30000);setInterval(()=>{if(!document.hidden&&!document.getElementById('drawer').classList.contains('open'))load();},60000);
 </script>
 </body>
 </html>

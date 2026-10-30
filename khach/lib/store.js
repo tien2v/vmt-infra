@@ -76,7 +76,7 @@ function logLogin(u, ip, ok) {
 // ---------- Don Ship to China ----------
 function cnRow(r) {
   const d = JSON.parse(r.data);
-  delete d.staffNote; // ghi chu noi bo: khach khong thay
+  delete d.staffNote; delete d.partnerFee; delete d.refTL; delete d.feeManual; // noi bo: khach khong thay
   d.ms = (d.ms || []).map((m) => ({ t: m.t, s: m.s }));
   return Object.assign(d, { code: r.code, status: r.status, created: r.created_at, modified: r.updated_at || r.created_at });
 }

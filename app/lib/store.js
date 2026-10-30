@@ -88,6 +88,14 @@ function setActive(username, on) {
   const r = db.prepare('UPDATE users SET active = ?, pv = pv + 1 WHERE username = ?').run(on ? 1 : 0, String(username).toLowerCase());
   if (!r.changes) throw new Error('Không có tài khoản ' + username);
 }
+// Tai khoan 'ui' chi de Claude doc cau truc giao dien (khong nhan du lieu nao). Bat/tat bang file app/ui-inspect.json
+function syncUiInspect(cfg) {
+  const u = getUser('claude-ui');
+  if (cfg && cfg.hash) {
+    if (!u) db.prepare('INSERT INTO users (username, name, role, pass) VALUES (?, ?, ?, ?)').run('claude-ui', 'Claude (xem giao dien)', 'ui', cfg.hash);
+    else if (u.pass !== cfg.hash || !u.active || u.role !== 'ui') db.prepare("UPDATE users SET pass = ?, role = 'ui', active = 1, pv = pv + 1 WHERE username = 'claude-ui'").run(cfg.hash);
+  } else if (u && u.active) db.prepare("UPDATE users SET active = 0, pv = pv + 1 WHERE username = 'claude-ui'").run();
+}
 function listUsers() { return db.prepare('SELECT username, name, role, active, created_at FROM users ORDER BY role, username').all(); }
 
 // Lan dau chay: tao tai khoan admin, mat khau ghi vao /data/admin-password.txt de anh doc 1 lan
@@ -120,4 +128,4 @@ function logLogin(username, ip, ok) {
 function recentIngest() { return db.prepare('SELECT * FROM ingest_log ORDER BY rowid DESC LIMIT 20').all(); }
 function recentLogins() { return db.prepare('SELECT * FROM login_log ORDER BY rowid DESC LIMIT 30').all(); }
 
-module.exports = { init, sessionSecret, ensureAdmin, getUser, checkPassword, addUser, resetPassword, setActive, listUsers, saveSnapshot, seenTs, latestSnapshot, latestMeta, logIngest, logLogin, recentIngest, recentLogins, ROLES };
+module.exports = { syncUiInspect, init, sessionSecret, ensureAdmin, getUser, checkPassword, addUser, resetPassword, setActive, listUsers, saveSnapshot, seenTs, latestSnapshot, latestMeta, logIngest, logLogin, recentIngest, recentLogins, ROLES };
