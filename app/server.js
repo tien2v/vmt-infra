@@ -17,6 +17,8 @@ const PUBLIC = path.join(__dirname, 'public');
 const PUBKEY = fs.readFileSync(process.env.INGEST_PUBKEY_FILE || path.join(__dirname, 'ingest_pub.pem'));
 const SESSION_HOURS = 12;
 const COOKIE = 'vmt_s';
+let VERSION = 'dev';
+try { VERSION = fs.readFileSync(path.join(__dirname, 'VERSION'), 'utf8').trim().slice(0, 12); } catch {}
 
 store.init();
 const SECRET = store.sessionSecret();
@@ -116,7 +118,7 @@ async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
 
-  if (p === '/healthz') return json(req, res, 200, { ok: true, snapshot: (store.latestMeta() || {}).gen || null });
+  if (p === '/healthz') return json(req, res, 200, { ok: true, version: VERSION, snapshot: (store.latestMeta() || {}).gen || null });
 
   // Nhan du lieu tu n8n: chu ky RSA-SHA256 tren chuoi "<X-Ts>.<body>"
   if (p === '/api/ingest' && req.method === 'POST') {

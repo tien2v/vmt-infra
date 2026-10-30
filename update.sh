@@ -15,6 +15,7 @@ rm -rf app.new && cp -r /tmp/vmt-src/app app.new
 
 # Giao dien (template Lineone mua ban quyen) duoc ma hoa tren GitHub -> giai nen bang ma luu o .uikey
 if [ ! -s .uikey ]; then
+  [ -t 0 ] || { echo "Thieu /opt/vmt/.uikey"; exit 1; }
   read -r -p "Nhap ma giao dien (20 chu thuong, anh co trong tin nhan cua Claude): " UIKEY
   printf '%s' "$UIKEY" > .uikey && chmod 600 .uikey
 fi
@@ -24,11 +25,13 @@ if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in app.new/ui.tar.gz.enc 
   exit 1
 fi
 rm -f app.new/ui.tar.gz.enc
+# Ghi phien ban de /healthz bao (Claude kiem tra da cap nhat chua)
+printf '%s' "${VMT_SHA:-$(curl -fsS --max-time 20 -H 'Accept: application/vnd.github.sha' https://api.github.com/repos/tien2v/vmt-infra/commits/main || echo unknown)}" > app.new/VERSION
 rm -rf app && mv app.new app
 mkdir -p appdata && chown 1000:1000 appdata && chmod 700 appdata
 
 echo "==> 2/4 Kiem tra cau hinh web"
-docker compose run --rm --no-deps web caddy validate --config /etc/caddy/Caddyfile
+docker compose run -T --rm --no-deps web caddy validate --config /etc/caddy/Caddyfile
 
 echo "==> 3/4 Dung lai app va chay"
 docker compose --env-file .env up -d --build --remove-orphans
@@ -53,4 +56,5 @@ if [ -f appdata/admin-password.txt ]; then
   rm -f appdata/admin-password.txt
 fi
 echo
+cp app/VERSION .deployed 2>/dev/null || true
 echo "XONG. Mo trinh duyet: https://saas.7zone.net"
