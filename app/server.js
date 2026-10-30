@@ -26,6 +26,8 @@ const SECRET = store.sessionSecret();
 store.ensureAdmin();
 let UIINS = null; try { UIINS = JSON.parse(fs.readFileSync(path.join(__dirname, 'ui-inspect.json'), 'utf8')); } catch {}
 store.syncUiInspect(UIINS);
+const backup = require('./lib/backup');
+backup.init(store);
 setInterval(() => { try { const n = cn.autoDeliver(); if (n) console.log('autoDeliver', n); } catch (e) { console.error(e); } }, 30 * 60e3);
 setTimeout(() => { try { cn.autoDeliver(); } catch (e) {} }, 20e3);
 
@@ -231,6 +233,22 @@ async function handle(req, res) {
     return fs.readFile(path.join(__dirname, 'cn.html'), (err, buf) => err ? send(res, 500, 'Server error') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8' }));
   }
   // Ma chuyen phat TQ tu Tai Loc (n8n doc tin nhan, ky RSA giong /api/ingest): { ref: SCN/ma doi chieu, wbCn }
+  // ---- sao luu (chi admin) ----
+  if (p === '/backup' || p.startsWith('/api/backup')) {
+    if (!user) { if (p === '/backup') { res.writeHead(302, { Location: '/login' }); return res.end(); } return json(req, res, 401, { error: 'login' }); }
+    if (user.role !== 'admin') return p === '/backup' ? send(res, 403, 'Chỉ quản trị được vào trang này') : json(req, res, 403, { error: 'forbidden' });
+    if (p === '/backup') return fs.readFile(path.join(__dirname, 'backup.html'), (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8' }));
+    if (p === '/api/backup' && req.method === 'GET') return json(req, res, 200, backup.status());
+    if (req.method !== 'POST' || !sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    if (p === '/api/backup/run') { const r = await backup.run(true); return json(req, res, r.error ? 500 : 200, Object.assign(r, { status: backup.status() })); }
+    if (p === '/api/backup/config') {
+      let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+      const r = await backup.configure(b, user.username);
+      console.log('backup config by', user.username, r.error ? 'FAIL ' + r.error : 'ok');
+      return json(req, res, r.error ? 400 : 200, r);
+    }
+    return json(req, res, 404, { error: 'not found' });
+  }
   if (p === '/api/cn/track' && req.method === 'POST') {
     let body; try { body = await readBody(req, 20000); } catch { return json(req, res, 400, { error: 'body' }); }
     const ts = Number(req.headers['x-ts']); const sig = String(req.headers['x-sig'] || '');

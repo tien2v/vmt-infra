@@ -128,4 +128,6 @@ function logLogin(username, ip, ok) {
 function recentIngest() { return db.prepare('SELECT * FROM ingest_log ORDER BY rowid DESC LIMIT 20').all(); }
 function recentLogins() { return db.prepare('SELECT * FROM login_log ORDER BY rowid DESC LIMIT 30').all(); }
 
-module.exports = { syncUiInspect, init, sessionSecret, ensureAdmin, getUser, checkPassword, addUser, resetPassword, setActive, listUsers, saveSnapshot, seenTs, latestSnapshot, latestMeta, logIngest, logLogin, recentIngest, recentLogins, ROLES };
+function kvGet(k) { const r = db.prepare('SELECT v FROM kv WHERE k = ?').get(k); return r ? r.v : null; }
+function kvSet(k, v) { db.prepare('INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v').run(k, v); }
+module.exports = { kvGet, kvSet, syncUiInspect, init, sessionSecret, ensureAdmin, getUser, checkPassword, addUser, resetPassword, setActive, listUsers, saveSnapshot, seenTs, latestSnapshot, latestMeta, logIngest, logLogin, recentIngest, recentLogins, ROLES };

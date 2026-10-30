@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cài đặt sao lưu · VMT</title>
+<style>
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f5f7;color:#1f2937}
+main{max-width:720px;margin:0 auto;padding:24px 16px 60px}
+h1{font-size:22px;margin:0 0 4px}p.sub{color:#6b7280;margin:0 0 20px}
+.card{background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.card h2{font-size:16px;margin:0 0 12px}
+label{display:block;margin:12px 0 4px;font-size:14px;color:#374151;font-weight:500}
+input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;font-family:ui-monospace,monospace}
+small{color:#6b7280}
+button{border:0;border-radius:10px;padding:11px 18px;font-size:15px;font-weight:600;cursor:pointer;background:#4f46e5;color:#fff}
+button.sec{background:#eef2ff;color:#4338ca}button:disabled{opacity:.5;cursor:default}
+.row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:14px}.row span:first-child{color:#6b7280}
+.ok{color:#15803d;font-weight:600}.bad{color:#b91c1c;font-weight:600}
+.err{color:#b91c1c;margin-top:10px;white-space:pre-wrap}
+.warn{background:#fef3c7;border:1px solid #f59e0b;border-radius:12px;padding:16px;margin-top:14px}
+.warn b{color:#92400e}code{background:#f3f4f6;padding:2px 6px;border-radius:6px}
+a{color:#4f46e5}
+</style></head><body><main>
+<p><a href="/">← Về trang quản trị</a></p>
+<h1>Cài đặt sao lưu</h1>
+<p class="sub">Tự động sao lưu dữ liệu đơn, tiền và ảnh sang Cloudflare R2 mỗi giờ. Dữ liệu được khoá mã trước khi gửi đi.</p>
+
+<div class="card"><h2>Tình trạng</h2><div id="st">Đang tải…</div>
+  <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap"><button class="sec" id="runBtn">Sao lưu ngay</button></div><div class="err" id="runErr"></div></div>
+
+<div class="card"><h2 id="fTitle">Kết nối Cloudflare R2</h2>
+  <p style="margin:0;color:#6b7280;font-size:14px">Dán 3 thông tin lấy ở Cloudflare (màn hình sau khi tạo API token).</p>
+  <form id="f" autocomplete="off">
+    <label>Endpoint (S3)</label><input name="endpoint" placeholder="https://xxxxxxxx.r2.cloudflarestorage.com" required>
+    <label>Access Key ID</label><input name="keyId" required>
+    <label>Secret Access Key</label><input name="secret" type="password" required><small>Chỉ lưu trên máy chủ, không hiện lại.</small>
+    <label>Tên bucket</label><input name="bucket" value="vmt-backup" required>
+    <div style="margin-top:16px"><button id="saveBtn">Kiểm tra và lưu</button></div>
+    <div class="err" id="err"></div>
+  </form>
+  <div class="warn" id="keyBox" hidden>
+    <p><b>QUAN TRỌNG: KHOÁ MỞ BẢN SAO LƯU (chỉ hiện 1 lần)</b></p>
+    <p>Trình duyệt vừa tải về file <code>vmt-backup-KHOA-BI-MAT.pem</code>. Không có file này thì <b>không ai mở được bản sao lưu</b>, kể cả em.</p>
+    <p>Anh cất file này ở <b>2 nơi</b>: (1) USB hoặc ổ cứng cất kỹ, (2) ứng dụng quản lý mật khẩu hoặc Google Drive cá nhân. Không gửi qua Zalo / chat.</p>
+    <p>Mã nhận dạng khoá: <code id="fp"></code> (để đối chiếu sau này).</p>
+    <p><button class="sec" id="dlAgain">Tải lại file khoá</button></p>
+    <label style="font-weight:600"><input type="checkbox" id="saved" style="width:auto;margin-right:8px">Tôi đã cất file khoá ở 2 nơi</label>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const dt=s=>s?new Date(s).toLocaleString('vi-VN'):'—';
+let PRIV=null;
+async function load(){const r=await fetch('/api/backup',{cache:'no-store'});if(r.status===401){location.href='/login';return;}const s=await r.json();
+ const rows=[['Trạng thái',s.configured?(s.healthy?'<span class="ok">Đang chạy tốt</span>':(s.lastErr?'<span class="bad">Lỗi</span>':'Chờ lần sao lưu đầu')):'<span class="bad">Chưa cài đặt</span>'],
+  ['Lần thành công gần nhất',dt(s.lastOk)],['Lần đó đã gửi',s.lastDone||'—'],['Lỗi gần nhất',s.lastErr?(s.lastErr+' · '+dt(s.lastErrAt)):'—'],
+  ['Bucket',s.bucket||'—'],['Access Key',s.keyId||'—'],['Mã nhận dạng khoá mở',s.keyFp||'—'],['Cài đặt bởi',s.setBy?(s.setBy+' · '+dt(s.setAt)):'—']];
+ $('st').innerHTML=rows.map(r=>`<div class="row"><span>${r[0]}</span><span>${r[1]}</span></div>`).join('');
+ $('runBtn').disabled=!s.configured;$('fTitle').textContent=s.configured?'Đổi khoá Cloudflare R2':'Kết nối Cloudflare R2';}
+function download(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([PRIV],{type:'application/x-pem-file'}));a.download='vmt-backup-KHOA-BI-MAT.pem';a.click();}
+$('f').addEventListener('submit',async e=>{e.preventDefault();const f=e.target;$('err').textContent='';$('saveBtn').disabled=true;$('saveBtn').textContent='Đang kiểm tra kết nối…';
+ try{const r=await fetch('/api/backup/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:f.endpoint.value,keyId:f.keyId.value,secret:f.secret.value,bucket:f.bucket.value})});
+  const j=await r.json().catch(()=>({}));if(!r.ok){$('err').textContent=j.error||'Lỗi';}
+  else{f.secret.value='';if(j.priv){PRIV=j.priv;$('fp').textContent=j.fp;$('keyBox').hidden=false;download();}else{$('err').innerHTML='<span class="ok">Đã lưu. Dùng tiếp khoá mở cũ (mã '+j.fp+').</span>';}setTimeout(load,4000);load();}}
+ catch(e){$('err').textContent='Mất kết nối';}
+ $('saveBtn').disabled=false;$('saveBtn').textContent='Kiểm tra và lưu';});
+$('dlAgain').addEventListener('click',download);
+$('runBtn').addEventListener('click',async()=>{$('runBtn').disabled=true;$('runBtn').textContent='Đang sao lưu…';$('runErr').textContent='';
+ try{const r=await fetch('/api/backup/run',{method:'POST'});const j=await r.json();if(j.error)$('runErr').textContent=j.error;else if(j.skipped)$('runErr').textContent=j.skipped;}catch(e){$('runErr').textContent='Mất kết nối';}
+ $('runBtn').textContent='Sao lưu ngay';load();});
+addEventListener('beforeunload',e=>{if(PRIV&&!$('saved').checked){e.preventDefault();e.returnValue='';}});
+load();
+</script></main></body></html>
