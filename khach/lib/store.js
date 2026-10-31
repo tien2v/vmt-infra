@@ -172,7 +172,27 @@ function coDelete(username, id, ip) {
 function notifList(username) { return db.prepare('SELECT * FROM notif WHERE username = ? ORDER BY id DESC LIMIT 100').all(username).map((n) => ({ id: n.id, code: n.code, text: n.text, read: n.read, created_at: n.created_at, kind: n.kind || null })); }
 function notifRead(username) { db.prepare('UPDATE notif SET read = 1 WHERE username = ? AND read = 0').run(username); }
 function rawDb() { return db; }
+// ---- Ten hang tieng Trung (AI dich nen): don 7 ngay gan day, chua huy, co dong hang thieu nameZh ----
+function cnMissingZh(limit) {
+  return db.prepare("SELECT code, data FROM cn_orders WHERE status <> 'CANCELLED' AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days') ORDER BY seq DESC LIMIT 200").all()
+    .map((r) => { let d; try { d = JSON.parse(r.data); } catch { return null; } return { code: r.code, items: d.items || [], skip: (d.zhTry || 0) >= 3 }; })
+    .filter((o) => o && !o.skip && o.items.some((i) => i && i.name && !i.nameZh)).slice(0, limit || 5);
+}
+// Ghi ten tieng Trung theo TEN hang (khong theo vi tri, phong khi nhan vien vua sua danh sach). ok=false: dem so lan loi, loi 3 lan thi thoi.
+function cnSetZh(code, map, ok) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const r = db.prepare('SELECT data FROM cn_orders WHERE code = ?').get(code);
+    if (!r) { db.exec('COMMIT'); return; }
+    const d = JSON.parse(r.data); let n = 0;
+    for (const i of d.items || []) if (i && i.name && !i.nameZh && map[i.name]) { i.nameZh = map[i.name]; n++; }
+    if (!ok) d.zhTry = (d.zhTry || 0) + 1;
+    db.prepare('UPDATE cn_orders SET data = ? WHERE code = ?').run(JSON.stringify(d), code);
+    if (n) db.prepare('INSERT INTO cn_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, 'he-thong', 'Dịch tên hàng sang tiếng Trung', JSON.stringify({ changes: [], n }));
+    db.exec('COMMIT');
+  } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
+}
 // Tai khoan nhan nap tien do admin cai (doc tu DB admin, chi doc)
 function adminKv(k) { const a = adminDb(); if (!a) return null; try { const r = a.prepare('SELECT v FROM kv WHERE k = ?').get(k); return r ? r.v : null; } catch (e) { return null; } }
 function depositAccounts() { const a = adminDb(); if (!a) return []; try { const r = a.prepare("SELECT v FROM kv WHERE k = 'deposit_accounts'").get(); return r ? JSON.parse(r.v).filter((x) => x.active) : []; } catch (e) { return []; } }
-module.exports = { adminKv, depositAccounts, rawDb, uploadSave, uploadCanSee, uploadPath, coList, coGet, coSave, coDelete, notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };
+module.exports = { cnMissingZh, cnSetZh, adminKv, depositAccounts, rawDb, uploadSave, uploadCanSee, uploadPath, coList, coGet, coSave, coDelete, notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };

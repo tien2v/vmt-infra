@@ -127,6 +127,29 @@ setInterval(() => webpush.pump(
 // Thong ke cai app chi giu 180 ngay
 const pwaPurge = () => { try { store.rawDb().prepare("DELETE FROM pwa_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-180 days')").run(); } catch {} };
 pwaPurge(); setInterval(pwaPurge, 24 * 3600e3).unref();
+// ---- AI (Gemini): dien form tu tin nhan / anh + dich ten hang sang tieng Trung ----
+const ai = require('./lib/ai');
+ai.init(store.adminKv);
+store.rawDb().exec("CREATE TABLE IF NOT EXISTS ai_log (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, kind TEXT, ok INTEGER, ms INTEGER, imgs INTEGER, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))");
+const aiLog = (u, kind, ok, ms, imgs) => { try { store.rawDb().prepare('INSERT INTO ai_log (username, kind, ok, ms, imgs) VALUES (?, ?, ?, ?, ?)').run(u, kind, ok ? 1 : 0, ms, imgs || 0); } catch {} };
+const aiPurge = () => { try { store.rawDb().prepare("DELETE FROM ai_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-90 days')").run(); } catch {} };
+aiPurge(); setInterval(aiPurge, 24 * 3600e3).unref();
+const aiCount = (u) => store.rawDb().prepare("SELECT COUNT(*) AS n FROM ai_log WHERE username = ? AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hour')").get(u).n;
+// Don thieu ten tieng Trung (khach / nhan vien go tay): tu dich nen, 10 phut/lan, moi lan toi da 5 don
+let zhBusy = false;
+async function zhPump() {
+  if (zhBusy || !ai.ready()) return; zhBusy = true;
+  try {
+    for (const o of store.cnMissingZh(5)) {
+      const names = [...new Set(o.items.filter((i) => i && i.name && !i.nameZh).map((i) => i.name))];
+      const t0 = Date.now(); const r = await ai.toZh(names);
+      aiLog('he-thong', 'zh', !r.error, Date.now() - t0, 0);
+      const map = {}; if (r.ok) names.forEach((n, k) => { if (r.zh[k]) map[n] = r.zh[k]; });
+      store.cnSetZh(o.code, map, !!r.ok);
+    }
+  } catch (e) { console.error('zhPump', e.message); } finally { zhBusy = false; }
+}
+setTimeout(zhPump, 60e3).unref(); setInterval(zhPump, 10 * 60e3).unref();
 try { store.rawDb().exec('ALTER TABLE notif ADD COLUMN kind TEXT'); } catch {} // loai thong bao ghi thang (neu noi ghi co truyen)
 // Phan loai thong bao cho cac tab: order | money | support | system; act = can khach lam gi do
 function notifKind(n) {
@@ -156,6 +179,7 @@ function payload(user) {
   // Ma khach moi (= ma nap tien), tach khoi Gobiz. Vi moi: tam thoi chi bat cho tai khoan test.
   me.code = ledger.codeOf(store.rawDb(), owner(user), gobizNames());
   me.walletOn = me.test;
+  me.ai = ai.ready();
   me.appInstalled = !!store.rawDb().prepare("SELECT 1 FROM pwa_log WHERE username = ? AND event IN ('standalone','installed') LIMIT 1").get(user.username);
   if (me.walletOn) { me.wallet = ledger.walletView(store.rawDb(), owner(user)); me.hasPin = ledger.hasPin(store.rawDb(), owner(user)); }
   const cn = store.cnList(user.username, user.gobiz).map((o) => Object.assign(o, { mine: true }));
@@ -241,6 +265,21 @@ async function handle(req, res) {
     if (cr.error) return json(req, res, 400, { error: cr.error });
     const o = cr.order;
     return json(req, res, 200, { ok: true, order: Object.assign(o, { mine: true }), companies: saved ? store.coList(user.username) : undefined });
+  }
+  // Dien nhanh form Ship to China: { text, images: [base64 JPEG] } -> du lieu goi y (khach xem lai roi moi gui)
+  if (p === '/api/ai/cn' && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
+    if (!ai.ready()) return json(req, res, 503, { error: 'Tính năng điền nhanh đang tạm dừng, anh/chị nhập tay giúp em nhé' });
+    if (aiCount(user.username) >= 30) return json(req, res, 429, { error: 'Dùng điền nhanh quá nhiều trong 1 giờ, thử lại sau' });
+    let b; try { b = JSON.parse((await readBody(req, 4 * 1024 * 1024)).toString()); } catch { return json(req, res, 413, { error: 'Ảnh quá lớn hoặc dữ liệu không hợp lệ' }); }
+    const text = String(b.text || '').slice(0, 8000);
+    const imgs = (Array.isArray(b.images) ? b.images : []).slice(0, 4).map((x) => String(x || '')).filter((x) => /^[A-Za-z0-9+/=]{200,}$/.test(x)).map((data) => ({ mime: 'image/jpeg', data }));
+    if (!text.trim() && !imgs.length) return json(req, res, 400, { error: 'Dán tin nhắn hoặc thêm ảnh trước' });
+    const t0 = Date.now(); const r = await ai.cnFill(text, imgs);
+    aiLog(user.username, 'cn', !r.error, Date.now() - t0, imgs.length);
+    if (r.error) return json(req, res, 502, { error: 'Chưa đọc được (' + r.error + '). Anh/chị thử lại hoặc nhập tay.' });
+    return json(req, res, 200, r);
   }
   if (p === '/api/upload' && req.method === 'POST') {
     if (!user) return json(req, res, 401, { error: 'login' });

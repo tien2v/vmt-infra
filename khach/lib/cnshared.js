@@ -36,7 +36,8 @@ function validateCn(b) {
   for (const i of b.items) {
     const name = str(i && i.name, 120), qty = Math.floor(Number(i && i.qty)), price = Math.floor(Number(i && i.price) || 0);
     if (!name || !(qty >= 1 && qty <= 1000000) || !(price >= 0 && price <= 1e11)) return { error: 'Dòng sản phẩm cần tên và số lượng hợp lệ' };
-    items.push({ name, qty, price });
+    const zh = str(i && i.nameZh, 120); // ten tieng Trung (AI dien / tu dich) de lam don noi dia TQ
+    items.push(zh ? { name, nameZh: zh, qty, price } : { name, qty, price });
   }
   const wbs = Array.isArray(b.wb) ? [...new Set(b.wb.map((w) => str(w, 40).toUpperCase()).filter((w) => /^[A-Z0-9-]{4,40}$/.test(w)))].slice(0, 20) : [];
   const estW = b.estW === '' || b.estW == null ? null : Number(b.estW);

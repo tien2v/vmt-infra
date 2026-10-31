@@ -191,7 +191,7 @@
 
                     <p class="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">Hàng gửi</p>
                     <template x-for="(it,i) in (cnDetail.items||[])" :key="i">
-                      <div class="flex justify-between border-b border-dashed border-slate-150 py-2 text-xs-plus dark:border-navy-500"><span x-text="it.name"></span><span x-text="'SL ' + it.qty + (money() && it.price!=null ? ' × ' + vnd(it.price) : '')"></span></div>
+                      <div class="flex justify-between border-b border-dashed border-slate-150 py-2 text-xs-plus dark:border-navy-500"><span><span x-text="it.name"></span><template x-if="it.nameZh"><span class="ml-1 text-slate-400" x-text="'· ' + it.nameZh"></span></template></span><span x-text="'SL ' + it.qty + (money() && it.price!=null ? ' × ' + vnd(it.price) : '')"></span></div>
                     </template>
 
                     <template x-for="g in [['Ảnh sản phẩm', (cnDetail.photos||{}).prod], ['Ảnh kiện hàng', (cnDetail.photos||{}).pkg]]" :key="g[0]">
