@@ -22,7 +22,7 @@ a{color:#4f46e5}
 </style></head><body><main>
 <p><a href="/">← Về trang quản trị</a></p>
 <h1>Kết nối</h1>
-<p class="sub">Khoá và địa chỉ kết nối với hệ thống bên ngoài. Chỉ quản trị thấy trang này.</p>
+<p class="sub">Khoá và địa chỉ kết nối với hệ thống bên ngoài (máy đo, Xport, email, Gemini). Chỉ quản trị thấy trang này.</p>
 
 <div class="card"><h2>Máy đo tự động kho TQ</h2>
   <p style="margin:0;color:#6b7280;font-size:14px">Gửi địa chỉ dưới đây cho bên máy đo, nhờ họ cài <b>bắn song song</b> (vẫn bắn Gobiz như cũ). Hiện chỉ lưu nguyên dữ liệu máy gửi, chưa xử lý.</p>
@@ -40,6 +40,19 @@ a{color:#4f46e5}
     <label>User ID (tài khoản con, có thể bỏ trống)</label><input name="userId">
     <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap"><button id="xSave">Lưu và thử kết nối</button><button type="button" class="sec" id="xTest">Chỉ thử kết nối</button></div>
     <div class="err" id="xErr"></div>
+  </form>
+</div>
+<div class="card"><h2>Email gửi khách (no-reply theo brand)</h2>
+  <p style="margin:0 0 6px;color:#6b7280;font-size:14px">Dùng để gửi mã OTP đăng ký, thông báo đơn. Khách nhóm VMT Global nhận từ hộp VMT Global, còn lại nhận từ hộp Vominhthien.<br>Mật khẩu lấy ở <b>Lark Admin → Product Settings → Mail → Public Mailbox</b> → chọn hộp no-reply → <b>IMAP/SMTP password</b> (không phải mật khẩu đăng nhập Lark).</p>
+  <div id="mailBox">Đang tải…</div>
+</div>
+
+<div class="card"><h2>Gemini (AI đọc tin Zalo / ảnh / file để tạo nhiều đơn)</h2>
+  <div id="gmSt">Đang tải…</div>
+  <form id="gf" autocomplete="off">
+    <label>Khoá API Gemini</label><input name="key" type="password" required placeholder="AIza…"><small>Tạo ở aistudio.google.com → Get API key, bằng tài khoản Google của VMT.</small>
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap"><button id="gSave">Lưu và thử</button><button type="button" class="sec" id="gTest">Chỉ thử</button></div>
+    <div class="err" id="gErr"></div>
   </form>
 </div>
 <script>
@@ -72,6 +85,57 @@ $('#xf').onsubmit = async (e) => {
   e.target.reset(); showX(r.view);
 };
 $('#xTest').onclick = async () => { $('#xTest').disabled = true; const r = await api('/api/xport/test', { method: 'POST', body: '{}' }); $('#xTest').disabled = false; if (r.error) $('#xErr').textContent = r.error; else showX(r.view); };
-loadDws(); loadX();
+function mailForm(k, v) {
+  const st = v.configured
+    ? '<div class="row"><span>Gửi từ</span><span>' + esc(v.name) + ' &lt;' + esc(v.from) + '&gt;</span></div><div class="row"><span>Máy chủ</span><span>' + esc(v.host) + ':' + v.port + '</span></div><div class="row"><span>Nhập bởi</span><span>' + esc(v.by) + ' · ' + esc(v.at) + '</span></div>' +
+      '<div class="row"><span>Gửi thử gần nhất</span><span>' + (v.lastTest ? (v.lastTest.ok ? '<span class="ok">Gửi được</span> tới ' + esc(v.lastTest.to) : '<span class="bad">Lỗi: ' + esc(v.lastTest.msg) + '</span>') + ' · ' + esc(v.lastTest.at) : '—') + '</span></div>'
+    : '<div class="row"><span>Trạng thái</span><span class="bad">Chưa cài</span></div>';
+  return '<h3 style="font-size:15px;margin:18px 0 4px">' + esc(v.label) + '</h3>' + st +
+    '<form data-brand="' + k + '" class="mf" autocomplete="off">' +
+    '<label>Email gửi (no-reply)</label><input name="from" value="' + esc(v.from || '') + '" required placeholder="no-reply@...">' +
+    '<label>Tên hiển thị</label><input name="name" value="' + esc(v.name || v.label) + '">' +
+    '<label>Mật khẩu IMAP/SMTP</label><input name="pass" type="password" placeholder="' + (v.configured ? 'Để trống = giữ mật khẩu cũ' : '') + '"' + (v.configured ? '' : ' required') + '>' +
+    '<div style="display:flex;gap:10px"><div style="flex:2"><label>Máy chủ SMTP</label><input name="host" value="' + esc(v.host || 'smtp.larksuite.com') + '"></div><div style="flex:1"><label>Cổng</label><input name="port" value="' + (v.port || 465) + '"></div></div>' +
+    '<div style="margin-top:14px"><button>Lưu</button></div>' +
+    (v.configured ? '<label>Gửi thử tới email</label><div style="display:flex;gap:10px"><input name="to" placeholder="email của anh"><button type="button" class="sec mt">Gửi thử</button></div>' : '') +
+    '<div class="err"></div></form>';
+}
+function showMail(v) {
+  $('#mailBox').innerHTML = Object.keys(v).filter((k) => v[k] && v[k].label).map((k) => mailForm(k, v[k])).join('');
+  document.querySelectorAll('.mf').forEach((f) => {
+    const err = f.querySelector('.err'), brand = f.dataset.brand;
+    f.onsubmit = async (e) => {
+      e.preventDefault(); err.textContent = '';
+      const d = Object.fromEntries(new FormData(f)); d.brand = brand;
+      const r = await api('/api/mail', { method: 'POST', body: JSON.stringify(d) });
+      if (r.error) { err.textContent = r.error; return; }
+      showMail(r.view);
+    };
+    const t = f.querySelector('.mt');
+    if (t) t.onclick = async () => {
+      err.textContent = ''; t.disabled = true; t.textContent = 'Đang gửi…';
+      const r = await api('/api/mail/test', { method: 'POST', body: JSON.stringify({ brand, to: f.querySelector('[name=to]').value }) });
+      t.disabled = false; t.textContent = 'Gửi thử';
+      if (r.view) showMail(r.view);
+      if (r.error) document.querySelector('.mf[data-brand=' + brand + '] .err').textContent = r.error;
+    };
+  });
+}
+async function loadMail() { showMail(await api('/api/mail')); }
+function showG(v) {
+  if (!v.configured) { $('#gmSt').innerHTML = '<div class="row"><span>Trạng thái</span><span class="bad">Chưa nhập khoá</span></div>'; return; }
+  const t = v.lastTest;
+  $('#gmSt').innerHTML = '<div class="row"><span>Khoá</span><span>' + esc(v.key) + '</span></div><div class="row"><span>Nhập bởi</span><span>' + esc(v.by) + ' · ' + esc(v.at) + '</span></div>' +
+    '<div class="row"><span>Thử gần nhất</span><span>' + (t ? (t.ok ? '<span class="ok">' + esc(t.msg) + '</span>' : '<span class="bad">Lỗi: ' + esc(t.msg) + '</span>') + ' · ' + esc(t.at) : '—') + '</span></div>';
+}
+$('#gf').onsubmit = async (e) => {
+  e.preventDefault(); $('#gErr').textContent = ''; $('#gSave').disabled = true;
+  const r = await api('/api/gemini', { method: 'POST', body: JSON.stringify({ key: new FormData(e.target).get('key') }) });
+  $('#gSave').disabled = false;
+  if (r.error) { $('#gErr').textContent = r.error; return; }
+  e.target.reset(); showG(r.view);
+};
+$('#gTest').onclick = async () => { $('#gTest').disabled = true; const r = await api('/api/gemini/test', { method: 'POST', body: '{}' }); $('#gTest').disabled = false; if (r.error) $('#gErr').textContent = r.error; else showG(r.view); };
+loadDws(); loadX(); loadMail(); api('/api/gemini').then(showG);
 </script>
 </main></body></html>

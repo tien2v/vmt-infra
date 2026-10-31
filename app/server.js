@@ -43,6 +43,10 @@ const dws = require('./lib/dws');
 dws.init(store);
 const xport = require('./lib/xport');
 xport.init(store);
+const mail = require('./lib/mail');
+mail.init(store);
+const gemini = require('./lib/gemini');
+gemini.init(store);
 const speedtest = require('./lib/speedtest');
 speedtest.init();
 setInterval(() => { try { const n = cn.autoDeliver(); if (n) console.log('autoDeliver', n); } catch (e) { console.error(e); } }, 30 * 60e3);
@@ -435,7 +439,7 @@ async function handle(req, res) {
   }
 
   // ---- Ket noi: may do kho TQ + khoa Xport (chi admin) ----
-  if (p === '/ket-noi' || p.startsWith('/api/dws/') || p === '/api/xport' || p === '/api/xport/test') {
+  if (p === '/ket-noi' || p.startsWith('/api/dws/') || p === '/api/xport' || p === '/api/xport/test' || p === '/api/mail' || p === '/api/mail/test' || p === '/api/gemini' || p === '/api/gemini/test') {
     if (!user) { if (p === '/ket-noi') { res.writeHead(302, { Location: '/login' }); return res.end(); } return json(req, res, 401, { error: 'login' }); }
     if (user.role !== 'admin') return p === '/ket-noi' ? send(res, 403, 'Chỉ quản trị được vào trang này') : json(req, res, 403, { error: 'forbidden' });
     if (p === '/ket-noi') return fs.readFile(path.join(__dirname, 'connect.html'), (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8' }));
@@ -447,6 +451,8 @@ async function handle(req, res) {
       return send(res, 200, r.body || Buffer.alloc(0), { 'Content-Type': r.row.ctype || 'application/octet-stream', 'Content-Disposition': 'inline; filename="dws-' + r.row.id + '"' });
     }
     if (p === '/api/xport' && req.method === 'GET') return json(req, res, 200, xport.view());
+    if (p === '/api/mail' && req.method === 'GET') return json(req, res, 200, mail.view());
+    if (p === '/api/gemini' && req.method === 'GET') return json(req, res, 200, gemini.view());
     if (req.method !== 'POST' || !sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
     if (p === '/api/xport') {
       let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
@@ -457,6 +463,23 @@ async function handle(req, res) {
       return json(req, res, 200, { ok: true, view: xport.view() });
     }
     if (p === '/api/xport/test') { await xport.test(); return json(req, res, 200, { ok: true, view: xport.view() }); }
+    if (p === '/api/mail' || p === '/api/mail/test' || p === '/api/gemini') {
+      let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+      if (p === '/api/mail') {
+        const r = mail.setCfg(String(b.brand || ''), b, user.username);
+        console.log('mail config', b.brand, 'by', user.username, r.error ? 'FAIL ' + r.error : 'ok');
+        return json(req, res, r.error ? 400 : 200, r.error ? r : { ok: true, view: mail.view() });
+      }
+      if (p === '/api/mail/test') {
+        const r = await mail.test(String(b.brand || ''), b.to, user.username);
+        return json(req, res, r.error ? 400 : 200, Object.assign(r, { view: mail.view() }));
+      }
+      const r = gemini.setKey(b.key, user.username);
+      if (r.error) return json(req, res, 400, r);
+      await gemini.test();
+      return json(req, res, 200, { ok: true, view: gemini.view() });
+    }
+    if (p === '/api/gemini/test') { await gemini.test(); return json(req, res, 200, { ok: true, view: gemini.view() }); }
   }
 
   // ---------- Ban Ship to China (don SCN tu trang khach) ----------
