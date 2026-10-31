@@ -176,6 +176,7 @@ function notifKind(n) {
 }
 
 const owner = (user) => String(user.gobiz || user.username).toLowerCase();
+function custGroup(user) { const ix = index(); const x = ix ? ix.byUser.get(String(user.gobiz).toLowerCase()) : null; return (x && x.cust && x.cust.grp) || ''; }
 function gobizNames() { const ix = index(); return ix ? [...ix.byUser.keys()] : []; }
 function payload(user) {
   const ix = index();
@@ -194,8 +195,9 @@ function payload(user) {
   if (me.walletOn) { me.wallet = ledger.walletView(store.rawDb(), owner(user)); me.hasPin = ledger.hasPin(store.rawDb(), owner(user)); }
   const cn = store.cnList(user.username, user.gobiz).map((o) => Object.assign(o, { mine: true }));
   // Ky gui he thong moi (ma 84…) gop vao danh sach ky gui cung don Gobiz; dia chi kho TQ kem ma khach
-  const ksNew = ks.list(user.username, user.gobiz, me.code);
-  me.whCn = ks.warehouses().filter((w) => w.active !== false).map((w) => Object.assign(ks.whView(w, me.code), { type: w.type }));
+  me.grp = (c && c.grp) || ''; me.kh = owner(user); // ky hieu tren kien: HN-/SG- + username web khach dang dung
+  const ksNew = ks.list(user.username, user.gobiz, { group: me.grp });
+  me.whCn = ks.warehouses().filter((w) => w.active !== false).map((w) => Object.assign(ks.whView(w, null, me.grp), { type: w.type }));
   const companies = store.coList(user.username);
   const data = { companies, orders: s ? s.orders : [], shipments: ksNew.concat(s ? s.shipments : []), peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
   return 'window.ME=' + JSON.stringify(me) + ';window.DATA=' + JSON.stringify(data) + ';';
@@ -346,8 +348,7 @@ async function handle(req, res) {
     const v = ks.validate(b);
     if (v.error) return json(req, res, 400, { error: v.error });
     if (ks.countRecent(user.username) + v.wbs.length > 200) return json(req, res, 429, { error: 'Tạo quá nhiều đơn trong 1 giờ, vui lòng thử lại sau' });
-    const code = ledger.codeOf(store.rawDb(), owner(user), gobizNames());
-    const r = ks.create(user.username, user.gobiz, isTestAcc(user), v, clientIp(req), code);
+    const r = ks.create(user.username, user.gobiz, isTestAcc(user), v, clientIp(req), { group: custGroup(user) });
     if (r.error) return json(req, res, 409, r);
     return json(req, res, 200, { ok: true, orders: r.orders });
   }
@@ -361,7 +362,7 @@ async function handle(req, res) {
   if (mks && req.method === 'POST') {
     if (!user) return json(req, res, 401, { error: 'login' });
     if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
-    const r = ks.cancel(user.username, user.gobiz, mks[1], clientIp(req), ledger.codeOf(store.rawDb(), owner(user), gobizNames()));
+    const r = ks.cancel(user.username, user.gobiz, mks[1], clientIp(req), { group: custGroup(user) });
     if (r.error) return json(req, res, r.code, { error: r.error });
     return json(req, res, 200, { ok: true, order: r.order });
   }

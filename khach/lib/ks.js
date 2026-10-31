@@ -15,11 +15,12 @@ const CHINH_B1_KG = 100;
 const LINES = { TC: 'standard_shipping', TK: 'eco_shipping', UT: 'express_shipping', CN: 'official_shipping' };
 const SVCS = ['insurance', 'wood_brace', 'counting', 'paper_brace', 'bubble_wrapping'];
 const SVC_NAME = { insurance: 'Bảo hiểm', wood_brace: 'Đóng gỗ', counting: 'Kiểm đếm', paper_brace: 'Nẹp giấy', bubble_wrapping: 'Cuốn bọt khí' };
-// Kho TQ mac dinh — admin sua dia chi / bat tat o saas.7zone.net/kho-tq (kv 'cn_warehouses')
+// Kho TQ mac dinh (dia chi anh gui 31/10) — admin sua o saas.7zone.net/ky-gui -> Kho Trung Quoc (kv 'cn_warehouses').
+// {MA} = ky hieu khach ghi tren kien: "HN-username" / "SG-username" (username = ten dang nhap web khach dang quen dung).
 const DEFAULT_WH = [
-  { id: 'T3GZ', name: 'Kho Quảng Châu (T3)', short: 'QC', type: 'tieu', addr: '', recv: '', phone: '', active: true },
-  { id: 'T3BT', name: 'Kho Bằng Tường chính ngạch (T3)', short: 'BT', type: 'chinh', addr: '', recv: '', phone: '', active: true },
-  { id: 'B1BT', name: 'Kho Bằng Tường chính ngạch (B1)', short: 'BT', type: 'chinh', addr: '', recv: '', phone: '', active: true },
+  { id: 'T3GZ', name: 'Kho Quảng Châu (T3)', short: 'QC', type: 'tieu', recv: '{MA}', addr: '广州市，花都区，花东镇，{MA}花都大道东129号6号仓库101房(2号武越仓）', zip: '510890', phone: '13719002017', phoneAgent: '13060999201', phoneOrder: '18566814214', active: true },
+  { id: 'T3BT', name: 'Kho Bằng Tường chính ngạch (T3)', short: 'BT', type: 'chinh', recv: '{MA}李高翔', addr: '广西壮族自治区, 崇左市, 凭祥市, 凭祥镇 {MA}南山希望小学坡底DGVMT443仓库DG', zip: '532699', phone: '13878623546', phoneAgent: '', phoneOrder: '', active: true },
+  { id: 'B1BT', name: 'Kho Bằng Tường chính ngạch (B1)', short: 'BT', type: 'chinh', recv: '{MA}1826B1', addr: '广西壮族自治区崇左市凭祥市1826B1皇龙居15栋6-{MA}12号仓库1826B1', zip: '532600', phone: '13084919998', phoneAgent: '', phoneOrder: '', active: true },
 ];
 
 let db; let adminKv = () => null;
@@ -49,11 +50,16 @@ function pickWh(mode, estW) {
   }
   return on[0];
 }
-// Dia chi kho hien cho khach: thay {MA} bang ma khach
-function whView(w, custCode) {
+// Nhom khach dai ly dung SDT kho rieng (kv 'cn_agent_groups', vd "kghn28,tango")
+function agentGroups() { return String(adminKv('cn_agent_groups') || '').toLowerCase().split(/[\s,;]+/).filter(Boolean); }
+// Ky hieu khach tren kien: HN-username / SG-username
+const markOf = (dest, kh) => (dest === 'HCM' ? 'SG' : 'HN') + '-' + String(kh || '');
+// Dia chi kho hien cho khach. mark = ky hieu (null: de nguyen {MA} cho trinh duyet tu thay theo kho nhan khach chon)
+function whView(w, mark, group) {
   if (!w) return null;
-  const sub = (s) => String(s || '').replace(/\{MA\}/g, custCode || '');
-  return { id: w.id, name: w.name, addr: sub(w.addr), recv: sub(w.recv), phone: sub(w.phone), ready: !!w.addr };
+  const sub = (x) => (mark == null ? String(x || '') : String(x || '').replace(/\{MA\}/g, mark));
+  const agent = group && w.phoneAgent && agentGroups().includes(String(group).toLowerCase());
+  return { id: w.id, name: w.name, addr: sub(w.addr), recv: sub(w.recv), phone: agent ? w.phoneAgent : (w.phone || ''), zip: w.zip || '', ready: !!w.addr };
 }
 
 const str = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
@@ -103,7 +109,7 @@ function validate(b) {
   } };
 }
 
-function rowOf(r, custCode) {
+function rowOf(r, ctx) {
   const d = JSON.parse(r.data);
   delete d.staffNote;
   const w = warehouses().find((x) => x.id === d.whCn);
@@ -118,12 +124,12 @@ function rowOf(r, custCode) {
     fees: [{ t: ship, prov: null, act: null, q: null, p: null, free: false }].concat((d.svcs || []).map((t) => ({ t, prov: null, act: null, q: null, p: null, free: false }))),
     ms: (d.ms || []).map((m) => ({ t: m.t, s: m.s })),
     items: d.items || [], svcs: d.svcs || [], svcOther: d.svcOther || '', note2: d.note2 || '', mode: d.mode, line: d.line, estW: d.estW,
-    whCnName: d.whCnName, whAddr: whView(w, custCode),
+    whCnName: d.whCnName, mark: markOf(d.wh, r.gobiz || r.username), whAddr: whView(w, markOf(d.wh, r.gobiz || r.username), ctx && ctx.group),
   };
 }
 
 // Tao nhieu don (moi ma van don 1 don) trong 1 giao dich: trung 1 ma la khong tao gi
-function create(username, gobiz, test, v, ip, custCode, by) {
+function create(username, gobiz, test, v, ip, ctx, by) {
   const actor = by || ('khach:' + username);
   const now = new Date().toISOString();
   db.exec('BEGIN IMMEDIATE');
@@ -140,12 +146,12 @@ function create(username, gobiz, test, v, ip, custCode, by) {
       codes.push(code);
     }
     db.exec('COMMIT');
-    return { orders: codes.map((c) => rowOf(db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(c), custCode)) };
+    return { orders: codes.map((c) => rowOf(db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(c), ctx)) };
   } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
 }
 
-function list(username, gobiz, custCode) {
-  return db.prepare('SELECT * FROM ks_orders WHERE username = ? OR (gobiz IS NOT NULL AND lower(gobiz) = lower(?)) ORDER BY seq DESC LIMIT 1000').all(username, gobiz || '').map((r) => rowOf(r, custCode));
+function list(username, gobiz, ctx) {
+  return db.prepare('SELECT * FROM ks_orders WHERE username = ? OR (gobiz IS NOT NULL AND lower(gobiz) = lower(?)) ORDER BY seq DESC LIMIT 1000').all(username, gobiz || '').map((r) => rowOf(r, ctx));
 }
 function countRecent(username) { return db.prepare("SELECT COUNT(*) AS n FROM ks_orders WHERE username = ? AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hour')").get(username).n; }
 // Vận đơn đã có đơn (để form báo trùng trước khi bấm)
@@ -154,7 +160,7 @@ function existing(username, wbs) {
 }
 
 // Khach tu huy khi hang chua ve kho TQ
-function cancel(username, gobiz, code, ip, custCode) {
+function cancel(username, gobiz, code, ip, ctx) {
   db.exec('BEGIN IMMEDIATE');
   try {
     const r = db.prepare('SELECT * FROM ks_orders WHERE code = ? AND (username = ? OR (gobiz IS NOT NULL AND lower(gobiz) = lower(?)))').get(code, username, gobiz || '');
@@ -165,8 +171,8 @@ function cancel(username, gobiz, code, ip, custCode) {
     db.prepare("UPDATE ks_orders SET status = 'CANCELLED', data = ?, updated_at = ? WHERE code = ?").run(JSON.stringify(d), now, code);
     db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, 'khach:' + username, 'Khách huỷ đơn', JSON.stringify({ changes: [['Trạng thái', 'Chờ tiếp nhận', 'Đã huỷ']], ip: ip || null }));
     db.exec('COMMIT');
-    return { order: rowOf(db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(code), custCode) };
+    return { order: rowOf(db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(code), ctx) };
   } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
 }
 
-module.exports = { init, validate, create, list, cancel, existing, countRecent, warehouses, pickWh, whView, parseWbs, DEFAULT_WH, SVC_NAME, LINES, CHINH_B1_KG };
+module.exports = { init, validate, create, list, cancel, existing, countRecent, warehouses, pickWh, whView, markOf, agentGroups, parseWbs, DEFAULT_WH, SVC_NAME, LINES, CHINH_B1_KG };

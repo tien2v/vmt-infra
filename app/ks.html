@@ -36,8 +36,9 @@ a{color:#4f46e5}
 
 <section id="tKho" hidden>
   <div class="card">
-    <p class="muted" style="margin:0 0 10px;font-size:13px">Địa chỉ hiện cho khách ở form ký gửi và trong đơn. Ghi <b>{MA}</b> ở chỗ cần chèn mã khách (vd tên người nhận <code>VMT-{MA}</code>), hệ thống tự thay bằng mã của từng khách.<br>Chính ngạch: hệ thống tự chia theo cân ước tính — từ 100kg đi kho mã bắt đầu <b>B1</b>, dưới 100kg đi kho <b>T3</b>.</p>
-    <div id="whs"></div>
+    <p class="muted" style="margin:0 0 10px;font-size:13px">Địa chỉ hiện cho khách ở form ký gửi và trong đơn. Ghi <b>{MA}</b> ở chỗ cần chèn ký hiệu khách, hệ thống tự thay bằng <b>HN-username</b> hoặc <b>SG-username</b> theo kho nhận khách chọn.<br>Chính ngạch: hệ thống tự chia theo cân ước tính — từ 100kg đi kho mã bắt đầu <b>B1</b>, dưới 100kg đi kho <b>T3</b>.</p>
+    <label>Nhóm khách đại lý dùng SĐT đại lý <span class="muted">(tên nhóm Gobiz, cách nhau dấu phẩy, vd kghn28, tango)</span></label><input class="f" id="agentGroups" placeholder="để trống = mọi khách dùng SĐT chính">
+    <div id="whs" style="margin-top:12px"></div>
     <div id="whAct" style="display:flex;gap:10px;flex-wrap:wrap"><button class="s" id="whAdd" type="button">+ Thêm kho</button><button class="p" id="whSave" type="button">Lưu</button></div>
     <div id="whMsg"></div>
   </div>
@@ -80,7 +81,7 @@ let qt; $('#q').addEventListener('input', () => { clearTimeout(qt); qt = setTime
 let WH = [], CAN = false;
 function whCard(w, i) {
   const dis = CAN ? '' : ' disabled';
-  return '<div class="wh" data-i="' + i + '"><div class="g"><div><label>Mã kho</label><input class="f" data-k="id" value="' + esc(w.id) + '"' + dis + '></div><div><label>Tên</label><input class="f" data-k="name" value="' + esc(w.name) + '"' + dis + '></div><div><label>Loại</label><select class="f" data-k="type"' + dis + '><option value="tieu"' + (w.type === 'tieu' ? ' selected' : '') + '>Tiểu ngạch</option><option value="chinh"' + (w.type === 'chinh' ? ' selected' : '') + '>Chính ngạch</option></select></div><div><label>Ký hiệu tuyến</label><input class="f" data-k="short" value="' + esc(w.short || '') + '" placeholder="QC / BT"' + dis + '></div><div><label>Người nhận (收货人)</label><input class="f" data-k="recv" value="' + esc(w.recv) + '" placeholder="VD: VMT-{MA}"' + dis + '></div><div><label>SĐT kho</label><input class="f" data-k="phone" value="' + esc(w.phone) + '"' + dis + '></div></div><label>Địa chỉ tiếng Trung</label><textarea class="f" data-k="addr" rows="2" placeholder="广东省广州市… (ghi {MA} chỗ cần mã khách)"' + dis + '>' + esc(w.addr) + '</textarea><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-k="active"' + (w.active !== false ? ' checked' : '') + dis + '> Đang nhận hàng</label></div>';
+  return '<div class="wh" data-i="' + i + '"><div class="g"><div><label>Mã kho</label><input class="f" data-k="id" value="' + esc(w.id) + '"' + dis + '></div><div><label>Tên</label><input class="f" data-k="name" value="' + esc(w.name) + '"' + dis + '></div><div><label>Loại</label><select class="f" data-k="type"' + dis + '><option value="tieu"' + (w.type === 'tieu' ? ' selected' : '') + '>Tiểu ngạch</option><option value="chinh"' + (w.type === 'chinh' ? ' selected' : '') + '>Chính ngạch</option></select></div><div><label>Ký hiệu tuyến</label><input class="f" data-k="short" value="' + esc(w.short || '') + '" placeholder="QC / BT"' + dis + '></div><div><label>Người nhận (收货人)</label><input class="f" data-k="recv" value="' + esc(w.recv) + '" placeholder="VD: {MA}"' + dis + '></div><div><label>SĐT kho</label><input class="f" data-k="phone" value="' + esc(w.phone) + '"' + dis + '></div><div><label>SĐT cho khách đại lý</label><input class="f" data-k="phoneAgent" value="' + esc(w.phoneAgent || '') + '"' + dis + '></div><div><label>SĐT đơn order (VMT mua)</label><input class="f" data-k="phoneOrder" value="' + esc(w.phoneOrder || '') + '"' + dis + '></div><div><label>Mã bưu chính (邮编)</label><input class="f" data-k="zip" value="' + esc(w.zip || '') + '"' + dis + '></div></div><label>Địa chỉ tiếng Trung</label><textarea class="f" data-k="addr" rows="2" placeholder="广东省广州市… (ghi {MA} chỗ cần mã khách)"' + dis + '>' + esc(w.addr) + '</textarea><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-k="active"' + (w.active !== false ? ' checked' : '') + dis + '> Đang nhận hàng</label></div>';
 }
 function whRead() { return [...document.querySelectorAll('.wh')].map((c) => { const o = {}; c.querySelectorAll('[data-k]').forEach((f) => { o[f.dataset.k] = f.type === 'checkbox' ? f.checked : f.value; }); return o; }); }
 function whRender(log) {
@@ -88,12 +89,12 @@ function whRender(log) {
   $('#whLogBox').hidden = !(log && log.length);
   if (log) $('#whLog').innerHTML = log.map((h) => '<div style="font-size:13px;padding:6px 0;border-bottom:1px solid #eee">' + dtt(h.at) + ' · <b>' + esc(h.by) + '</b>' + h.changes.map((c) => '<br>&nbsp;&nbsp;' + esc(c[0]) + ': ' + esc(c[1] || '(trống)') + ' → ' + esc(c[2] || '(trống)')).join('') + '</div>').join('');
 }
-async function loadWh() { const j = await api('/api/ks/warehouses'); WH = j.items || []; CAN = !!j.canEdit; whRender(j.log); }
+async function loadWh() { const j = await api('/api/ks/warehouses'); WH = j.items || []; CAN = !!j.canEdit; $('#agentGroups').value = j.agentGroups || ''; $('#agentGroups').disabled = !CAN; whRender(j.log); }
 $('#whAdd').onclick = () => { WH = whRead(); WH.push({ id: '', name: '', type: 'tieu', short: '', addr: '', recv: '', phone: '', active: true }); whRender(); };
 $('#whSave').onclick = async () => {
-  $('#whMsg').innerHTML = ''; const j = await api('/api/ks/warehouses', { method: 'POST', body: JSON.stringify({ items: whRead() }) });
+  $('#whMsg').innerHTML = ''; const j = await api('/api/ks/warehouses', { method: 'POST', body: JSON.stringify({ items: whRead(), agentGroups: $('#agentGroups').value }) });
   if (j.error) { $('#whMsg').innerHTML = '<div class="err">' + esc(j.error) + '</div>'; return; }
-  WH = j.items; whRender(j.log); $('#whMsg').innerHTML = '<div class="ok">Đã lưu. Khách thấy địa chỉ mới ngay khi tải lại trang.</div>';
+  WH = j.items; $('#agentGroups').value = j.agentGroups || ''; whRender(j.log); $('#whMsg').innerHTML = '<div class="ok">Đã lưu. Khách thấy địa chỉ mới ngay khi tải lại trang.</div>';
 };
 load();
 </script>

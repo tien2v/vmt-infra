@@ -34,10 +34,11 @@ function log(code) {
 }
 
 // ---- Kho Trung Quoc ----
+// GIONG khach/lib/ks.js DEFAULT_WH (2 container rieng nen chep 2 noi; sua 1 ben thi sua ben kia)
 const DEFAULT_WH = [
-  { id: 'T3GZ', name: 'Kho Quảng Châu (T3)', short: 'QC', type: 'tieu', addr: '', recv: '', phone: '', active: true },
-  { id: 'T3BT', name: 'Kho Bằng Tường chính ngạch (T3)', short: 'BT', type: 'chinh', addr: '', recv: '', phone: '', active: true },
-  { id: 'B1BT', name: 'Kho Bằng Tường chính ngạch (B1)', short: 'BT', type: 'chinh', addr: '', recv: '', phone: '', active: true },
+  { id: 'T3GZ', name: 'Kho Quảng Châu (T3)', short: 'QC', type: 'tieu', recv: '{MA}', addr: '广州市，花都区，花东镇，{MA}花都大道东129号6号仓库101房(2号武越仓）', zip: '510890', phone: '13719002017', phoneAgent: '13060999201', phoneOrder: '18566814214', active: true },
+  { id: 'T3BT', name: 'Kho Bằng Tường chính ngạch (T3)', short: 'BT', type: 'chinh', recv: '{MA}李高翔', addr: '广西壮族自治区, 崇左市, 凭祥市, 凭祥镇 {MA}南山希望小学坡底DGVMT443仓库DG', zip: '532699', phone: '13878623546', phoneAgent: '', phoneOrder: '', active: true },
+  { id: 'B1BT', name: 'Kho Bằng Tường chính ngạch (B1)', short: 'BT', type: 'chinh', recv: '{MA}1826B1', addr: '广西壮族自治区崇左市凭祥市1826B1皇龙居15栋6-{MA}12号仓库1826B1', zip: '532600', phone: '13084919998', phoneAgent: '', phoneOrder: '', active: true },
 ];
 function warehouses() { try { const w = JSON.parse(store.kvGet('cn_warehouses') || 'null'); if (Array.isArray(w) && w.length) return w; } catch {} return DEFAULT_WH; }
 const s = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ').trim().slice(0, max);
@@ -50,7 +51,7 @@ function setWarehouses(arr, by) {
     ids.add(id);
     const type = w.type === 'chinh' ? 'chinh' : 'tieu';
     const name = s(w.name, 80); if (!name) return { error: 'Kho ' + id + ' thiếu tên' };
-    out.push({ id, name, short: s(w.short, 8) || 'TQ', type, addr: s(w.addr, 400), recv: s(w.recv, 80), phone: s(w.phone, 30), active: w.active !== false });
+    out.push({ id, name, short: s(w.short, 8) || 'TQ', type, addr: s(w.addr, 400), recv: s(w.recv, 80), zip: s(w.zip, 12), phone: s(w.phone, 30), phoneAgent: s(w.phoneAgent, 30), phoneOrder: s(w.phoneOrder, 30), active: w.active !== false });
   }
   if (!out.some((w) => w.active && w.type === 'tieu')) return { error: 'Cần ít nhất 1 kho tiểu ngạch đang bật' };
   const before = warehouses();
@@ -61,13 +62,21 @@ function setWarehouses(arr, by) {
   for (const w of out) {
     const o = before.find((x) => x.id === w.id);
     if (!o) { changes.push([w.id, '(chưa có)', 'Thêm kho']); continue; }
-    for (const [k, lb] of [['name', 'Tên'], ['type', 'Loại'], ['addr', 'Địa chỉ'], ['recv', 'Người nhận'], ['phone', 'SĐT'], ['active', 'Bật']]) if (String(o[k]) !== String(w[k])) changes.push([w.id + ' · ' + lb, String(o[k] ?? ''), String(w[k] ?? '')]);
+    for (const [k, lb] of [['name', 'Tên'], ['type', 'Loại'], ['addr', 'Địa chỉ'], ['recv', 'Người nhận'], ['zip', 'Mã bưu chính'], ['phone', 'SĐT'], ['phoneAgent', 'SĐT đại lý'], ['phoneOrder', 'SĐT đơn order'], ['active', 'Bật']]) if (String(o[k]) !== String(w[k])) changes.push([w.id + ' · ' + lb, String(o[k] ?? ''), String(w[k] ?? '')]);
   }
   for (const o of before) if (!out.find((w) => w.id === o.id)) changes.push([o.id, 'Có', 'Xoá kho']);
   let hist = []; try { hist = JSON.parse(store.kvGet('cn_warehouses_log') || '[]'); } catch {}
   hist.unshift({ at: new Date().toISOString(), by, changes }); store.kvSet('cn_warehouses_log', JSON.stringify(hist.slice(0, 100)));
   return { ok: true, items: out };
 }
+function agentGroups() { return String(store.kvGet('cn_agent_groups') || ''); }
+function setAgentGroups(v, by) {
+  const g = [...new Set(String(v || '').toLowerCase().split(/[\s,;]+/).filter((x) => /^[a-z0-9_.-]{1,40}$/.test(x)))].join(',');
+  const old = agentGroups(); if (old === g) return;
+  store.kvSet('cn_agent_groups', g);
+  let hist = []; try { hist = JSON.parse(store.kvGet('cn_warehouses_log') || '[]'); } catch {}
+  hist.unshift({ at: new Date().toISOString(), by, changes: [['Nhóm khách đại lý (SĐT riêng)', old, g]] }); store.kvSet('cn_warehouses_log', JSON.stringify(hist.slice(0, 100)));
+}
 function warehousesLog() { try { return JSON.parse(store.kvGet('cn_warehouses_log') || '[]'); } catch { return []; } }
 
-module.exports = { init, list, log, warehouses, setWarehouses, warehousesLog, LABEL };
+module.exports = { init, list, log, warehouses, setWarehouses, warehousesLog, agentGroups, setAgentGroups, LABEL };

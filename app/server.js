@@ -552,13 +552,14 @@ async function handle(req, res) {
     }
     const ml = p.match(/^\/api\/ks\/(84\d{10})\/log$/);
     if (ml) return json(req, res, 200, { items: ksadmin.log(ml[1]) });
-    if (p === '/api/ks/warehouses' && req.method === 'GET') return json(req, res, 200, { items: ksadmin.warehouses(), log: user.role === 'admin' ? ksadmin.warehousesLog().slice(0, 20) : [], canEdit: user.role === 'admin' });
+    if (p === '/api/ks/warehouses' && req.method === 'GET') return json(req, res, 200, { items: ksadmin.warehouses(), agentGroups: ksadmin.agentGroups(), log: user.role === 'admin' ? ksadmin.warehousesLog().slice(0, 20) : [], canEdit: user.role === 'admin' });
     if (p === '/api/ks/warehouses' && req.method === 'POST') {
       if (user.role !== 'admin') return json(req, res, 403, { error: 'Chỉ quản trị được sửa kho' });
       if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
       let b; try { b = JSON.parse((await readBody(req, 50000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
       const r = ksadmin.setWarehouses(b.items, user.username);
-      return json(req, res, r.error ? 400 : 200, r.error ? r : Object.assign(r, { log: ksadmin.warehousesLog().slice(0, 20) }));
+      if (!r.error && b.agentGroups != null) ksadmin.setAgentGroups(b.agentGroups, user.username);
+      return json(req, res, r.error ? 400 : 200, r.error ? r : Object.assign(r, { agentGroups: ksadmin.agentGroups(), log: ksadmin.warehousesLog().slice(0, 20) }));
     }
     return json(req, res, 404, { error: 'not found' });
   }
