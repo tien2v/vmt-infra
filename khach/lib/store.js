@@ -82,6 +82,18 @@ function upsertTest(username, gobiz, passHash, note) {
   else if (r.pass !== passHash || r.gobiz !== gobiz) db.prepare('UPDATE users SET gobiz = ?, pass = ?, pv = pv + 1, note = ? WHERE username = ?').run(gobiz, passHash, note || null, username);
   else if (r.note !== (note || null)) db.prepare('UPDATE users SET note = ? WHERE username = ?').run(note || null, username);
 }
+// Khach xem thu: dong bo theo khach-thu.json (them / doi mat khau / khoa khi bi xoa khoi file)
+function syncTrial(list) {
+  const keep = new Set();
+  for (const t of list) {
+    const u = String(t.username).toLowerCase(); keep.add(u);
+    const r = getUser(u);
+    if (r && !String(r.note || '').startsWith('khach thu')) continue; // khong de len tai khoan khac
+    if (!r) db.prepare("INSERT INTO users (username, gobiz, pass, note) VALUES (?, ?, ?, 'khach thu')").run(u, String(t.gobiz).toLowerCase(), t.hash);
+    else if (r.pass !== t.hash || r.gobiz !== String(t.gobiz).toLowerCase() || !r.active) db.prepare('UPDATE users SET gobiz = ?, pass = ?, active = 1, pv = pv + 1 WHERE username = ?').run(String(t.gobiz).toLowerCase(), t.hash, u);
+  }
+  for (const r of db.prepare("SELECT username FROM users WHERE note LIKE 'khach thu%' AND active = 1").all()) if (!keep.has(r.username)) db.prepare('UPDATE users SET active = 0, pv = pv + 1 WHERE username = ?').run(r.username);
+}
 function logLogin(u, ip, ok) {
   db.prepare('INSERT INTO login_log (username, ip, ok) VALUES (?, ?, ?)').run(String(u || '').slice(0, 64), ip, ok ? 1 : 0);
   db.prepare("DELETE FROM login_log WHERE ts < datetime('now', '-90 days')").run();
@@ -195,4 +207,4 @@ function cnSetZh(code, map, ok) {
 // Tai khoan nhan nap tien do admin cai (doc tu DB admin, chi doc)
 function adminKv(k) { const a = adminDb(); if (!a) return null; try { const r = a.prepare('SELECT v FROM kv WHERE k = ?').get(k); return r ? r.v : null; } catch (e) { return null; } }
 function depositAccounts() { const a = adminDb(); if (!a) return []; try { const r = a.prepare("SELECT v FROM kv WHERE k = 'deposit_accounts'").get(); return r ? JSON.parse(r.v).filter((x) => x.active) : []; } catch (e) { return []; } }
-module.exports = { cnMissingZh, cnSetZh, adminKv, depositAccounts, rawDb, uploadSave, uploadCanSee, uploadPath, coList, coGet, coSave, coDelete, notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, logLogin, hash };
+module.exports = { cnMissingZh, cnSetZh, adminKv, depositAccounts, rawDb, uploadSave, uploadCanSee, uploadPath, coList, coGet, coSave, coDelete, notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, syncTrial, logLogin, hash };

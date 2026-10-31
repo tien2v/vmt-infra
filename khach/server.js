@@ -25,6 +25,13 @@ store.init();
 const SECRET = store.sessionSecret();
 let TEST = null;
 try { TEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'test-user.json'), 'utf8')); } catch {}
+// Khach that cho xem thu (khach-thu.json): dang nhap xem don Gobiz cua chinh ho; don tao tren web moi danh dau test; vi moi khoa.
+// Xoa khoi file -> tai khoan bi khoa o lan khoi dong sau.
+let TRIAL = [];
+try { TRIAL = JSON.parse(fs.readFileSync(path.join(__dirname, 'khach-thu.json'), 'utf8')).filter((x) => x && x.username && x.gobiz && x.hash); } catch {}
+store.syncTrial(TRIAL);
+const isTestAcc = (u) => /^(tai khoan test|khach thu)/.test(String((u && u.note) || '')); // don tao ra la don thu
+const walletAcc = (u) => String((u && u.note) || '').startsWith('tai khoan test'); // vi moi: chi tai khoan test noi bo
 
 const b64u = (b) => Buffer.from(b).toString('base64url');
 const sign = (s) => crypto.createHmac('sha256', SECRET).update(s).digest('base64url');
@@ -176,12 +183,12 @@ function payload(user) {
   const c = s && s.cust;
   const brand = c ? brandOf(c.grp) : 'green';
   const me = {
-    username: user.username, gobiz: user.gobiz, test: String(user.note || '').startsWith('tai khoan test'),
+    username: user.username, gobiz: user.gobiz, test: isTestAcc(user),
     name: (c && c.fn) || user.gobiz, gobizCode: (c && c.code) || '', balance: c ? Number(c.bal) : null, brand,
   };
   // Ma khach moi (= ma nap tien), tach khoi Gobiz. Vi moi: tam thoi chi bat cho tai khoan test.
   me.code = ledger.codeOf(store.rawDb(), owner(user), gobizNames());
-  me.walletOn = me.test;
+  me.walletOn = walletAcc(user);
   me.ai = ai.ready();
   me.appInstalled = !!store.rawDb().prepare("SELECT 1 FROM pwa_log WHERE username = ? AND event IN ('standalone','installed') LIMIT 1").get(user.username);
   if (me.walletOn) { me.wallet = ledger.walletView(store.rawDb(), owner(user)); me.hasPin = ledger.hasPin(store.rawDb(), owner(user)); }
@@ -326,7 +333,7 @@ async function handle(req, res) {
       const r = store.coSave(user.username, { name: v.data.inv.company, taxId: v.data.inv.taxId, addr: v.data.inv.addr, email: v.data.inv.email, from: 'tao-don' }, clientIp(req));
       if (r.co) { saved = r.co; v.data.inv.coId = r.co.id; }
     } else if (v.data.vat && b.companyId) v.data.inv.coId = Number(b.companyId);
-    const cr = store.cnCreate(user.username, user.gobiz, String(user.note || '').startsWith('tai khoan test'), v.data, clientIp(req));
+    const cr = store.cnCreate(user.username, user.gobiz, isTestAcc(user), v.data, clientIp(req));
     if (cr.error) return json(req, res, 400, { error: cr.error });
     const o = cr.order;
     return json(req, res, 200, { ok: true, order: Object.assign(o, { mine: true }), companies: saved ? store.coList(user.username) : undefined });
@@ -340,7 +347,7 @@ async function handle(req, res) {
     if (v.error) return json(req, res, 400, { error: v.error });
     if (ks.countRecent(user.username) + v.wbs.length > 200) return json(req, res, 429, { error: 'Tạo quá nhiều đơn trong 1 giờ, vui lòng thử lại sau' });
     const code = ledger.codeOf(store.rawDb(), owner(user), gobizNames());
-    const r = ks.create(user.username, user.gobiz, String(user.note || '').startsWith('tai khoan test'), v, clientIp(req), code);
+    const r = ks.create(user.username, user.gobiz, isTestAcc(user), v, clientIp(req), code);
     if (r.error) return json(req, res, 409, r);
     return json(req, res, 200, { ok: true, orders: r.orders });
   }
@@ -403,8 +410,7 @@ async function handle(req, res) {
   // ---- vi + thanh toan (tam thoi chi tai khoan test) ----
   if (p.startsWith('/api/wallet') || p === '/api/pay') {
     if (!user) return json(req, res, 401, { error: 'login' });
-    const isTest = String(user.note || '').startsWith('tai khoan test');
-    if (!isTest) return json(req, res, 403, { error: 'Ví mới đang chạy thử, chưa mở cho tài khoản này' });
+    if (!walletAcc(user)) return json(req, res, 403, { error: 'Ví mới đang chạy thử, chưa mở cho tài khoản này' });
     const db = store.rawDb(), o = owner(user);
     if (p === '/api/wallet' && req.method === 'GET') {
       const code = ledger.codeOf(db, o, gobizNames());
