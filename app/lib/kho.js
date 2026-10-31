@@ -350,6 +350,8 @@ function askTick() {
 // ================= TEM 9710 (anh chot 31/10, Project design/tem-9710-mau-thuc.md) =================
 // Tem dan that len kien sau kiem hang, line van chuyen thuong mai 9710. Du lieu tem chi DOC tu don / kien / cai dat — khong go tay luc in.
 // Thieu truong bat buoc -> khong cho in, bao thieu gi (Project decisions/packages-design.md muc 2).
+// Nguoi nhan (anh chot 31/10 17h26): kien co don -> dia chi cua don (chua dong bo kip thi dia chi gan nhat cua khach do);
+// kien chua co don (vo chu) / khach chua co dia chi nao -> dia chi ngau nhien trong tinh kho dich. Khong bao gio chan in vi thieu nguoi nhan.
 // "Tien thu nguoi nhan" chi ghi cho co (hop thuc hoa line TMDT, khong ai thu): tien hang = sum(gia te x SL) x ty gia
 // (ky gui: gia khai x ty gia ky gui 3.640; order: gia mua x ty gia don); duoi nguong (mac dinh 1.000.000d) thi in, tu nguong tro len de trong. Y het Gobiz.
 const TEM_KINDS = new Set(['9710']);
@@ -420,17 +422,15 @@ function stamp(code, pkg) {
     t = { src: 'g', order: s.code, pkg: pcode, wb: wb && wb !== pcode ? wb : '', stt, tot: Math.max(1, same.length || pks.length || 1),
       user: c[1] || '', cc: c[0] || '', wh: whShort(s.dw), line: lineOf(s.fe), date: String(s.ca || '').slice(0, 10), sv: svcOf(s.fe),
       kg: my.m && my.m.kg != null ? my.m.kg : p ? N(p[1]) : null, items, rate: cfg.rateKs,
-      rcv: s.rcv && s.rcv[0] ? { name: s.rcv[0], phone: s.rcv[1] || '', addr: s.rcv[2] || '' } : null };
+      rcv: s.rcv && s.rcv[0] ? { name: s.rcv[0], phone: s.rcv[1] || '', addr: s.rcv[2] || '' } : lastRcvOf(base, c[1]) || fakeRcv(s.code, whShort(s.dw) || cfg.unkWh) };
     if (pkg && i < 0 && pks.length) miss.push('Mã kiện ' + pkg + ' không thuộc đơn này');
-    if (!t.rcv) miss.push('Địa chỉ người nhận (chờ đồng bộ Gobiz, tối đa 15 phút)');
   } else if (ks) {
     const g = custOf(ks.gobiz || ks.username) || {};
     const rcv = lastRcvOf(base, ks.gobiz || ks.username);
     t = { src: 'n', order: ks.code, pkg: ks.wb || ks.code, wb: '', stt: 1, tot: 1, user: ks.gobiz || ks.username, cc: g.code || '', wh: whShort(ks.wh), line: ks.line || 'TC',
       date: String(ks.created || '').slice(0, 10), sv: svcOf(null, ks.svcs), kg: my.m && my.m.kg != null ? my.m.kg : null,
       items: (ks.items || []).map((x) => ({ name: x.name || x.nameZh, qty: N(x.qty) || 0, cny: N(x.price) })), rate: cfg.rateKs,
-      rcv: rcv || (g.fn || g.ph ? Object.assign(fakeRcv(ks.code, whShort(ks.wh) || 'HN'), { name: g.fn || ks.username, phone: g.ph || fakeRcv(ks.code, 'HN').phone, fake: 2 }) : null) };
-    if (!t.rcv) miss.push('Người nhận (khách chưa có tên / SĐT)');
+      rcv: rcv || fakeRcv(ks.code, whShort(ks.wh) || cfg.unkWh) };
   } else if (my.unk) {
     const wh = cfg.unkWh;
     t = { src: 'u', order: code, pkg: code, wb: '', stt: 1, tot: 1, user: '', cc: '', unk: 1, wh, line: 'TC', date: String((my.in && my.in.at) || nowVN()).slice(0, 10), sv: [],

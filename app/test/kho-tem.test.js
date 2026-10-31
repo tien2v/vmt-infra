@@ -39,8 +39,10 @@ test('nguong + ty gia trong cai dat', () => {
   assert.ok(kho.setTemCfg(Object.assign(kho.temCfg(), { maxCod: 1000000 }), 'admin').ok);
   assert.ok(kho.setTemCfg(Object.assign(kho.temCfg(), { maxCod: 'abc' }), 'admin').error);
 });
-test('thieu dia chi nguoi nhan -> khong cho in, bao thieu gi', () => {
-  const r = kho.stamp('UHL943_1'); assert.ok(!r.ok); assert.match(r.error, /người nhận/);
+test('don chua co dia chi (chua dong bo): khach co don khac -> lay dia chi do; khong co -> ngau nhien, van in duoc', () => {
+  const r = kho.stamp('UHL943_1'); assert.ok(r.ok, r.error); assert.ok(r.tem.rcv.fake); assert.match(r.tem.rcv.phone, /^04\d{8}$/); assert.match(r.tem.rcv.addr, /Hà Nội/);
+  base.ships[2].cid = 408614; base.gen++; // cung khach vuthuy1 -> lay dia chi don gan nhat
+  assert.equal(kho.stamp('UHL943_1').tem.rcv.name, 'Vu Thuy'); base.ships[2].cid = 1;
 });
 test('don order: chua in tren he thong moi', () => { assert.match(kho.stamp('QT00ABC').error, /Gobiz/); });
 test('kien vo chu: nguoi nhan tu sinh SDT 04, co dinh theo ma; in o tram -> hang doi -> tram in xong ghi lich su', () => {
