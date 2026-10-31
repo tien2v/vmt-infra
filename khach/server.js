@@ -217,7 +217,7 @@ function payload(user) {
   const brand = c ? brandOf(c.grp) : 'green';
   const me = {
     username: user.username, gobiz: user.gobiz, test: isTestAcc(user),
-    name: (c && c.fn) || user.gobiz, gobizCode: (c && c.code) || '', balance: c ? Number(c.bal) : null, brand,
+    name: (c && c.fn) || user.gobiz, gobizCode: (c && c.code) || '', balance: c ? Number(c.bal) : null, creditLimit: (c && Number(c.lim)) || 0, brand,
   };
   // Ma khach moi (= ma nap tien), tach khoi Gobiz. Vi moi: tam thoi chi bat cho tai khoan test.
   me.code = ledger.codeOf(store.rawDb(), owner(user), gobizNames());
