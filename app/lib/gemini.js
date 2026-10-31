@@ -6,8 +6,9 @@ function init(st) { store = st; }
 function key() { try { return (JSON.parse(store.kvGet('gemini_key') || 'null') || {}).key || ''; } catch { return ''; } }
 
 function setKey(k, by) {
-  k = String(k || '').trim();
-  if (!/^[\w-]{20,100}$/.test(k)) return { error: 'Khoá Gemini không hợp lệ (thường bắt đầu bằng AIza…)' };
+  // Bo moi khoang trang / xuong dong / dau ngoac khi dan; khoa moi cua Google co the co dau cham (vd AQ.…)
+  k = String(k || '').replace(/[\s"'`]/g, '');
+  if (!/^[\w.\-]{20,200}$/.test(k)) return { error: 'Khoá Gemini không hợp lệ: chỉ gồm chữ, số, dấu - _ . (dài ' + k.length + ' ký tự)' };
   store.kvSet('gemini_key', JSON.stringify({ key: k, by, at: new Date().toISOString() }));
   return { ok: true };
 }
