@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đo tốc độ máy chủ VMT · 服务器测速</title>
+<style>
+  :root { --ok:#15803d; --mid:#b45309; --bad:#b91c1c; --mut:#64748b; --line:#e2e8f0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; color: #0f172a; background: #f8fafc; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 2px; }
+  .sub { color: var(--mut); font-size: 13px; margin: 0 0 14px; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+  label { display: block; font-size: 13px; color: var(--mut); margin: 0 0 4px; }
+  input, select { width: 100%; padding: 10px; font-size: 15px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 10px; background: #fff; }
+  button { width: 100%; padding: 14px; font-size: 17px; font-weight: 600; border: 0; border-radius: 10px; background: #2563eb; color: #fff; }
+  button:disabled { opacity: .5; }
+  button.sec { background: #0f172a; font-size: 15px; padding: 12px; }
+  .row { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: 0; }
+  .row b { font-weight: 600; }
+  .v { text-align: right; white-space: nowrap; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 99px; margin-left: 6px; color: #fff; }
+  .t-ok { background: var(--ok); } .t-mid { background: var(--mid); } .t-bad { background: var(--bad); } .t-wait { background: #94a3b8; }
+  .big { font-size: 18px; font-weight: 700; text-align: center; padding: 6px 0 2px; }
+  .hint { font-size: 12px; color: var(--mut); }
+  #cam { width: 100%; margin-top: 10px; border-radius: 8px; overflow: hidden; }
+  #qr svg { width: 160px; height: 160px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 6px 4px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { color: var(--mut); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Đo tốc độ máy chủ VMT</h1>
+  <p class="sub">服务器测速 · Bấm nút, đợi khoảng 1 phút. Kết quả tự gửi về cho anh Tiến. 点击按钮，约1分钟，结果自动发送。</p>
+
+  <div class="card">
+    <label>Tên + nơi đang đo · 姓名和地点 (vd. Kho Quảng Châu)</label>
+    <input id="who" maxlength="60" placeholder="Kho Quảng Châu - Lan">
+    <label>Đang dùng mạng gì · 网络</label>
+    <select id="net">
+      <option value="">— chọn · 请选择 —</option>
+      <option>Wifi</option>
+      <option>4G/5G 中国移动 China Mobile</option>
+      <option>4G/5G 中国联通 China Unicom</option>
+      <option>4G/5G 中国电信 China Telecom</option>
+      <option>4G/5G Việt Nam</option>
+      <option>Khác · 其他</option>
+    </select>
+    <button id="go">Bắt đầu đo · 开始测试</button>
+  </div>
+
+  <div class="card" id="res" style="display:none">
+    <div class="big" id="overall">Đang đo… 测试中…</div>
+    <div id="rows"></div>
+  </div>
+
+  <div class="card">
+    <b>Thử quét mã · 扫码测试</b>
+    <p class="hint">Mở camera điện thoại quét 1 mã vạch hoặc mã QR bất kỳ (tem kiện, bill…). Đo thời gian mở camera, đọc mã và gửi mã về máy chủ.<br>打开相机扫描任意条码或二维码，测量打开相机、识别和发送到服务器的时间。</p>
+    <button class="sec" id="scanBtn">Mở camera quét · 打开相机</button>
+    <div id="cam"></div>
+    <div id="scanRows"></div>
+  </div>
+
+  <div class="card" id="qrCard" style="display:none">
+    <b>Mở trang này trên điện thoại · 手机打开本页</b>
+    <p class="hint">Dùng camera điện thoại quét mã này. 用手机扫描此二维码。</p>
+    <div id="qr"></div>
+  </div>
+
+  <div class="card">
+    <b>Các lần đo gần đây · 最近测试</b>
+    <div class="scroll"><table id="hist"><tr><td class="hint">Đang tải…</td></tr></table></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var now = function () { return performance.now(); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var LV = { ok: ['t-ok', 'Tốt 好'], mid: ['t-mid', 'Tạm 一般'], bad: ['t-bad', 'Chậm 慢'], wait: ['t-wait', '…'] };
+  var RANK = { ok: 0, mid: 1, bad: 2 };
+  function grade(v, good, okay, lowerBetter) {
+    if (v == null || isNaN(v)) return 'bad';
+    if (lowerBetter) return v <= good ? 'ok' : v <= okay ? 'mid' : 'bad';
+    return v >= good ? 'ok' : v >= okay ? 'mid' : 'bad';
+  }
+  function tag(l) { var x = LV[l] || LV.wait; return '<span class="tag ' + x[0] + '">' + x[1] + '</span>'; }
+  function row(box, id, name) { var d = document.createElement('div'); d.className = 'row'; d.id = id; d.innerHTML = '<b>' + name + '</b><span class="v">' + tag('wait') + '</span>'; $(box).appendChild(d); }
+  function setRow(id, text, l) { var r = $(id); if (r) r.querySelector('.v').innerHTML = esc(text) + (l ? tag(l) : ''); }
+  function med(a) { var s = a.slice().sort(function (x, y) { return x - y; }); return s.length ? s[Math.floor(s.length / 2)] : null; }
+  function pct(a, p) { var s = a.slice().sort(function (x, y) { return x - y; }); return s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : null; }
+  function timed(url, opt, ms) {
+    var c = window.AbortController ? new AbortController() : null; opt = opt || {}; if (c) opt.signal = c.signal;
+    var t = c ? setTimeout(function () { c.abort(); }, ms || 10000) : null;
+    var t0 = now();
+    return fetch(url, opt).then(function (r) { return r.arrayBuffer().then(function (b) { clearTimeout(t); return { ms: now() - t0, bytes: b.byteLength, ok: r.ok }; }); })
+      .catch(function () { clearTimeout(t); return { ms: null, bytes: 0, ok: false }; });
+  }
+  var mbps = function (bytes, ms) { return ms ? bytes * 8 / ms / 1000 : null; };
+  var r1 = function (x) { return x == null ? null : Math.round(x * 10) / 10; };
+
+  // ---- do ----
+  function run() {
+    $('go').disabled = true; $('res').style.display = ''; $('rows').innerHTML = ''; $('overall').textContent = 'Đang đo… 测试中…';
+    var R = { kind: 'run', who: $('who').value.trim(), net: $('net').value, tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || ''),
+      conn: navigator.connection ? (navigator.connection.effectiveType || '') + ' ' + (navigator.connection.downlink || '') : '', lv: {} };
+    try { localStorage.setItem('st_who', R.who); localStorage.setItem('st_net', R.net); } catch (e) {}
+    row('rows', 'r-open', 'Mở trang · 打开页面'); row('rows', 'r-ping', 'Độ trễ · 延迟'); row('rows', 'r-dl', 'Tải xuống · 下载');
+    row('rows', 'r-ul', 'Tải lên (ảnh) · 上传'); row('rows', 'r-ui', 'Giao diện admin thật · 后台界面'); row('rows', 'r-gf', 'Google Fonts (admin đang dùng)');
+
+    // 1. mo trang
+    var n = (performance.getEntriesByType && performance.getEntriesByType('navigation')[0]) || null;
+    if (n) {
+      R.open = { dns: Math.round(n.domainLookupEnd - n.domainLookupStart), connect: Math.round(n.connectEnd - n.connectStart), ttfb: Math.round(n.responseStart - n.requestStart), total: Math.round((n.loadEventEnd || n.domContentLoadedEventEnd) - n.startTime) };
+      R.lv.open = grade(R.open.total, 1500, 4000, true);
+      setRow('r-open', R.open.total + ' ms (kết nối ' + R.open.connect + ' ms)', R.lv.open);
+    } else setRow('r-open', 'không đo được', null);
+
+    // 2. ping x20
+    var ts = [], lost = 0, i = 0;
+    function ping() {
+      if (i >= 20) return Promise.resolve();
+      i++;
+      return timed('/speedtest/ping?i=' + i + '&n=' + Date.now(), { cache: 'no-store' }, 3000).then(function (x) {
+        if (x.ms == null || !x.ok) lost++; else if (i > 1) ts.push(x.ms); // lan 1 co the mo ket noi moi
+        setRow('r-ping', i + '/20…', null); return ping();
+      });
+    }
+    return ping().then(function () {
+      var jit = 0; for (var k = 1; k < ts.length; k++) jit += Math.abs(ts[k] - ts[k - 1]); jit = ts.length > 1 ? jit / (ts.length - 1) : 0;
+      R.ping = { med: Math.round(med(ts)), p90: Math.round(pct(ts, 0.9)), min: Math.round(Math.min.apply(null, ts)), jitter: Math.round(jit), lost: lost };
+      R.lv.ping = lost >= 3 ? 'bad' : grade(R.ping.med, 120, 250, true);
+      if (lost && R.lv.ping === 'ok') R.lv.ping = 'mid';
+      setRow('r-ping', R.ping.med + ' ms (cao ' + R.ping.p90 + ', mất ' + lost + '/20)', R.lv.ping);
+      // 3. tai xuong
+      return timed('/speedtest/dl?mb=1&n=' + Date.now(), { cache: 'no-store' }, 20000);
+    }).then(function (a) {
+      var best = mbps(a.bytes, a.ms);
+      if (a.ms != null && a.ms < 6000) return timed('/speedtest/dl?mb=4&n=' + Date.now(), { cache: 'no-store' }, 30000).then(function (b) { var m = mbps(b.bytes, b.ms); return m && m > (best || 0) ? m : best; });
+      return best;
+    }).then(function (m) {
+      R.dl = r1(m); R.lv.dl = grade(m, 10, 3);
+      setRow('r-dl', R.dl == null ? 'lỗi' : R.dl + ' Mbps', R.lv.dl);
+      // 4. tai len
+      function up(mb) {
+        var b = new Uint8Array(mb * 1048576); for (var o = 0; o < b.length; o += 65536) crypto.getRandomValues(b.subarray(o, o + 65536));
+        return timed('/speedtest/ul', { method: 'POST', body: b, headers: { 'Content-Type': 'application/octet-stream' } }, 30000).then(function (x) { return x.ok ? mbps(mb * 1048576, x.ms) : null; });
+      }
+      return up(1).then(function (a) { return a && a > 2 ? up(2).then(function (b) { return Math.max(a, b || 0); }) : a; });
+    }).then(function (m) {
+      R.ul = r1(m); R.lv.ul = grade(m, 5, 1.5);
+      setRow('r-ul', R.ul == null ? 'lỗi' : R.ul + ' Mbps', R.lv.ul);
+      // 5. giao dien admin that (khong dung cache)
+      var t0 = now(), q = '?nc=' + Date.now();
+      return Promise.all([timed('/login' + q, { cache: 'no-store' }, 30000), timed('/assets/css/app.css' + q, { cache: 'no-store' }, 30000), timed('/assets/js/app.js' + q, { cache: 'no-store' }, 30000)])
+        .then(function (xs) { var bad = xs.some(function (x) { return !x.ok; }); return { ms: bad ? null : now() - t0, bytes: xs.reduce(function (s, x) { return s + x.bytes; }, 0) }; });
+    }).then(function (u) {
+      R.ui = u.ms == null ? null : Math.round(u.ms); R.lv.ui = grade(R.ui, 3000, 8000, true);
+      setRow('r-ui', R.ui == null ? 'lỗi' : (R.ui / 1000).toFixed(1) + ' s (' + (u.bytes / 1048576).toFixed(1) + ' MB)', R.lv.ui);
+      // 6. Google Fonts: trang admin hien dang nap font tu Google (bi chan o TQ -> trang treo)
+      return timed('https://fonts.googleapis.com/css2?family=Inter&n=' + Date.now(), { mode: 'no-cors', cache: 'no-store' }, 6000);
+    }).then(function (g) {
+      R.gfont = g.ms == null ? null : Math.round(g.ms);
+      setRow('r-gf', R.gfont == null ? 'Bị chặn / quá 6 s · 被屏蔽' : R.gfont + ' ms', R.gfont == null ? 'bad' : grade(R.gfont, 500, 2000, true));
+      var worst = ['open', 'ping', 'dl', 'ul', 'ui'].reduce(function (w, k) { return RANK[R.lv[k]] > RANK[w] ? R.lv[k] : w; }, 'ok');
+      R.overall = worst;
+      $('overall').innerHTML = 'Tổng: ' + { ok: 'Mượt · 流畅', mid: 'Dùng được · 可用', bad: 'Chậm · 慢' }[worst] + tag(worst);
+      return send(R);
+    }).then(function () { $('go').disabled = false; $('go').textContent = 'Đo lại · 重新测试'; hist(); });
+  }
+  function send(obj) {
+    return fetch('/speedtest/result', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) })
+      .then(function (r) { if (!r.ok) throw 0; })
+      .catch(function () { var p = document.createElement('p'); p.className = 'hint'; p.textContent = 'Không gửi được kết quả, chụp màn hình gửi anh Tiến nhé. 发送失败，请截图。'; $('res').appendChild(p); });
+  }
+
+  // ---- quet ma ----
+  var cam = null, S = null;
+  function loadJs(src) { return new Promise(function (ok, no) { var s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); }); }
+  function scan() {
+    if (cam) return stopCam();
+    $('scanRows').innerHTML = ''; $('scanBtn').disabled = true;
+    S = { kind: 'scan', who: $('who').value.trim(), net: $('net').value, tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || ''), rt: [] };
+    row('scanRows', 's-lib', 'Tải bộ quét · 加载扫码'); row('scanRows', 's-cam', 'Mở camera · 打开相机'); row('scanRows', 's-read', 'Đọc mã đầu tiên · 识别'); row('scanRows', 's-rt', 'Gửi mã về máy chủ · 发送');
+    var t0 = now();
+    var lib = window.Html5Qrcode ? Promise.resolve() : loadJs('/ext/vendor/html5-qrcode.min.js?v=1');
+    lib.then(function () {
+      S.lib = Math.round(now() - t0); setRow('s-lib', S.lib + ' ms', grade(S.lib, 1500, 5000, true));
+      var F = window.Html5QrcodeSupportedFormats || {};
+      var fm = ['QR_CODE', 'CODE_128', 'CODE_39', 'EAN_13', 'EAN_8', 'UPC_A', 'ITF', 'CODABAR', 'DATA_MATRIX'].map(function (k) { return F[k]; }).filter(function (x) { return x !== undefined; });
+      cam = new window.Html5Qrcode('cam', { formatsToSupport: fm, verbose: false });
+      var t1 = now(), first = true;
+      return cam.start({ facingMode: 'environment' }, { fps: 12, qrbox: function (w, h) { return { width: Math.min(320, w * 0.9), height: Math.min(180, h * 0.6) }; } }, function (txt) {
+        if (!first && S.rt.length >= 5) return;
+        var tr = now();
+        if (first) { first = false; S.read = Math.round(tr - t1 - (S.cam || 0)); setRow('s-read', S.read + ' ms', grade(S.read, 3000, 8000, true)); }
+        try { navigator.vibrate && navigator.vibrate(60); } catch (e) {}
+        fetch('/speedtest/scan', { method: 'POST', body: String(txt).slice(0, 200), cache: 'no-store' }).then(function (r) { return r.json(); }).then(function () {
+          S.rt.push(Math.round(now() - tr)); var m = med(S.rt);
+          setRow('s-rt', m + ' ms (' + S.rt.length + ' mã)', grade(m, 300, 800, true));
+          if (S.rt.length === 1 || S.rt.length === 5) send(S);
+        }).catch(function () { setRow('s-rt', 'lỗi gửi', 'bad'); });
+      }, function () {}).then(function () { S.cam = Math.round(now() - t1); setRow('s-cam', S.cam + ' ms', grade(S.cam, 1500, 4000, true)); setRow('s-read', 'đưa mã vào khung… 对准条码', null); });
+    }).then(function () { $('scanBtn').disabled = false; $('scanBtn').textContent = 'Tắt camera · 关闭相机'; })
+      .catch(function (e) { $('scanBtn').disabled = false; cam = null; setRow('s-cam', 'Không mở được camera: ' + ((e && e.message) || e), 'bad'); S.err = String((e && e.message) || e).slice(0, 200); send(S); });
+  }
+  function stopCam() { var c = cam; cam = null; $('scanBtn').textContent = 'Mở camera quét · 打开相机'; if (c) c.stop().then(function () { c.clear(); }).catch(function () {}); }
+
+  // ---- lich su ----
+  function hist() {
+    fetch('/speedtest/ket-qua.json', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      var it = (d.items || []).filter(function (x) { return x.kind === 'run'; }).slice(0, 20);
+      if (!it.length) { $('hist').innerHTML = '<tr><td class="hint">Chưa có lần đo nào.</td></tr>'; return; }
+      $('hist').innerHTML = '<tr><th>Giờ VN</th><th>Ai / mạng</th><th>Trễ</th><th>Xuống</th><th>Lên</th><th>Admin</th><th></th></tr>' + it.map(function (x) {
+        return '<tr><td>' + esc(String(x.ts).slice(5, 16)) + '</td><td>' + esc(x.who || '?') + '<br><span class="hint">' + esc(x.net || '') + ' ' + esc(x.tz || '') + '</span></td><td>' + esc(x.ping ? x.ping.med : '-') + ' ms</td><td>' + esc(x.dl == null ? '-' : x.dl) + '</td><td>' + esc(x.ul == null ? '-' : x.ul) + '</td><td>' + esc(x.ui == null ? '-' : (x.ui / 1000).toFixed(1) + 's') + '</td><td>' + (x.overall ? tag(x.overall) : '') + '</td></tr>';
+      }).join('');
+    }).catch(function () { $('hist').innerHTML = '<tr><td class="hint">Không tải được.</td></tr>'; });
+  }
+
+  try { $('who').value = localStorage.getItem('st_who') || ''; $('net').value = localStorage.getItem('st_net') || ''; } catch (e) {}
+  $('go').onclick = run; $('scanBtn').onclick = scan;
+  // May tinh: hien QR de dien thoai quet mo trang
+  if (window.matchMedia && window.matchMedia('(min-width: 800px)').matches) {
+    loadJs('/ext/vendor/qrcode.js').then(function () { var q = window.qrcode(0, 'M'); q.addData(location.origin + '/speedtest'); q.make(); $('qr').innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); $('qrCard').style.display = ''; }).catch(function () {});
+  }
+  hist();
+})();
+</script>
+</body>
+</html>

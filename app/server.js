@@ -43,6 +43,8 @@ const dws = require('./lib/dws');
 dws.init(store);
 const xport = require('./lib/xport');
 xport.init(store);
+const speedtest = require('./lib/speedtest');
+speedtest.init();
 setInterval(() => { try { const n = cn.autoDeliver(); if (n) console.log('autoDeliver', n); } catch (e) { console.error(e); } }, 30 * 60e3);
 setTimeout(() => { try { cn.autoDeliver(); } catch (e) {} }, 20e3);
 
@@ -295,6 +297,8 @@ async function handle(req, res) {
   const p = url.pathname;
 
   if (p === '/healthz') return json(req, res, 200, { ok: true, version: VERSION, snapshot: (store.latestMeta() || {}).gen || null });
+  // Trang do toc do tu xa (vd. tu Trung Quoc), khong can dang nhap
+  if (p === '/speedtest' || p.startsWith('/speedtest/')) return speedtest.handle(req, res, p, url, clientIp(req));
 
   // May do tu dong kho TQ ban du lieu vao (ma bi mat nam trong duong dan). Chi luu tho, tra loi nhanh.
   const mdws = p.match(/^\/hook\/dws\/([A-Za-z0-9_-]{10,64})\/?$/);
