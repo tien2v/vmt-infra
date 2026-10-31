@@ -117,6 +117,9 @@ function pwaInit() {
   store.rawDb().exec("CREATE TABLE IF NOT EXISTS pwa_log (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, event TEXT NOT NULL, platform TEXT, ua TEXT, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))");
 }
 pwaInit();
+// Thong ke cai app chi giu 180 ngay
+const pwaPurge = () => { try { store.rawDb().prepare("DELETE FROM pwa_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-180 days')").run(); } catch {} };
+pwaPurge(); setInterval(pwaPurge, 24 * 3600e3).unref();
 try { store.rawDb().exec('ALTER TABLE notif ADD COLUMN kind TEXT'); } catch {} // loai thong bao ghi thang (neu noi ghi co truyen)
 // Phan loai thong bao cho cac tab: order | money | support | system; act = can khach lam gi do
 function notifKind(n) {
