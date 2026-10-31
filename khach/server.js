@@ -104,8 +104,9 @@ function resolveTest() {
 resolveTest();
 
 const BRAND = {
-  green: { name: 'Vominhthien', tag: 'Logistics', host: 'app.vominhthien.com' },
-  yellow: { name: 'VMT Global', tag: 'Cùng nhau tiến bước', host: 'app.vmtglobal.com' },
+  // ogTitle / ogDesc: chu hien khi chia se link (Zalo, Facebook…) — slogan anh chot 31/10/2026
+  green: { name: 'Vominhthien', tag: 'Logistics', host: 'app.vominhthien.com', ogTitle: 'Vominhthien Logistics', ogDesc: 'Nền tảng mua hàng tận xưởng, ký gửi tận kho cho mọi nhà kinh doanh' },
+  yellow: { name: 'VMT Global', tag: 'Cùng nhau tiến bước', host: 'app.vmtglobal.com', ogTitle: 'VMT Global', ogDesc: 'Thương mại Trung - Việt · Giải pháp toàn diện' },
 };
 const hostBrand = (req) => (/vmtglobal/i.test(req.headers.host || '') ? 'yellow' : 'green');
 
@@ -232,7 +233,7 @@ function loginPage(req, res, file) {
     if (err) return send(res, 500, 'Server error');
     const b = hostBrand(req);
     const B = BRAND[b];
-    send(res, 200, html.replaceAll('{{BRAND}}', b).replaceAll('{{NAME}}', B.name).replaceAll('{{TAGOG}}', b === 'green' ? 'Logistics ' : '').replaceAll('{{TAG}}', B.tag).replaceAll('{{HOST}}', B.host), { 'Content-Type': 'text/html; charset=utf-8' });
+    send(res, 200, html.replaceAll('{{BRAND}}', b).replaceAll('{{NAME}}', B.name).replaceAll('{{OGTITLE}}', B.ogTitle).replaceAll('{{OGDESC}}', B.ogDesc).replaceAll('{{TAG}}', B.tag).replaceAll('{{HOST}}', B.host), { 'Content-Type': 'text/html; charset=utf-8' });
   });
 }
 
