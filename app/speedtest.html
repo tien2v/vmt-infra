@@ -104,6 +104,19 @@
     return fetch(url, opt).then(function (r) { return r.arrayBuffer().then(function (b) { clearTimeout(t); return { ms: now() - t0, bytes: b.byteLength, ok: r.ok }; }); })
       .catch(function () { clearTimeout(t); return { ms: null, bytes: 0, ok: false }; });
   }
+  // Doc tung phan: het gio van tinh duoc toc do tu so byte da nhan (mang cham khong bao "loi")
+  function timedRead(url, ms) {
+    var c = window.AbortController ? new AbortController() : null, got = 0, t0 = now(), end = null;
+    var t = c ? setTimeout(function () { end = now(); c.abort(); }, ms) : null;
+    return fetch(url, { cache: 'no-store', signal: c ? c.signal : undefined }).then(function (r) {
+      if (!r.ok) throw 0;
+      if (!r.body || !r.body.getReader) return r.arrayBuffer().then(function (b) { got = b.byteLength; return true; });
+      var rd = r.body.getReader();
+      function pump() { return rd.read().then(function (x) { if (x.done) return true; got += x.value.byteLength; return pump(); }); }
+      return pump();
+    }).then(function () { clearTimeout(t); return { ms: now() - t0, bytes: got, done: true }; })
+      .catch(function () { clearTimeout(t); return { ms: (end || now()) - t0, bytes: got, done: false }; });
+  }
   var mbps = function (bytes, ms) { return ms ? bytes * 8 / ms / 1000 : null; };
   var r1 = function (x) { return x == null ? null : Math.round(x * 10) / 10; };
 
@@ -114,7 +127,7 @@
       conn: navigator.connection ? (navigator.connection.effectiveType || '') + ' ' + (navigator.connection.downlink || '') : '', lv: {} };
     try { localStorage.setItem('st_who', R.who); localStorage.setItem('st_net', R.net); } catch (e) {}
     row('rows', 'r-open', 'Mở trang · 打开页面'); row('rows', 'r-ping', 'Độ trễ · 延迟'); row('rows', 'r-dl', 'Tải xuống · 下载');
-    row('rows', 'r-ul', 'Tải lên (ảnh) · 上传'); row('rows', 'r-ui', 'Giao diện admin thật · 后台界面'); row('rows', 'r-gf', 'Google Fonts (admin đang dùng)');
+    row('rows', 'r-ul', 'Tải lên (ảnh) · 上传'); row('rows', 'r-ui', 'Giao diện admin thật · 后台界面'); row('rows', 'r-gf', 'Google (để biết có VPN không) · 谷歌');
 
     // 1. mo trang
     var n = (performance.getEntriesByType && performance.getEntriesByType('navigation')[0]) || null;
@@ -141,14 +154,14 @@
       if (lost && R.lv.ping === 'ok') R.lv.ping = 'mid';
       setRow('r-ping', R.ping.med + ' ms (cao ' + R.ping.p90 + ', mất ' + lost + '/20)', R.lv.ping);
       // 3. tai xuong
-      return timed('/speedtest/dl?mb=1&n=' + Date.now(), { cache: 'no-store' }, 20000);
+      return timedRead('/speedtest/dl?mb=1&n=' + Date.now(), 25000);
     }).then(function (a) {
-      var best = mbps(a.bytes, a.ms);
-      if (a.ms != null && a.ms < 6000) return timed('/speedtest/dl?mb=4&n=' + Date.now(), { cache: 'no-store' }, 30000).then(function (b) { var m = mbps(b.bytes, b.ms); return m && m > (best || 0) ? m : best; });
+      var best = a.bytes > 50000 ? mbps(a.bytes, a.ms) : null;
+      if (a.done && a.ms < 6000) return timedRead('/speedtest/dl?mb=4&n=' + Date.now(), 25000).then(function (b) { var m = b.bytes > 50000 ? mbps(b.bytes, b.ms) : null; return m && m > (best || 0) ? m : best; });
       return best;
     }).then(function (m) {
-      R.dl = r1(m); R.lv.dl = grade(m, 10, 3);
-      setRow('r-dl', R.dl == null ? 'lỗi' : R.dl + ' Mbps', R.lv.dl);
+      R.dl = m == null ? null : Math.round(m * 100) / 100; R.lv.dl = grade(m, 10, 3);
+      setRow('r-dl', R.dl == null ? 'không tải được · 失败' : R.dl + ' Mbps', R.lv.dl);
       // 4. tai len
       function up(mb) {
         var b = new Uint8Array(mb * 1048576); for (var o = 0; o < b.length; o += 65536) crypto.getRandomValues(b.subarray(o, o + 65536));
@@ -160,16 +173,16 @@
       setRow('r-ul', R.ul == null ? 'lỗi' : R.ul + ' Mbps', R.lv.ul);
       // 5. giao dien admin that (khong dung cache)
       var t0 = now(), q = '?nc=' + Date.now();
-      return Promise.all([timed('/login' + q, { cache: 'no-store' }, 30000), timed('/assets/css/app.css' + q, { cache: 'no-store' }, 30000), timed('/assets/js/app.js' + q, { cache: 'no-store' }, 30000)])
-        .then(function (xs) { var bad = xs.some(function (x) { return !x.ok; }); return { ms: bad ? null : now() - t0, bytes: xs.reduce(function (s, x) { return s + x.bytes; }, 0) }; });
+      return Promise.all([timedRead('/login' + q, 40000), timedRead('/assets/css/app.css' + q, 40000), timedRead('/assets/js/app.js' + q, 40000)])
+        .then(function (xs) { return { done: xs.every(function (x) { return x.done; }), ms: now() - t0, bytes: xs.reduce(function (s, x) { return s + x.bytes; }, 0) }; });
     }).then(function (u) {
-      R.ui = u.ms == null ? null : Math.round(u.ms); R.lv.ui = grade(R.ui, 3000, 8000, true);
-      setRow('r-ui', R.ui == null ? 'lỗi' : (R.ui / 1000).toFixed(1) + ' s (' + (u.bytes / 1048576).toFixed(1) + ' MB)', R.lv.ui);
-      // 6. Google Fonts: trang admin hien dang nap font tu Google (bi chan o TQ -> trang treo)
+      R.ui = u.done ? Math.round(u.ms) : null; R.uiKB = Math.round(u.bytes / 1024); R.lv.ui = grade(R.ui, 3000, 8000, true);
+      setRow('r-ui', u.done ? (R.ui / 1000).toFixed(1) + ' s (' + R.uiKB + ' KB)' : 'quá 40 s, mới được ' + R.uiKB + ' KB', R.lv.ui);
+      // 6. Google: o TQ bi chan; vao duoc = may dang bat VPN (ket qua khong dai dien mang that)
       return timed('https://fonts.googleapis.com/css2?family=Inter&n=' + Date.now(), { mode: 'no-cors', cache: 'no-store' }, 6000);
     }).then(function (g) {
       R.gfont = g.ms == null ? null : Math.round(g.ms);
-      setRow('r-gf', R.gfont == null ? 'Bị chặn / quá 6 s · 被屏蔽' : R.gfont + ' ms', R.gfont == null ? 'bad' : grade(R.gfont, 500, 2000, true));
+      setRow('r-gf', R.gfont == null ? 'Bị chặn = không bật VPN · 无VPN' : 'Vào được = có thể đang bật VPN · 可能开了VPN', null);
       var worst = ['open', 'ping', 'dl', 'ul', 'ui'].reduce(function (w, k) { return RANK[R.lv[k]] > RANK[w] ? R.lv[k] : w; }, 'ok');
       R.overall = worst;
       $('overall').innerHTML = 'Tổng: ' + { ok: 'Mượt · 流畅', mid: 'Dùng được · 可用', bad: 'Chậm · 慢' }[worst] + tag(worst);

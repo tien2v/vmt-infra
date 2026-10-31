@@ -26,18 +26,8 @@ store.init();
 extra.init(process.env.DATA_DIR || path.join(__dirname, 'data'));
 const SECRET = store.sessionSecret();
 store.ensureAdmin();
-let UIINS = null; try { UIINS = JSON.parse(fs.readFileSync(path.join(__dirname, 'ui-inspect.json'), 'utf8')); } catch {}
-store.syncUiInspect(UIINS);
+store.dropTempUsers();
 const backup = require('./lib/backup');
-// Tai khoan nhan nap tien ban dau (anh gui 31/10/2026). Chi ghi khi chua co cai dat nao; sau do anh sua tren trang Vi khach.
-if (!store.kvGet('deposit_accounts')) {
-  store.kvSet('deposit_accounts', JSON.stringify([
-    { id: 'B1', label: 'Quỹ B1', bank: 'TPB', acct: '10004459488', holder: 'TRAN TUAN ANH', active: true },
-    { id: 'MC', label: 'Quỹ MC', bank: 'TCB', acct: '88888868768', holder: 'NGUYEN MANH CUONG', active: true },
-    { id: 'L8', label: 'Quỹ L8', bank: 'MSB', acct: '9686688887861000002', holder: 'NGUYEN VAN CAO', active: true },
-  ]));
-  console.log('deposit_accounts: ghi 3 tai khoan ban dau');
-}
 backup.init(store);
 const dws = require('./lib/dws');
 dws.init(store);
@@ -113,12 +103,14 @@ function tooMany(key) {
 function addFail(key) { const a = fails.get(key) || []; a.push(Date.now()); fails.set(key, a); }
 
 // ---------- du lieu theo vai tro (cache theo snapshot) ----------
-let cache = { id: null, base: null, byRole: {} };
+// Chi doc ca cuc snapshot (~6MB) khi co ban moi; binh thuong chi hoi so id (nhe).
+let cache = { id: null, base: null, byRole: {}, gzByRole: {} };
 function dataFor(role) {
-  const snap = store.latestSnapshot();
-  if (!snap) return null;
-  if (cache.id !== snap.id || cache.xv !== extra.version()) {
-    cache = { id: snap.id, xv: extra.version(), base: prepare(JSON.parse(snap.data)), byRole: {} };
+  const meta = store.latestMeta();
+  if (!meta) return null;
+  if (cache.id !== meta.id || cache.xv !== extra.version()) {
+    const snap = store.latestSnapshot(); if (!snap) return null;
+    cache = { id: snap.id, xv: extra.version(), base: prepare(JSON.parse(snap.data)), byRole: {}, gzByRole: {} };
     cache.base.received = snap.received_at;
     try { extra.attachShips(cache.base.ships); } catch (e) { console.error('attachShips', e); }
   }
@@ -130,8 +122,9 @@ function dataFor(role) {
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
 let custCache = { id: null, list: [] };
 function customers() {
-  const snap = store.latestSnapshot(); if (!snap) return [];
-  if (custCache.id !== snap.id) {
+  const meta = store.latestMeta(); if (!meta) return [];
+  if (custCache.id !== meta.id) {
+    const snap = store.latestSnapshot(); if (!snap) return custCache.list;
     const raw = JSON.parse(snap.data);
     custCache = { id: snap.id, list: (raw.customers || []).filter((c) => c.u).map((c) => ({ u: c.u, code: c.code || '', fn: c.fn || '', _q: norm([c.u, c.code, c.fn].join(' ')) })) };
   }
@@ -248,50 +241,68 @@ function khDetail(u, user) {
 }
 
 // ---------- file tinh ----------
-const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
-function serveFile(req, res, rel, cacheable) {
+const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ico': 'image/x-icon' };
+// Bo nho dem file tinh: doc + nen 1 lan (doi khi file doi), ETag de trinh duyet chi hoi lai (304, vai byte).
+// Quan trong cho kho TQ: chieu tai xuong VN -> TQ cham, khong tai lai file da co.
+const fileCache = new Map();
+function cachedBody(key, ver, make) {
+  let c = fileCache.get(key);
+  if (!c || c.ver !== ver) {
+    const raw = make();
+    c = { ver, raw, gz: null, etag: crypto.createHash('sha1').update(raw).digest('base64url').slice(0, 16) };
+    fileCache.set(key, c);
+  }
+  return c;
+}
+function sendBody(req, res, c, type, cacheCtl) {
+  const gz = c.raw.length > 1024 && /text|javascript|svg|json/.test(type) && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+  const h = { 'Content-Type': type, 'Cache-Control': cacheCtl, ETag: '"' + c.etag + (gz ? '-gz' : '') + '"', Vary: 'Accept-Encoding' };
+  if (req.headers['if-none-match'] === h.ETag) { res.writeHead(304, h); return res.end(); }
+  if (gz) { if (!c.gz) c.gz = zlib.gzipSync(c.raw, { level: 9 }); h['Content-Encoding'] = 'gzip'; res.writeHead(200, h); return res.end(c.gz); }
+  res.writeHead(200, h); res.end(c.raw);
+}
+// File cua minh (vmt.*, ext/*, html) doi thuong xuyen -> luon hoi lai; file template / font / thu vien -> giu 7 ngay
+const OWN = /(^|\/)(vmt\.(js|css)|[^/]+\.html)$/;
+function sendFile(req, res, abs, cacheCtl) {
+  fs.stat(abs, (err, st) => {
+    if (err || !st.isFile()) return send(res, 404, 'Not found');
+    const type = TYPES[path.extname(abs)] || 'application/octet-stream';
+    let c; try { c = cachedBody(abs, st.mtimeMs + ':' + st.size, () => fs.readFileSync(abs)); } catch (e) { return send(res, 404, 'Not found'); }
+    sendBody(req, res, c, type, cacheCtl || (OWN.test(abs) ? 'no-cache' : 'public, max-age=604800'));
+  });
+}
+function serveFile(req, res, rel) {
   const p = path.normalize(path.join(PUBLIC, rel));
   if (!p.startsWith(PUBLIC + path.sep)) return send(res, 404, 'Not found');
-  fs.readFile(p, (err, buf) => {
-    if (err) return send(res, 404, 'Not found');
-    const type = TYPES[path.extname(p)] || 'application/octet-stream';
-    const headers = { 'Content-Type': type, 'Cache-Control': cacheable ? 'public, max-age=3600' : 'no-store' };
-    if (/text|javascript|svg/.test(type) && buf.length > 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
-      headers['Content-Encoding'] = 'gzip'; headers.Vary = 'Accept-Encoding'; buf = zlib.gzipSync(buf);
-    }
-    res.writeHead(200, headers); res.end(buf);
-  });
+  sendFile(req, res, p);
 }
 
 // ---------- giao dien admin + phan mo rong Ship to China (app/ext) ----------
 // app.html (template, ma hoa tren GitHub) duoc chen them: nap /ext/cn-admin.js sau vmt.js va trang 'cn' truoc </main>.
 // Neu cau truc app.html doi (khong tim thay cho chen) thi tra ban goc, khong lam hong trang.
-let appCache = { key: '', html: null };
 // Anh chot 30/10: khong dung chu "no", dung chu "thieu" (Con no -> Con thieu, Cong no -> Khoan thieu)
 function noDebt(t) {
   return t.replace(/Còn nợ/g, 'Còn thiếu').replace(/còn nợ/g, 'còn thiếu').replace(/Công nợ/g, 'Khoản thiếu').replace(/công nợ/g, 'khoản thiếu')
     .replace(/'Nợ '/g, "'Thiếu '").replace(/>Nợ</g, '>Thiếu<').replace(/tổng nợ/g, 'tổng thiếu').replace(/đơn nợ/g, 'đơn thiếu').replace(/Khách nợ/g, 'Khách thiếu').replace(/khách nợ/g, 'khách thiếu')
     .replace(/\|nợ\|/g, '|thiếu|').replace(/, nợ,/g, ', tiền thiếu,');
 }
-let vmtJsCache = { key: '', buf: null };
 function vmtJs() {
-  try { const f = path.join(PUBLIC, 'assets', 'vmt.js'); const key = String(fs.statSync(f).mtimeMs); if (vmtJsCache.key !== key) vmtJsCache = { key, buf: Buffer.from(noDebt(fs.readFileSync(f, 'utf8'))) }; return vmtJsCache.buf; } catch (e) { return null; }
+  try { const f = path.join(PUBLIC, 'assets', 'vmt.js'); return cachedBody('vmt.js', String(fs.statSync(f).mtimeMs), () => Buffer.from(noDebt(fs.readFileSync(f, 'utf8')))); } catch (e) { return null; }
 }
 function appHtml() {
   try {
     const f = path.join(PUBLIC, 'app.html'), sec = path.join(__dirname, 'ext', 'cn-section.html'), ksec = path.join(__dirname, 'ext', 'kh-section.html');
     const key = fs.statSync(f).mtimeMs + ':' + fs.statSync(sec).mtimeMs + ':' + fs.statSync(ksec).mtimeMs;
-    if (appCache.key === key) return appCache.html;
-    let h = fs.readFileSync(f, 'utf8');
-    const a = "load('/assets/vmt.js')";
-    const m = '      </main>\n\n      <!-- ============ DRAWER';
-    if (h.includes(a) && h.includes(m)) {
+    const c = cachedBody('app.html', key, () => {
+      let h = fs.readFileSync(f, 'utf8');
+      const a = "load('/assets/vmt.js')";
+      const m = '      </main>\n\n      <!-- ============ DRAWER';
+      if (!h.includes(a) || !h.includes(m)) { console.error('cn-admin: khong tim thay cho chen trong app.html'); return Buffer.alloc(0); }
       h = h.replace(a, "load('/assets/vmt.js').then(function () { return load('/ext/cn-admin.js'); }).then(function () { return load('/ext/kh-admin.js'); })");
       h = h.replace(m, fs.readFileSync(sec, 'utf8') + fs.readFileSync(ksec, 'utf8') + m);
-    } else { console.error('cn-admin: khong tim thay cho chen trong app.html'); h = null; }
-    if (h) h = noDebt(h);
-    appCache = { key, html: h ? Buffer.from(h) : null };
-    return appCache.html;
+      return Buffer.from(noDebt(h));
+    });
+    return c.raw.length ? c : null;
   } catch (e) { console.error(e); return null; }
 }
 
@@ -365,10 +376,10 @@ async function handle(req, res) {
     return json(req, res, 200, { ok: true });
   }
 
-  if (p === '/login') return serveFile(req, res, 'login.html', false);
-  if (p === '/assets/vmt.js') { const b = vmtJs(); if (b) return send(res, 200, b, { 'Content-Type': 'text/javascript; charset=utf-8' }); }
-  if (p.startsWith('/ext/vendor/') && /^[a-z0-9.-]+\.js$/.test(p.slice(12))) return fs.readFile(path.join(__dirname, 'ext', 'vendor', p.slice(12)), (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=86400' }));
-  if (p.startsWith('/assets/')) return serveFile(req, res, p.slice(1), true);
+  if (p === '/login') return serveFile(req, res, 'login.html');
+  if (p === '/assets/vmt.js') { const c = vmtJs(); if (c) return sendBody(req, res, c, 'text/javascript; charset=utf-8', 'no-cache'); }
+  if (p.startsWith('/ext/vendor/') && /^[a-z0-9.-]+\.js$/.test(p.slice(12))) return sendFile(req, res, path.join(__dirname, 'ext', 'vendor', p.slice(12)));
+  if (p.startsWith('/assets/')) return serveFile(req, res, p.slice(1));
 
   const user = readSession(req);
   if (p === '/api/me') return user ? json(req, res, 200, { username: user.username, name: user.name, role: user.role }) : json(req, res, 401, { error: 'login' });
@@ -376,7 +387,7 @@ async function handle(req, res) {
     if (!user) return json(req, res, 401, { error: 'login' });
     const buf = dataFor(user.role);
     if (!buf) return json(req, res, 503, { error: 'Chưa có dữ liệu. Đợi n8n đồng bộ lần đầu (tối đa 15 phút).' });
-    if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) return send(res, 200, zlib.gzipSync(buf), { 'Content-Type': 'application/json; charset=utf-8', 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' });
+    if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) return send(res, 200, cache.gzByRole[user.role] || (cache.gzByRole[user.role] = zlib.gzipSync(buf)), { 'Content-Type': 'application/json; charset=utf-8', 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' });
     return send(res, 200, buf, { 'Content-Type': 'application/json; charset=utf-8' });
   }
   if (p === '/api/status') {
@@ -686,17 +697,17 @@ async function handle(req, res) {
 
   if (p === '/ext/kh-admin.js') {
     if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });
-    return fs.readFile(path.join(__dirname, 'ext', 'kh-admin.js'), (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'text/javascript; charset=utf-8' }));
+    return sendFile(req, res, path.join(__dirname, 'ext', 'kh-admin.js'), 'private, no-cache');
   }
   if (p === '/ext/cn-admin.js') {
     if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });
-    return fs.readFile(path.join(__dirname, 'ext', 'cn-admin.js'), (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'text/javascript; charset=utf-8' }));
+    return sendFile(req, res, path.join(__dirname, 'ext', 'cn-admin.js'), 'private, no-cache');
   }
   if (p === '/' || p === '/index.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     const html = appHtml();
-    if (!html) return serveFile(req, res, 'app.html', false);
-    return send(res, 200, html, { 'Content-Type': 'text/html; charset=utf-8' });
+    if (!html) return sendFile(req, res, path.join(PUBLIC, 'app.html'), 'private, no-cache');
+    return sendBody(req, res, html, 'text/html; charset=utf-8', 'private, no-cache');
   }
   return send(res, 404, 'Not found');
 }
