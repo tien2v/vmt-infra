@@ -3,7 +3,7 @@
 // Quy tac anh chot 31/10 (Project: decisions/tao-don.md muc 3, 4):
 // - 1 don = 1 ma van don. Dan nhieu ma -> tao nhieu don (dung chung thong tin van chuyen).
 // - Chon bao hiem / kiem dem -> bat buoc khai hang (ten, SL, gia tri).
-// - Tieu ngach: kho T3 Quang Chau. Chinh ngach: he thong tu chia theo can uoc tinh: >= 100kg -> B1, < 100kg -> T3 (khach khong chon).
+// - Thuong mai dien tu (TMDT, ma 'tieu'): kho T3 Quang Chau. Chinh ngach: he thong tu chia theo can uoc tinh: >= 100kg -> B1, < 100kg -> T3 (khach khong chon).
 // - Line = chang trong nuoc sau thong quan: ve HN co Tieu chuan / Tiet kiem; ve HCM them Uu tien (bay).
 // - Khoa chong trung: cung khach + cung ma van don (don chua huy).
 const crypto = require('node:crypto');
@@ -33,7 +33,8 @@ function init(database, kvReader) {
   );
   CREATE UNIQUE INDEX IF NOT EXISTS ks_orders_wb ON ks_orders (username, wb) WHERE status <> 'CANCELLED';
   CREATE TABLE IF NOT EXISTS ks_log (ts TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), code TEXT NOT NULL, username TEXT, action TEXT NOT NULL, detail TEXT);
-  CREATE INDEX IF NOT EXISTS ks_log_code ON ks_log (code);`);
+  CREATE INDEX IF NOT EXISTS ks_log_code ON ks_log (code);
+  CREATE TABLE IF NOT EXISTS ks_defaults (owner TEXT PRIMARY KEY, data TEXT NOT NULL, by TEXT, updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));`);
 }
 
 function warehouses() {
@@ -175,4 +176,34 @@ function cancel(username, gobiz, code, ip, ctx) {
   } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
 }
 
-module.exports = { init, validate, create, list, cancel, existing, countRecent, warehouses, pickWh, whView, markOf, agentGroups, parseWbs, DEFAULT_WH, SVC_NAME, LINES, CHINH_B1_KG };
+// ---- Cai dat ky gui mac dinh (anh chot 31/10 16h): kien khach KHONG tao don, tren kien chi co username / ma khach
+// -> kho TQ quet nhap kho, he thong tu tao don theo cai dat nay. Muon dich vu khac thi khach tao don truoc khi kho nhap / vao bao.
+// Chi gom dich vu khong can khai hang: dong go, nep giay, cuon bot khi. Kiem dem / bao hiem can khai hang -> phai tao don.
+const DEF_SVCS = ['wood_brace', 'paper_brace', 'bubble_wrapping'];
+const DEF0 = { wh: 'HN', line: 'TC', svcs: [], brand: false };
+function getDefault(owner) {
+  const r = db.prepare('SELECT data, updated_at FROM ks_defaults WHERE owner = ?').get(String(owner || '').toLowerCase());
+  if (!r) return Object.assign({ set: false }, DEF0);
+  let d = {}; try { d = JSON.parse(r.data); } catch {}
+  return Object.assign({}, DEF0, d, { set: true, at: r.updated_at });
+}
+function setDefault(owner, b, by, ip) {
+  owner = String(owner || '').toLowerCase();
+  const wh = b.wh === 'HCM' ? 'HCM' : 'HN';
+  let line = ['TC', 'TK', 'UT'].includes(b.line) ? b.line : 'TC';
+  if (line === 'UT' && wh !== 'HCM') return { error: 'Vận chuyển ưu tiên chỉ áp dụng cho hàng về kho TP.HCM' };
+  const svcs = Array.isArray(b.svcs) ? [...new Set(b.svcs.filter((x) => DEF_SVCS.includes(x)))] : [];
+  const d = { wh, line, svcs, brand: !!b.brand };
+  const old = getDefault(owner);
+  db.prepare('INSERT INTO ks_defaults (owner, data, by, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(owner) DO UPDATE SET data = excluded.data, by = excluded.by, updated_at = excluded.updated_at').run(owner, JSON.stringify(d), by, new Date().toISOString());
+  const L = { TC: 'Tiêu chuẩn', TK: 'Tiết kiệm', UT: 'Ưu tiên' };
+  const ch = [];
+  if (old.wh !== d.wh) ch.push(['Kho nhận', old.wh, d.wh]);
+  if (old.line !== d.line) ch.push(['Vận chuyển', L[old.line], L[d.line]]);
+  if (old.svcs.join(',') !== d.svcs.join(',')) ch.push(['Dịch vụ', old.svcs.map((x) => SVC_NAME[x]).join(', ') || 'Không', d.svcs.map((x) => SVC_NAME[x]).join(', ') || 'Không']);
+  if (!!old.brand !== d.brand) ch.push(['Hàng thương hiệu', old.brand ? 'Có' : 'Không', d.brand ? 'Có' : 'Không']);
+  db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run('MACDINH:' + owner, by, 'Sửa cài đặt ký gửi mặc định', JSON.stringify({ changes: ch, ip: ip || null }));
+  return { ok: true, def: getDefault(owner) };
+}
+
+module.exports = { getDefault, setDefault, DEF_SVCS, init, validate, create, list, cancel, existing, countRecent, warehouses, pickWh, whView, markOf, agentGroups, parseWbs, DEFAULT_WH, SVC_NAME, LINES, CHINH_B1_KG };

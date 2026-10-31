@@ -79,4 +79,53 @@ function setAgentGroups(v, by) {
 }
 function warehousesLog() { try { return JSON.parse(store.kvGet('cn_warehouses_log') || '[]'); } catch { return []; } }
 
-module.exports = { init, list, log, warehouses, setWarehouses, warehousesLog, agentGroups, setAgentGroups, LABEL };
+// ---- Tu tao don khi kien ve kho TQ ma khach chua tao don (anh chot 31/10 16h) ----
+// Ben ban kho goi: autoCreate({ mark, wb, by }). mark = chu tren kien: username / ma khach, co the kem HN- / SG- / @@ phia truoc.
+// Khong co don -> tao don ky gui theo cai dat mac dinh cua khach (ks_defaults); co san don cung khach + van don -> tra lai don do.
+const tth = require('./tth');
+function parseMark(mark) {
+  let m = String(mark || '').trim(); let dest = null; let brand = false;
+  for (let i = 0; i < 3; i++) {
+    if (/^@@/.test(m)) { brand = true; m = m.slice(2); }
+    const x = /^(HN|SG|HCM)[-_ ]/i.exec(m); if (x) { dest = /^HN/i.test(x[1]) ? 'HN' : 'HCM'; m = m.slice(x[0].length); }
+  }
+  return { key: m.replace(/\s+/g, '').toLowerCase(), dest, brand };
+}
+function resolveOwner(d, key, isKnown) {
+  if (!key) return null;
+  try { const r = d.prepare('SELECT owner FROM cust_codes WHERE upper(code) = upper(?)').get(key); if (r) return r.owner; } catch {}
+  if (!/^[a-z0-9_.@-]{2,64}$/.test(key)) return null;
+  // username Gobiz (khach cu) hoac tai khoan web moi
+  if (isKnown && isKnown(key)) return key;
+  try { if (d.prepare('SELECT 1 FROM users WHERE lower(username) = ? OR lower(gobiz) = ?').get(key, key)) return key; } catch {}
+  return null;
+}
+function autoCreate(o) {
+  const d = open(); if (!d || !hasTable(d)) return { error: 'Chưa có dữ liệu ký gửi' };
+  const wb = String(o.wb || '').trim().toUpperCase();
+  if (!/^[A-Z0-9-]{4,40}$/.test(wb)) return { error: 'Mã vận đơn không hợp lệ' };
+  const pm = parseMark(o.mark); const own = resolveOwner(d, pm.key, o.isKnown);
+  if (!own) return { error: 'Không nhận ra khách từ ký hiệu trên kiện' };
+  const by = String(o.by || 'he-thong').slice(0, 60);
+  d.exec('BEGIN IMMEDIATE');
+  try {
+    const ex = d.prepare("SELECT code FROM ks_orders WHERE wb = ? AND status <> 'CANCELLED' AND (lower(username) = ? OR lower(gobiz) = ?)").get(wb, own, own);
+    if (ex) { d.exec('COMMIT'); return { ok: true, code: ex.code, existed: true }; }
+    let def = {}; try { def = JSON.parse((d.prepare('SELECT data FROM ks_defaults WHERE owner = ?').get(own) || {}).data || '{}'); } catch {}
+    const wh = pm.dest || (def.wh === 'HCM' ? 'HCM' : 'HN');
+    let line = ['TC', 'TK', 'UT'].includes(def.line) ? def.line : 'TC'; if (line === 'UT' && wh !== 'HCM') line = 'TC';
+    const w = warehouses().find((x) => x.active !== false && x.type === 'tieu') || warehouses()[0];
+    const now = new Date().toISOString();
+    const data = { lot: '', shop: '', items: [], value: 0, svcs: (def.svcs || []).filter((x) => ['wood_brace', 'paper_brace', 'bubble_wrapping'].includes(x)), svcOther: '', note2: '',
+      brand: pm.brand || !!def.brand, auto: true, mode: 'tieu', line, wh, estW: null, whCn: w.id, whCnName: w.name, whCnShort: w.short || 'TQ',
+      ms: [{ t: now, s: 'MERCHANT_DELIVERING', by }], fee: null, paid: 0, unpaid: 0 };
+    const code = tth.makeCode('84', new Date(), (c) => !!d.prepare('SELECT 1 FROM ks_orders WHERE code = ?').get(c));
+    d.prepare('INSERT INTO ks_orders (code, username, gobiz, test, wb, data) VALUES (?, ?, ?, 0, ?, ?)').run(code, own, own, wb, JSON.stringify(data));
+    d.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, by, 'Tự tạo đơn khi kiện về kho TQ (theo cài đặt mặc định)', JSON.stringify({ changes: [], mark: String(o.mark || '').slice(0, 80), wb, def: Object.keys(def).length ? def : null }));
+    try { d.prepare('INSERT INTO notif (username, code, text) VALUES (?, ?, ?)').run(own, code, 'Kiện ' + wb + ' vừa về kho Trung Quốc. Hệ thống đã tạo đơn ký gửi theo cài đặt mặc định của anh/chị.'); } catch {}
+    d.exec('COMMIT');
+    return { ok: true, code, existed: false, owner: own, wh, line, svcs: data.svcs, brand: data.brand };
+  } catch (e) { try { d.exec('ROLLBACK'); } catch {} throw e; }
+}
+
+module.exports = { autoCreate, parseMark, init, list, log, warehouses, setWarehouses, warehousesLog, agentGroups, setAgentGroups, LABEL };

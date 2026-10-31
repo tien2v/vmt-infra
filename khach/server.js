@@ -204,7 +204,7 @@ function payload(user) {
   if (me.walletOn) { me.wallet = ledger.walletView(store.rawDb(), owner(user)); me.hasPin = ledger.hasPin(store.rawDb(), owner(user)); }
   const cn = store.cnList(user.username, user.gobiz).map((o) => Object.assign(o, { mine: true }));
   // Ky gui he thong moi (ma 84…) gop vao danh sach ky gui cung don Gobiz; dia chi kho TQ kem ma khach
-  me.grp = (c && c.grp) || ''; me.kh = owner(user); // ky hieu tren kien: HN-/SG- + username web khach dang dung
+  me.grp = (c && c.grp) || ''; me.kh = owner(user); me.ksDef = ks.getDefault(me.kh); // ky hieu tren kien: HN-/SG- + username web khach dang dung
   const ksNew = ks.list(user.username, user.gobiz, { group: me.grp });
   me.whCn = ks.warehouses().filter((w) => w.active !== false).map((w) => Object.assign(ks.whView(w, null, me.grp), { type: w.type }));
   const companies = store.coList(user.username);
@@ -435,6 +435,14 @@ async function handle(req, res) {
     const r = ks.create(user.username, user.gobiz, isTestAcc(user), v, clientIp(req), { group: custGroup(user) });
     if (r.error) return json(req, res, 409, r);
     return json(req, res, 200, { ok: true, orders: r.orders });
+  }
+  if (p === '/api/ks/default') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (req.method === 'GET') return json(req, res, 200, { def: ks.getDefault(owner(user)) });
+    if (req.method !== 'POST' || !sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const r = ks.setDefault(owner(user), b, 'khach:' + user.username, clientIp(req));
+    return json(req, res, r.error ? 400 : 200, r);
   }
   if (p === '/api/ks/check' && req.method === 'POST') {
     if (!user) return json(req, res, 401, { error: 'login' });
