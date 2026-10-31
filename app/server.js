@@ -628,7 +628,7 @@ async function handle(req, res) {
       if (!['admin', 'kho', 'sale'].includes(user.role)) return json(req, res, 403, { error: 'forbidden' });
       if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
       let b; try { b = JSON.parse((await readBody(req, 2000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
-      const r = ksadmin.setFlags(mf[1], { brand: b.brand, special: b.special }, user.username);
+      const r = ksadmin.setFlags(mf[1], { cat: b.cat, brand: b.brand, special: b.special }, user.username);
       return json(req, res, r.error ? (r.code || 400) : 200, r);
     }
     const ml = p.match(/^\/api\/ks\/(84\d{10})\/log$/);

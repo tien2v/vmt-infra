@@ -14,6 +14,11 @@ const MAX_ORDERS = 50;
 const CHINH_B1_KG = 100;
 const LINES = { TC: 'standard_shipping', TK: 'eco_shipping', UT: 'express_shipping', CN: 'official_shipping' };
 const SVCS = ['insurance', 'wood_brace', 'counting', 'paper_brace', 'bubble_wrapping'];
+// NHOM HANG (thong tin san pham, anh chot 31/10 16h32): thuong / thuong hieu / dac thu (2 nhom sau thuong ve cham)
+const CATS = { thuong: 'Hàng thông thường', brand: 'Hàng thương hiệu', special: 'Hàng đặc thù' };
+const catOf = (d) => (d && CATS[d.cat] ? d.cat : d && d.special ? 'special' : d && d.brand ? 'brand' : 'thuong');
+const catIn = (b, dflt) => (CATS[b && b.cat] ? b.cat : b && b.special ? 'special' : b && b.brand ? 'brand' : (dflt || 'thuong'));
+const setCat = (d, c) => { d.cat = c; d.brand = c === 'brand'; d.special = c === 'special'; };
 const SVC_NAME = { insurance: 'Bảo hiểm', wood_brace: 'Đóng gỗ', counting: 'Kiểm đếm', paper_brace: 'Nẹp giấy', bubble_wrapping: 'Cuốn bọt khí' };
 // Kho TQ mac dinh (dia chi anh gui 31/10) — admin sua o saas.7zone.net/ky-gui -> Kho Trung Quoc (kv 'cn_warehouses').
 // {MA} = ma khach ghi tren kien.
@@ -110,7 +115,7 @@ function validate(b) {
   return { wbs, data: {
     lot: str(b.lot, 80), shop: str(b.shop, 120), items, value, svcs, svcOther, note2: str(b.note, 500),
     mode, line, wh, estW, whCn: whCn.id, whCnName: whCn.name, whCnShort: whCn.short || 'TQ',
-    brand: !!b.brand, special: !!b.special, // hang thuong hieu / hang dac thu (thuong ve cham)
+    cat: catIn(b), brand: catIn(b) === 'brand', special: catIn(b) === 'special', // nhom hang
   } };
 }
 
@@ -129,7 +134,7 @@ function rowOf(r, ctx) {
     fees: [{ t: ship, prov: null, act: null, q: null, p: null, free: false }].concat((d.svcs || []).map((t) => ({ t, prov: null, act: null, q: null, p: null, free: false }))),
     ms: (d.ms || []).map((m) => ({ t: m.t, s: m.s })),
     items: d.items || [], svcs: d.svcs || [], svcOther: d.svcOther || '', note2: d.note2 || '', mode: d.mode, line: d.line, estW: d.estW,
-    whCnName: d.whCnName, mark: markOf(d.wh, custCodeOf(r.gobiz || r.username)), whAddr: whView(w, markOf(d.wh, custCodeOf(r.gobiz || r.username)), ctx && ctx.group), brand: !!d.brand, special: !!d.special, auto: !!d.auto, canEdit: ['MERCHANT_DELIVERING', 'PUTAWAY'].includes(r.status),
+    whCnName: d.whCnName, mark: markOf(d.wh, custCodeOf(r.gobiz || r.username)), whAddr: whView(w, markOf(d.wh, custCodeOf(r.gobiz || r.username)), ctx && ctx.group), cat: catOf(d), brand: catOf(d) === 'brand', special: catOf(d) === 'special', needWh: !!d.needWh, auto: !!d.auto, canEdit: ['MERCHANT_DELIVERING', 'PUTAWAY'].includes(r.status),
   };
 }
 
@@ -151,8 +156,8 @@ function mergeInto(r, v, actor, ip) {
   set('svcs', 'Dịch vụ', v.data.svcs, nm); set('svcOther', 'Yêu cầu khác', v.data.svcOther);
   if (v.data.items.length) { set('items', 'Hàng', v.data.items, (a) => (a || []).length + ' dòng'); d.value = v.data.value; }
   if (v.data.lot) set('lot', 'Tên gợi nhớ', v.data.lot); if (v.data.shop) set('shop', 'Shop', v.data.shop); if (v.data.note2) set('note2', 'Ghi chú', v.data.note2);
-  if (v.data.brand && !d.brand) set('brand', 'Hàng thương hiệu', true, (x) => (x ? 'Có' : 'Không'));
-  if (v.data.special && !d.special) set('special', 'Hàng đặc thù', true, (x) => (x ? 'Có' : 'Không'));
+  if (v.data.cat !== 'thuong' && catOf(d) !== v.data.cat) { ch.push(['Nhóm hàng', CATS[catOf(d)], CATS[v.data.cat]]); setCat(d, v.data.cat); }
+  if (d.needWh) { delete d.needWh; }
   d.claimedAt = new Date().toISOString(); d.svcsAt = d.claimedAt;
   db.prepare('UPDATE ks_orders SET data = ?, updated_at = ? WHERE code = ?').run(JSON.stringify(d), d.claimedAt, r.code);
   db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(r.code, actor, actor.startsWith('nv:') ? 'Nhân viên khai bổ sung đơn tự tạo' : 'Khách khai bổ sung đơn tự tạo', JSON.stringify({ changes: ch, ip: ip || null }));
@@ -218,17 +223,17 @@ function setSvcs(username, gobiz, code, b, by, ip) {
     const svcs = Array.isArray(b.svcs) ? [...new Set(b.svcs.filter((x) => SVCS.includes(x)))] : [];
     if (svcs.includes('insurance') && !((d.items || []).length && d.value > 0)) { db.exec('ROLLBACK'); return { error: 'Bảo hiểm cần khai hàng và giá trị — liên hệ CSKH để bổ sung hàng', code: 400 }; }
     if (svcs.includes('counting') && !(d.items || []).length) { db.exec('ROLLBACK'); return { error: 'Kiểm đếm cần danh sách hàng — liên hệ CSKH để bổ sung hàng', code: 400 }; }
-    const brand = b.brand == null ? !!d.brand : !!b.brand;
-    const special = b.special == null ? !!d.special : !!b.special;
+    const cat = b.cat == null && b.brand == null && b.special == null ? catOf(d) : catIn(b);
+    const wh = b.wh === 'HCM' ? 'HCM' : b.wh === 'HN' ? 'HN' : d.wh;
     const ch = [];
     const nm = (a) => a.map((x) => SVC_NAME[x]).join(', ') || 'Không';
     if ((d.svcs || []).join(',') !== svcs.join(',')) ch.push(['Dịch vụ', nm(d.svcs || []), nm(svcs)]);
-    if (!!d.brand !== brand) ch.push(['Hàng thương hiệu', d.brand ? 'Có' : 'Không', brand ? 'Có' : 'Không']);
-    if (!!d.special !== special) ch.push(['Hàng đặc thù', d.special ? 'Có' : 'Không', special ? 'Có' : 'Không']);
-    if (!ch.length) { db.exec('ROLLBACK'); return { order: rowOf(r) }; }
-    d.svcs = svcs; d.brand = brand; d.special = special; d.svcsAt = new Date().toISOString();
+    if (catOf(d) !== cat) ch.push(['Nhóm hàng', CATS[catOf(d)], CATS[cat]]);
+    if (d.wh !== wh) { ch.push(['Kho nhận', d.wh === 'HCM' ? 'TP.HCM' : 'Hà Nội', wh === 'HCM' ? 'TP.HCM' : 'Hà Nội']); if (wh !== 'HCM' && d.line === 'UT') { ch.push(['Vận chuyển', 'Ưu tiên', 'Tiêu chuẩn']); d.line = 'TC'; } }
+    if (!ch.length && !d.needWh) { db.exec('ROLLBACK'); return { order: rowOf(r) }; }
+    d.svcs = svcs; setCat(d, cat); d.wh = wh; delete d.needWh; d.svcsAt = new Date().toISOString();
     db.prepare('UPDATE ks_orders SET data = ?, updated_at = ? WHERE code = ?').run(JSON.stringify(d), d.svcsAt, code);
-    db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, by, 'Đổi dịch vụ', JSON.stringify({ changes: ch, ip: ip || null }));
+    db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, by, 'Đổi kho nhận / dịch vụ / nhóm hàng', JSON.stringify({ changes: ch.length ? ch : [['Kho nhận', 'Chưa chọn', wh === 'HCM' ? 'TP.HCM' : 'Hà Nội']], ip: ip || null }));
     db.exec('COMMIT');
     return { order: rowOf(db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(code)) };
   } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
@@ -239,11 +244,11 @@ function setFlags(code, b, by) {
   const r = db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(code);
   if (!r) return { error: 'Không tìm thấy đơn', code: 404 };
   const d = JSON.parse(r.data); const ch = [];
-  for (const [k, lb] of [['brand', 'Hàng thương hiệu'], ['special', 'Hàng đặc thù']]) if (b[k] != null && !!b[k] !== !!d[k]) { ch.push([lb, d[k] ? 'Có' : 'Không', b[k] ? 'Có' : 'Không']); d[k] = !!b[k]; }
+  const c = catIn(b, catOf(d)); if (c !== catOf(d)) { ch.push(['Nhóm hàng', CATS[catOf(d)], CATS[c]]); setCat(d, c); }
   if (!ch.length) return { ok: true, order: rowOf(r) };
   const now = new Date().toISOString();
   db.prepare('UPDATE ks_orders SET data = ?, updated_at = ? WHERE code = ?').run(JSON.stringify(d), now, code);
-  db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, by, 'Đánh dấu hàng', JSON.stringify({ changes: ch }));
+  db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, by, 'Đổi nhóm hàng', JSON.stringify({ changes: ch }));
   return { ok: true, order: rowOf(db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(code)) };
 }
 
@@ -251,7 +256,7 @@ function setFlags(code, b, by) {
 // -> kho TQ quet nhap kho, he thong tu tao don theo cai dat nay. Muon dich vu khac thi khach tao don truoc khi kho nhap / vao bao.
 // Chi gom dich vu khong can khai hang: dong go, nep giay, cuon bot khi. Kiem dem / bao hiem can khai hang -> phai tao don.
 const DEF_SVCS = ['wood_brace', 'paper_brace', 'bubble_wrapping'];
-const DEF0 = { wh: 'HN', line: 'TC', svcs: [], brand: false };
+const DEF0 = { wh: 'HN', line: 'TC', svcs: [], cat: 'thuong' };
 function getDefault(owner) {
   const r = db.prepare('SELECT data, updated_at FROM ks_defaults WHERE owner = ?').get(String(owner || '').toLowerCase());
   if (!r) return Object.assign({ set: false }, DEF0);
@@ -264,7 +269,7 @@ function setDefault(owner, b, by, ip) {
   let line = ['TC', 'TK', 'UT'].includes(b.line) ? b.line : 'TC';
   if (line === 'UT' && wh !== 'HCM') return { error: 'Vận chuyển ưu tiên chỉ áp dụng cho hàng về kho TP.HCM' };
   const svcs = Array.isArray(b.svcs) ? [...new Set(b.svcs.filter((x) => DEF_SVCS.includes(x)))] : [];
-  const d = { wh, line, svcs, brand: !!b.brand };
+  const d = { wh, line, svcs, cat: catIn(b) };
   const old = getDefault(owner);
   db.prepare('INSERT INTO ks_defaults (owner, data, by, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(owner) DO UPDATE SET data = excluded.data, by = excluded.by, updated_at = excluded.updated_at').run(owner, JSON.stringify(d), by, new Date().toISOString());
   const L = { TC: 'Tiêu chuẩn', TK: 'Tiết kiệm', UT: 'Ưu tiên' };
@@ -272,9 +277,10 @@ function setDefault(owner, b, by, ip) {
   if (old.wh !== d.wh) ch.push(['Kho nhận', old.wh, d.wh]);
   if (old.line !== d.line) ch.push(['Vận chuyển', L[old.line], L[d.line]]);
   if (old.svcs.join(',') !== d.svcs.join(',')) ch.push(['Dịch vụ', old.svcs.map((x) => SVC_NAME[x]).join(', ') || 'Không', d.svcs.map((x) => SVC_NAME[x]).join(', ') || 'Không']);
-  if (!!old.brand !== d.brand) ch.push(['Hàng thương hiệu', old.brand ? 'Có' : 'Không', d.brand ? 'Có' : 'Không']);
+  if (catOf(old) !== d.cat) ch.push(['Nhóm hàng', CATS[catOf(old)], CATS[d.cat]]);
+  if (!old.set) ch.push(['Cài đặt', 'Chưa có', 'Đã cài']);
   db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run('MACDINH:' + owner, by, 'Sửa cài đặt ký gửi mặc định', JSON.stringify({ changes: ch, ip: ip || null }));
   return { ok: true, def: getDefault(owner) };
 }
 
-module.exports = { setFlags, findOpen, setSvcs, custCodeOf, getDefault, setDefault, DEF_SVCS, init, validate, create, list, cancel, existing, countRecent, warehouses, pickWh, whView, markOf, agentGroups, parseWbs, DEFAULT_WH, SVC_NAME, LINES, CHINH_B1_KG };
+module.exports = { CATS, catOf, setFlags, findOpen, setSvcs, custCodeOf, getDefault, setDefault, DEF_SVCS, init, validate, create, list, cancel, existing, countRecent, warehouses, pickWh, whView, markOf, agentGroups, parseWbs, DEFAULT_WH, SVC_NAME, LINES, CHINH_B1_KG };

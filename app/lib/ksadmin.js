@@ -25,7 +25,7 @@ function list(q, status, limit) {
   return rows.map((r) => {
     let x = {}; try { x = JSON.parse(r.data); } catch {}
     return { code: r.code, username: r.username, gobiz: r.gobiz, test: !!r.test, status: r.status, label: LABEL[r.status] || r.status, wb: r.wb, created: r.created_at, modified: r.updated_at || r.created_at,
-      lot: x.lot || '', shop: x.shop || '', brand: !!x.brand, special: !!x.special, auto: !!x.auto, mode: x.mode, line: x.line, wh: x.wh, whCnName: x.whCnName, estW: x.estW, svcs: x.svcs || [], svcOther: x.svcOther || '', note: x.note2 || '', items: x.items || [], value: x.value || 0 };
+      lot: x.lot || '', shop: x.shop || '', cat: x.cat || (x.special ? 'special' : x.brand ? 'brand' : 'thuong'), needWh: !!x.needWh, auto: !!x.auto, mode: x.mode, line: x.line, wh: x.wh, whCnName: x.whCnName, estW: x.estW, svcs: x.svcs || [], svcOther: x.svcOther || '', note: x.note2 || '', items: x.items || [], value: x.value || 0 };
   }).filter((o) => (!status || o.status === status) && (!k || [o.code, o.wb, o.username, o.gobiz, o.lot, o.shop].join(' ').toLowerCase().includes(k)));
 }
 function log(code) {
@@ -128,20 +128,21 @@ function autoCreate(o) {
   try {
     const ex = d.prepare("SELECT code FROM ks_orders WHERE wb = ? AND status <> 'CANCELLED' AND (lower(username) = ? OR lower(gobiz) = ?)").get(wb, own, own);
     if (ex) { d.exec('COMMIT'); return { ok: true, code: ex.code, existed: true }; }
-    let def = {}; try { def = JSON.parse((d.prepare('SELECT data FROM ks_defaults WHERE owner = ?').get(own) || {}).data || '{}'); } catch {}
+    let def = {}; let hasDef = false; try { const dr = d.prepare('SELECT data FROM ks_defaults WHERE owner = ?').get(own); if (dr) { def = JSON.parse(dr.data || '{}'); hasDef = true; } } catch {}
     const wh = pm.dest || (def.wh === 'HCM' ? 'HCM' : 'HN');
     let line = ['TC', 'TK', 'UT'].includes(def.line) ? def.line : 'TC'; if (line === 'UT' && wh !== 'HCM') line = 'TC';
     const w = warehouses().find((x) => x.active !== false && x.type === 'tieu') || warehouses()[0];
     const now = new Date().toISOString();
     const data = { lot: '', shop: '', items: [], value: 0, svcs: (def.svcs || []).filter((x) => ['wood_brace', 'paper_brace', 'bubble_wrapping'].includes(x)), svcOther: '', note2: '',
-      brand: pm.brand || !!def.brand, auto: true, mode: 'tieu', line, wh, estW: null, whCn: w.id, whCnName: w.name, whCnShort: w.short || 'TQ',
+      cat: pm.brand ? 'brand' : (['brand', 'special'].includes(def.cat) ? def.cat : def.brand ? 'brand' : 'thuong'), auto: true, needWh: !pm.dest && !hasDef, mode: 'tieu', line, wh, estW: null, whCn: w.id, whCnName: w.name, whCnShort: w.short || 'TQ',
       ms: [{ t: now, s: 'MERCHANT_DELIVERING', by }], fee: null, paid: 0, unpaid: 0 };
+    data.brand = data.cat === 'brand'; data.special = data.cat === 'special';
     const code = tth.makeCode('84', new Date(), (c) => !!d.prepare('SELECT 1 FROM ks_orders WHERE code = ?').get(c));
     d.prepare('INSERT INTO ks_orders (code, username, gobiz, test, wb, data) VALUES (?, ?, ?, 0, ?, ?)').run(code, own, own, wb, JSON.stringify(data));
     d.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, by, 'Tự tạo đơn khi kiện về kho TQ (theo cài đặt mặc định)', JSON.stringify({ changes: [], mark: String(o.mark || '').slice(0, 80), wb, def: Object.keys(def).length ? def : null }));
-    try { d.prepare('INSERT INTO notif (username, code, text) VALUES (?, ?, ?)').run(own, code, 'Kiện ' + wb + ' vừa về kho Trung Quốc. Hệ thống đã tạo đơn ký gửi theo cài đặt mặc định của anh/chị.'); } catch {}
+    try { d.prepare('INSERT INTO notif (username, code, text) VALUES (?, ?, ?)').run(own, code, data.needWh ? 'Kiện ' + wb + ' vừa về kho Trung Quốc nhưng anh/chị chưa chọn kho nhận mặc định — hệ thống tạm để Hà Nội. Vào đơn để chọn kho nhận đúng.' : 'Kiện ' + wb + ' vừa về kho Trung Quốc. Hệ thống đã tạo đơn ký gửi theo cài đặt mặc định của anh/chị.'); } catch {}
     d.exec('COMMIT');
-    return { ok: true, code, existed: false, owner: own, wh, line, svcs: data.svcs, brand: data.brand };
+    return { ok: true, code, existed: false, owner: own, wh, line, svcs: data.svcs, cat: data.cat, needWh: data.needWh };
   } catch (e) { try { d.exec('ROLLBACK'); } catch {} throw e; }
 }
 
