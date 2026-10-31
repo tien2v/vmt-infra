@@ -15,8 +15,19 @@ function setKey(k, by) {
 function view() {
   let c = null; try { c = JSON.parse(store.kvGet('gemini_key') || 'null'); } catch {}
   if (!c) return { configured: false };
-  return { configured: true, key: c.key.slice(0, 6) + '…' + c.key.slice(-4), by: c.by, at: c.at, lastTest: JSON.parse(store.kvGet('gemini_last_test') || 'null') };
+  return { configured: true, key: c.key.slice(0, 6) + '…' + c.key.slice(-4), by: c.by, at: c.at, lastTest: JSON.parse(store.kvGet('gemini_last_test') || 'null'), model: model() };
 }
+
+// Chon model Flash ban on dinh moi nhat ma khoa dung duoc (vd gemini-3.6-flash), bo ban preview / lite / tts / image / live.
+function pickModel(names) {
+  let best = null, bv = -1;
+  for (const n of names) {
+    const m = /^models\/gemini-(\d+(?:\.\d+)?)-flash$/.exec(n);
+    if (m && Number(m[1]) > bv) { bv = Number(m[1]); best = n.replace('models/', ''); }
+  }
+  return best;
+}
+function model() { return store.kvGet('gemini_model') || 'gemini-flash-latest'; }
 
 // Thu ket noi: lay danh sach model (chi doc, khong ton tien).
 async function test() {
@@ -27,8 +38,9 @@ async function test() {
     try {
       const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=50', { headers: { 'x-goog-api-key': k }, signal: AbortSignal.timeout(15000) });
       const j = await r.json().catch(() => ({}));
-      const flash = (j.models || []).map((m) => m.name).filter((n) => /flash/.test(n));
-      out = r.ok ? { ok: true, msg: 'Dùng được ' + (j.models || []).length + ' model' + (flash.length ? ' (có ' + flash[0].replace('models/', '') + ')' : '') } : { ok: false, msg: (j.error && j.error.message) || ('HTTP ' + r.status) };
+      const best = pickModel((j.models || []).map((m) => m.name));
+      if (r.ok && best) store.kvSet('gemini_model', best);
+      out = r.ok ? { ok: true, model: best, msg: 'Dùng được ' + (j.models || []).length + ' model · đang dùng ' + (best || 'gemini-flash-latest') } : { ok: false, msg: (j.error && j.error.message) || ('HTTP ' + r.status) };
     } catch (e) { out = { ok: false, msg: String(e.message || e) }; }
   }
   out.at = new Date().toISOString();
@@ -36,4 +48,4 @@ async function test() {
   return out;
 }
 
-module.exports = { init, setKey, view, test, key };
+module.exports = { init, setKey, view, test, key, model, pickModel };
