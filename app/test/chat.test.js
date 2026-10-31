@@ -53,3 +53,26 @@ test('ngoai gio: tu tra loi 1 lan', (t) => {
   assert.ok(C.thread(db, th.id).wait_at, 'tin he thong khong xoa trang thai cho');
 });
 test('mau cau', () => { const db = mk(); assert.ok(C.tplSave(db, { key: '/Chuyen khoan', text: 'STK...' }, 'nv').ok); assert.equal(C.tplList(db)[0].key, 'chuyen-khoan'); assert.ok(C.tplSave(db, { key: '', text: 'x' }, 'nv').error); });
+test('video: luu, kiem tra, gan vao tin, don dep', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), { Readable } = require('node:stream');
+  const db = mk(); const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chatv-'));
+  const req = (buf, len) => Object.assign(Readable.from([buf]), { headers: { 'content-length': String(len || buf.length) } });
+  const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom'), Buffer.alloc(3000, 1)]);
+  assert.ok((await C.fileSave(db, dir, req(Buffer.alloc(3000, 7)), { by: 'khach:k', max: 1e6 })).error, 'khong phai video');
+  assert.ok((await C.fileSave(db, dir, req(mp4, 5e6), { by: 'khach:k', max: 1e6 })).error, 'qua dung luong');
+  const r = await C.fileSave(db, dir, req(mp4), { by: 'khach:k', owner: 'k1', max: 1e6 }); assert.ok(r.id, r.error);
+  assert.equal(fs.statSync(path.join(dir, 'chatfiles', r.id)).size, mp4.length);
+  assert.ok(C.attCheck(db, [r.id], 'khach:khac').error);
+  const ac = C.attCheck(db, [r.id], 'khach:k'); assert.deepEqual(ac.att, [{ id: r.id, t: 'v' }]);
+  const t = C.ensure(db, { owner: 'k1', ctx: 'vmt' });
+  C.send(db, t, { f: 'k', att: ac.att });
+  assert.equal(C.thread(db, t.id).last_text, '[Video]');
+  assert.equal(db.prepare('SELECT kind, code FROM uploads WHERE id = ?').get(r.id).kind, 'video');
+  assert.ok(C.attCheck(db, [r.id], 'khach:k').error, 'da dung roi');
+  // video bo ngang > 1 ngay bi xoa, video dang dung giu lai
+  const r2 = await C.fileSave(db, dir, req(mp4), { by: 'khach:k', max: 1e6 });
+  db.prepare("UPDATE uploads SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 days') WHERE id IN (?, ?)").run(r.id, r2.id);
+  assert.equal(C.filePurge(db, dir), 1); assert.ok(fs.existsSync(path.join(dir, 'chatfiles', r.id))); assert.ok(!fs.existsSync(path.join(dir, 'chatfiles', r2.id)));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+test('2 ban webpush.js giong het', () => { const fs = require('node:fs'), p = require('node:path'); assert.equal(fs.readFileSync(p.join(__dirname, '../lib/webpush.js'), 'utf8'), fs.readFileSync(p.join(__dirname, '../../khach/lib/webpush.js'), 'utf8')); });

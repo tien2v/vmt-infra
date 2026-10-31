@@ -9,14 +9,16 @@ const clients = new Set(); // { res, owner, username }
 const KIND = { order: 'Đặt hàng', ship: 'Ký gửi', peer: 'Thanh toán hộ', cn: 'Ship to China' };
 
 function init(o) {
-  db = o.db; webpush = o.webpush; H = o; // H: json, readBody, sameOrigin, myOrders(user), ownerOf(user), isTest(user)
+  db = o.db; webpush = o.webpush; H = o; // H: json, readBody, sameOrigin, myOrders(user), ownerOf(user), isTest(user), dir (thu muc du lieu)
   chat.init(db);
+  db.prepare("UPDATE chat_threads SET title = NULL WHERE ctx = 'vmt' AND title IS NOT NULL").run(); // ten cu 'Chat voi VMT' (khong gan ten brand)
   if (!db.prepare("SELECT 1 FROM kv WHERE k = 'chat_push_cursor'").get()) db.prepare("INSERT INTO kv (k, v) VALUES ('chat_push_cursor', ?)").run(String(db.prepare('SELECT MAX(id) AS m FROM chat_msgs').get().m || 0));
   evCur = chat.evMax(db);
   setInterval(evPump, 1000).unref();
   setInterval(pushPump, 5000).unref();
   setInterval(() => { try { chat.oohPump(db); } catch (e) { console.error('chat ooh', e.message); } }, 60e3).unref();
-  setInterval(() => { try { chat.purge(db); } catch {} }, 6 * 3600e3).unref();
+  const clean = () => { try { chat.purge(db); chat.filePurge(db, H.dir); } catch (e) { console.error('chat purge', e.message); } };
+  setTimeout(clean, 120e3).unref(); setInterval(clean, 6 * 3600e3).unref();
   setInterval(() => { for (const c of clients) { try { c.res.write(': ping\n\n'); } catch {} } }, 25e3).unref();
 }
 
@@ -52,13 +54,13 @@ async function pushPump() {
       const n = chat.unreadK(db, t.id, t.cust_read); if (!n) continue;
       const last = db.prepare("SELECT * FROM chat_msgs WHERE th = ? AND id > ? AND f IN ('s','sys') AND recalled_at IS NULL ORDER BY id DESC LIMIT 1").get(t.id, t.cust_read);
       if (!last) continue;
-      const txt = last.body ? String(last.body).replace(/\s+/g, ' ').slice(0, 140) : last.att ? 'Đã gửi ảnh' : 'Đã gửi thẻ đơn hàng';
+      const txt = last.body ? String(last.body).replace(/\s+/g, ' ').slice(0, 140) : last.att ? (/"t":"v"/.test(last.att) ? 'Đã gửi video' : 'Đã gửi ảnh') : 'Đã gửi thẻ đơn hàng';
       const body = (n > 1 ? n + ' tin mới · ' : '') + (last.name ? last.name + ': ' : '') + txt;
       for (const u of usersOf(t.owner)) await webpush.send(u, { title: titleOf(t), body, url: '/#tin-nhan/' + t.id, tag: 'chat-' + t.id });
     }
   } catch (e) { console.error('chat push', e.message); } finally { pushBusy = false; }
 }
-function titleOf(t) { const code = chat.codeOf(t.ctx); return code ? (KIND[t.kind] ? KIND[t.kind] + ' ' : 'Đơn ') + code : 'Chat với VMT'; }
+function titleOf(t) { const code = chat.codeOf(t.ctx); return code ? (KIND[t.kind] ? KIND[t.kind] + ' ' : 'Đơn ') + code : 'Chat'; }
 // Tai khoan web cua khach nay (tai khoan test noi bo: owner = 'test:' + username)
 function usersOf(owner) {
   if (owner.startsWith('test:')) return [owner.slice(5)];
@@ -73,7 +75,7 @@ setInterval(() => { const now = Date.now(); for (const [k, a] of rate) if (!a.so
 // ---------- API ----------
 // Cuoc chat cua khach: 'vmt' luon co; 'don:<ma>' chi khi ma do la don cua chinh khach
 function ctxInfo(user, ctx) {
-  if (ctx === 'vmt') return { kind: 'vmt', title: 'Chat với VMT' };
+  if (ctx === 'vmt') return { kind: 'vmt', title: null };
   const code = chat.codeOf(ctx); if (!code) return null;
   const o = H.myOrders(user).get(code); if (!o) return null;
   return { kind: o.k, title: o.title || null };
@@ -91,6 +93,18 @@ async function handle(req, res, p, url, user) {
     clients.add(c); req.on('close', () => clients.delete(c));
     if (clients.size > 3000) { const first = clients.values().next().value; clients.delete(first); try { first.res.end(); } catch {} }
     return;
+  }
+  if (p === '/api/chat/file' && req.method === 'POST') { // tai video len (gui thang tung khuc, khong giu ca file trong RAM)
+    if (!H.sameOrigin(req) || !/^video\//.test(req.headers['content-type'] || '')) { req.resume(); return json(req, res, 403, { error: 'Chỉ nhận video' }); }
+    const r = await chat.fileSave(db, H.dir, req, { by: 'khach:' + user.username, owner, max: 100 * 1048576 });
+    if (r.full) console.error('chat: kho video day');
+    return json(req, res, r.error ? 400 : 200, r);
+  }
+  const mf = p.match(/^\/api\/chat\/f\/([a-f0-9]{32})$/);
+  if (mf) { // xem video: cua cuoc chat cua khach nay, hoac khach vua tai (chua gui)
+    const ok = db.prepare("SELECT 1 FROM uploads u LEFT JOIN chat_threads t ON u.code = 'chat:' || t.id WHERE u.id = ? AND u.kind = 'video' AND (u.by = ? OR t.owner = ?)").get(mf[1], 'khach:' + user.username, owner);
+    if (!ok) return json(req, res, 404, { error: 'Không tìm thấy video' });
+    return chat.fileServe(req, res, H.dir, mf[1]);
   }
   if (p === '/api/chat' && req.method === 'GET') {
     return json(req, res, 200, { threads: chat.listCustomer(db, owner), inHours: chat.inHours() });
@@ -127,14 +141,11 @@ async function handle(req, res, p, url, user) {
       if (!info) return json(req, res, 404, { error: 'Không tìm thấy đơn này' });
       t = chat.ensure(db, { owner, gobiz: user.gobiz, ctx, kind: info.kind, title: info.title, test: H.isTest(user), by: 'khach:' + user.username });
     }
-    // Anh: chi anh chinh khach vua tai, chua dung cho viec khac
-    const att = [];
-    for (const id of (Array.isArray(b.att) ? b.att : []).slice(0, 10)) {
-      const u = db.prepare('SELECT by, code FROM uploads WHERE id = ?').get(String(id));
-      if (!u || u.by !== 'khach:' + user.username || u.code) return json(req, res, 400, { error: 'Ảnh không hợp lệ, chọn lại ảnh' });
-      att.push({ id: String(id) });
-    }
-    if (att.length && !hit('img:' + user.username, 30, 3600e3)) return json(req, res, 429, { error: 'Gửi quá 30 ảnh trong 1 giờ, thử lại sau' });
+    // Anh / video: chi file chinh khach vua tai, chua dung cho viec khac
+    const ac = chat.attCheck(db, b.att, 'khach:' + user.username);
+    if (ac.error) return json(req, res, 400, { error: ac.error });
+    const att = ac.att;
+    if (att.length && !hit('img:' + user.username, 30, 3600e3)) return json(req, res, 429, { error: 'Gửi quá 30 ảnh / video trong 1 giờ, thử lại sau' });
     let card = null;
     if (b.card && b.card.code) { const o = H.myOrders(user).get(String(b.card.code)); if (!o) return json(req, res, 400, { error: 'Không tìm thấy đơn này' }); card = { code: String(b.card.code), k: o.k }; }
     const r = chat.send(db, t, { f: 'k', by: 'khach:' + user.username, name: '', body: b.body, reply: b.reply, att: att.length ? att : null, card });

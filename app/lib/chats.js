@@ -10,8 +10,9 @@ const clients = new Set(); // { res, u }
 function db() { const d = H.cn.fin(); if (!ready) { chat.init(d); ready = true; evCur = chat.evMax(d); } return d; }
 
 function init(o) {
-  H = o; // json, send, sendFile, readBody, sameOrigin, cn, customers(), staffList(), khOrders(u) -> Map code->kind
+  H = o; // json, send, sendFile, readBody, sameOrigin, cn, customers(), staffList(), khOrders(u) -> Map code->kind, dir (thu muc khach.db), webpush, kvGet, kvSet
   setInterval(evPump, 1000).unref();
+  setInterval(pushPump, 3000).unref();
   setInterval(() => { for (const c of clients) { try { c.res.write(': ping\n\n'); } catch {} } }, 25e3).unref();
 }
 let evCur = 0;
@@ -33,6 +34,34 @@ function evPump() {
       try { c.res.write(s); } catch {}
     }
   }
+}
+
+// Thong bao dien thoai cho nhan vien: khach nhan, 4 giay sau van chua ai doc -> day cho nguoi phu trach (chua ai nhan: moi NV chat).
+// Cuoc chat cua tai khoan test noi bo chi bao admin. 1 thong bao / cuoc (tin moi thay tin cu).
+let pushBusy = false;
+async function pushPump() {
+  if (pushBusy || !H.webpush) return; pushBusy = true;
+  try {
+    let d; try { d = db(); } catch (e) { return; }
+    const cur0 = H.kvGet('chat_staff_push_cur');
+    if (cur0 == null) { H.kvSet('chat_staff_push_cur', String(d.prepare('SELECT MAX(id) AS m FROM chat_msgs').get().m || 0)); return; }
+    const rows = d.prepare("SELECT id, th FROM chat_msgs WHERE id > ? AND f = 'k' AND created_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now','-4 seconds') ORDER BY id LIMIT 300").all(Number(cur0) || 0);
+    if (!rows.length) return;
+    H.kvSet('chat_staff_push_cur', String(rows[rows.length - 1].id));
+    const staff = H.staffList(); const cm = custMap();
+    for (const th of new Set(rows.map((r) => r.th))) {
+      const t = chat.thread(d, th); if (!t) continue;
+      const n = d.prepare("SELECT COUNT(*) AS n FROM chat_msgs WHERE th = ? AND id > ? AND f = 'k' AND recalled_at IS NULL").get(t.id, t.staff_read).n; if (!n) continue;
+      const last = d.prepare("SELECT body, att FROM chat_msgs WHERE th = ? AND f = 'k' AND recalled_at IS NULL ORDER BY id DESC LIMIT 1").get(t.id); if (!last) continue;
+      const c = cm.get(String(t.gobiz || t.owner).toLowerCase());
+      const who = t.test ? 'TEST · ' + String(t.owner).replace(/^test:/, '') : (c && c.fn) || t.gobiz || t.owner;
+      const code = chat.codeOf(t.ctx);
+      const txt = last.body ? String(last.body).replace(/\s+/g, ' ').slice(0, 140) : /"t":"v"/.test(last.att || '') ? 'Gửi video' : 'Gửi ảnh';
+      let to = t.assignee ? [t.assignee] : staff.map((x) => x.u);
+      if (t.test) to = staff.filter((x) => x.role === 'admin').map((x) => x.u);
+      for (const u of to) await H.webpush.send(u, { title: who + (code ? ' · ' + code : ''), body: (n > 1 ? n + ' tin mới · ' : '') + txt, url: '/chat#t' + t.id, tag: 'chat-' + t.id });
+    }
+  } catch (e) { console.error('chat staff push', e.message); } finally { pushBusy = false; }
 }
 
 // ten khach (Gobiz) de hien trong hop thu; tai khoan test noi bo: owner 'test:<user>'
@@ -57,6 +86,26 @@ async function handle(req, res, p, url, user) {
     const c = { res, u: me }; clients.add(c); req.on('close', () => clients.delete(c));
     return;
   }
+  if (p.startsWith('/api/chat/push/')) {
+    if (!H.webpush) return json(req, res, 503, { error: 'Chưa bật thông báo' });
+    if (p === '/api/chat/push/key') return json(req, res, 200, { key: H.webpush.publicKey(), has: H.webpush.hasSub(me) });
+    if (req.method !== 'POST' || !H.sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b = {}; try { b = JSON.parse((await H.readBody(req, 4000)).toString() || '{}'); } catch {}
+    if (p === '/api/chat/push/sub') {
+      const r = H.webpush.subscribe(me, b.sub, req.headers.host, req.headers['user-agent']); if (r.error) return json(req, res, 400, r);
+      const t = await H.webpush.send(me, { title: 'Đã bật thông báo', body: 'Khách nhắn là điện thoại báo ngay, kể cả khi khoá màn hình.', url: '/chat', tag: 'bat-thong-bao' });
+      return json(req, res, 200, { ok: true, sent: t.sent });
+    }
+    if (p === '/api/chat/push/unsub') { H.webpush.unsubscribe(me, b.endpoint); return json(req, res, 200, { ok: true }); }
+    return json(req, res, 404, { error: 'not found' });
+  }
+  if (p === '/api/chat/file' && req.method === 'POST') { // NV gui video (Caddy admin gioi han 80MB/lan)
+    if (!H.sameOrigin(req) || !/^video\//.test(req.headers['content-type'] || '')) { req.resume(); return json(req, res, 403, { error: 'Chỉ nhận video' }); }
+    const r = await chat.fileSave(d, H.dir, req, { by: 'staff:' + me, owner: null, max: 75 * 1048576 });
+    return json(req, res, r.error ? 400 : 200, r);
+  }
+  const mf = p.match(/^\/api\/chat\/f\/([a-f0-9]{32})$/);
+  if (mf) { if (!d.prepare("SELECT 1 FROM uploads WHERE id = ? AND kind = 'video'").get(mf[1])) return json(req, res, 404, { error: 'Không tìm thấy video' }); return chat.fileServe(req, res, H.dir, mf[1]); }
   if (p === '/api/chat/summary') return json(req, res, 200, Object.assign(chat.counts(d, me, false), { lastId: (d.prepare("SELECT MAX(id) AS m FROM chat_msgs WHERE f = 'k'").get().m || 0) }));
   if (p === '/api/chat/inbox') {
     const f = String(url.searchParams.get('f') || 'all');
@@ -92,12 +141,9 @@ async function handle(req, res, p, url, user) {
     if (mt[2] === 'status') { chat.setStatus(d, t, String(b.status || ''), me); return json(req, res, 200, { ok: true, thread: decorate([chat.tView(d, chat.thread(d, t.id), 's')])[0] }); }
     if (mt[2] === 'send') {
       if (!hit('m:' + me, 60, 60e3)) return json(req, res, 429, { error: 'Gửi quá nhanh, đợi chút' });
-      const att = [];
-      for (const id of (Array.isArray(b.att) ? b.att : []).slice(0, 10)) {
-        const u = d.prepare('SELECT by, code FROM uploads WHERE id = ?').get(String(id));
-        if (!u || u.by !== 'staff:' + me || u.code) return json(req, res, 400, { error: 'Ảnh không hợp lệ, tải lại' });
-        att.push({ id: String(id) });
-      }
+      const ac = chat.attCheck(d, b.att, 'staff:' + me);
+      if (ac.error) return json(req, res, 400, { error: ac.error });
+      const att = ac.att;
       let card = null;
       if (b.card && b.card.code) { const k = H.khOrders(String(t.gobiz || t.owner).toLowerCase()).get(String(b.card.code)); if (!k) return json(req, res, 400, { error: 'Đơn này không phải của khách' }); card = { code: String(b.card.code), k }; }
       const r = chat.send(d, t, { f: b.note ? 'note' : 's', by: me, name: user.name || me, body: b.body, reply: b.reply, att: att.length ? att : null, card });

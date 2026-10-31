@@ -333,7 +333,9 @@ function khOrders(u) {
   khOrdCache.set(u, { at: Date.now(), m }); if (khOrdCache.size > 500) khOrdCache.clear();
   return m;
 }
-chats.init({ json, send, sendFile, readBody, sameOrigin, cn, customers, khOrders, staffList: () => store.listUsers().filter((x) => x.active && chats.ROLES.includes(x.role)).map((x) => ({ u: x.username, n: x.name || x.username, role: x.role })) });
+const webpush = require('./lib/webpush');
+webpush.init(store.rawDb()); // thong bao dien thoai cho nhan vien (tin nhan khach); khoa VAPID rieng trong vmt.db
+chats.init({ json, send, sendFile, readBody, sameOrigin, cn, customers, khOrders, webpush, kvGet: store.kvGet, kvSet: store.kvSet, dir: path.dirname(process.env.KHACH_DB || '/khach/khach.db'), staffList: () => store.listUsers().filter((x) => x.active && chats.ROLES.includes(x.role)).map((x) => ({ u: x.username, n: x.name || x.username, role: x.role })) });
 
 // ---------- dinh tuyen ----------
 async function handle(req, res) {
@@ -451,6 +453,12 @@ async function handle(req, res) {
   if (p === '/assets/vmt.js') { const c = vmtJs(); if (c) return sendBody(req, res, c, 'text/javascript; charset=utf-8', 'no-cache'); }
   if (p.startsWith('/ext/vendor/') && /^[a-z0-9.-]+\.js$/.test(p.slice(12))) return sendFile(req, res, path.join(__dirname, 'ext', 'vendor', p.slice(12)));
   if (p.startsWith('/assets/')) return serveFile(req, res, p.slice(1));
+
+  // Cai app "Tin nhan khach" cho nhan vien + nhan thong bao day (khong co du lieu rieng tu)
+  if (p === '/chat-sw.js') return sendFile(req, res, path.join(__dirname, 'chat-sw.js'), 'no-cache');
+  if (p === '/chat.webmanifest') return send(res, 200, JSON.stringify({ id: '/chat', name: 'Tin nhắn khách', short_name: 'Tin nhắn', lang: 'vi', start_url: '/chat', scope: '/', display: 'standalone', background_color: '#f4f5f7', theme_color: '#ffffff', icons: [{ src: '/chat-icon-192.png', sizes: '192x192', type: 'image/png' }, { src: '/chat-icon-512.png', sizes: '512x512', type: 'image/png' }] }), { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+  const mci = p.match(/^\/chat-icon-(180|192|512)\.png$/);
+  if (mci) return sendFile(req, res, path.join(__dirname, 'pwa', 'chat-' + mci[1] + '.png'), 'public, max-age=604800');
 
   const user = readSession(req);
 

@@ -181,4 +181,5 @@ function recentLogins() { return db.prepare('SELECT * FROM login_log ORDER BY ro
 
 function kvGet(k) { const r = db.prepare('SELECT v FROM kv WHERE k = ?').get(k); return r ? r.v : null; }
 function kvSet(k, v) { db.prepare('INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v').run(k, v); }
-module.exports = { findLogin, seedStaff, pwTokenNew, pwTokenCount, pwTokenPeek, pwTokenUse, kvGet, kvSet, dropTempUsers, init, sessionSecret, ensureAdmin, getUser, checkPassword, addUser, resetPassword, setActive, listUsers, saveSnapshot, seenTs, latestSnapshot, latestMeta, logIngest, logLogin, recentIngest, recentLogins, ROLES };
+const rawDb = () => db;
+module.exports = { rawDb, findLogin, seedStaff, pwTokenNew, pwTokenCount, pwTokenPeek, pwTokenUse, kvGet, kvSet, dropTempUsers, init, sessionSecret, ensureAdmin, getUser, checkPassword, addUser, resetPassword, setActive, listUsers, saveSnapshot, seenTs, latestSnapshot, latestMeta, logIngest, logLogin, recentIngest, recentLogins, ROLES };

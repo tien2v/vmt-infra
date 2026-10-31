@@ -17,10 +17,16 @@
         }
         if (origInit) origInit.call(this);
         this.$watch('page', (p) => { if (p === 'chat') location.href = '/chat'; });
-        if (ROLES.includes(this.role)) { this.chatPoll(); setInterval(() => this.chatPoll(), 20000); }
+        if (ROLES.includes(this.role)) { this.chatPoll(); setInterval(() => this.chatPoll(), 60000); this.chatLive(); }
+      },
+      // Nhan tin khach ngay lap tuc (SSE); khong ket noi duoc thi van con hoi lai 60 giay/lan
+      chatLive() {
+        if (!window.EventSource) return;
+        let t = 0; const es = new EventSource('/api/chat/stream');
+        es.onmessage = (e) => { let d; try { d = JSON.parse(e.data); } catch (x) { return; } if (d.t === 'msg' || d.t === 'read' || d.t === 'th') { clearTimeout(t); t = setTimeout(() => this.chatPoll(), 300); } };
       },
       async chatPoll() {
-        if (document.hidden && lastId !== null) return;
+        
         try {
           const r = await fetch('/api/chat/summary', { cache: 'no-store' }); if (!r.ok) return;
           const j = await r.json(); this.chatN = j.unread || 0;

@@ -1,5 +1,5 @@
 'use strict';
-// Thong bao day (Web Push) cho trang khach — tu viet, khong thu vien ngoai.
+// Thong bao day (Web Push) — tu viet, khong thu vien ngoai. 2 BAN GIONG HET: khach/lib (khach) + app/lib (nhan vien, tin nhan khach).
 // Chuan: RFC 8291 (ma hoa aes128gcm) + RFC 8292 (VAPID). Apple (web.push.apple.com) va Google (fcm) deu dung chuan nay.
 // - Khoa VAPID sinh 1 lan, luu trong khach.db (bang kv).
 // - Moi khach toi da 10 thiet bi; thiet bi bao 404/410 (go app, tat quyen) -> xoa; loi 5 lan lien tiep -> xoa.
@@ -34,7 +34,7 @@ function init(database) {
   VAPID = { key: crypto.createPrivateKey({ key: jwk, format: 'jwk' }), pub: Buffer.concat([Buffer.from([4]), fromB64u(jwk.x), fromB64u(jwk.y)]) };
   // Lan dau chay: bat dau tu thong bao moi nhat, khong day lai thong bao cu
   if (!db.prepare("SELECT 1 FROM kv WHERE k = 'push_cursor'").get()) {
-    const m = db.prepare('SELECT MAX(id) AS m FROM notif').get();
+    let m = null; try { m = db.prepare('SELECT MAX(id) AS m FROM notif').get(); } catch {} // admin khong co bang notif
     db.prepare("INSERT INTO kv (k, v) VALUES ('push_cursor', ?)").run(String((m && m.m) || 0));
   }
 }

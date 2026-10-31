@@ -8,7 +8,7 @@ Trước khi sửa, tự trả lời và xử lý luôn (không chắc thì hỏ
 - Admin (`app/`) và trang khách (`khach/`) có cùng chỗ cần sửa theo không?
 - Tiền, ví, sổ cái, trạng thái đơn, thông báo, log lịch sử đơn có bị ảnh hưởng không?
 - Phân quyền (kho không thấy tiền), sao lưu, test có cần cập nhật không?
-- Các file `lib/` đang có 2 bản ở `app/lib` và `khach/lib` (ledger, tth, price, cnshared, vietqr, mail, ks, ai, chat): sửa một bản thì phải sửa bản kia y hệt.
+- Các file `lib/` đang có 2 bản ở `app/lib` và `khach/lib` (ledger, tth, price, cnshared, vietqr, mail, ks, ai, chat, webpush): sửa một bản thì phải sửa bản kia y hệt.
 
 ## Bàn Kho TQ (`app/kho*.html`, `app/lib/kho.js`)
 - Sửa / thêm tính năng bàn kho thì **sửa luôn tài liệu hướng dẫn** `app/kho-help.html` (song ngữ Trung–Việt) cho khớp; tính năng chưa chạy để ở mục "即将上线 · Sắp có", không mô tả như đã có.
@@ -37,4 +37,5 @@ Trước khi mã hoá lại để push:
 ## Chat theo đơn (`lib/chat.js` 2 bản, `khach/lib/chatk.js`, `app/lib/chats.js`, `khach/chat.js`, `app/chat.html`, `app/ext/chat-admin.js`)
 - Dữ liệu ở khach.db (chat_threads, chat_msgs, chat_ev, chat_log, chat_tpl); 2 tiến trình cùng ghi, báo nhau qua bảng `chat_ev` (giữ 2 ngày).
 - Giao diện chat trang khách là file riêng `khach/chat.js` (không mã hoá), máy chủ tự chèn vào cuối index.html → sửa chat không cần mã hoá lại giao diện.
+- Video chat lưu ở `<thư mục khach.db>/chatfiles/` (khách ≤ 100MB, NV ≤ 75MB, tổng ≤ 40GB, tự dọn: bỏ ngang 1 ngày; cuộc yên 30 ngày + cũ hơn 90 ngày). Thông báo điện thoại cho NV: khoá VAPID riêng trong vmt.db, service worker `app/chat-sw.js`.
 - Ghi chú nội bộ (`f = 'note'`) không bao giờ được gửi ra phía khách (API, SSE, thông báo đẩy): sửa chỗ nào đọc chat_msgs cho khách thì giữ điều kiện này.

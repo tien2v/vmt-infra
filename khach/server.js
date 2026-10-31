@@ -284,7 +284,7 @@ function pwMailHtml(g, bn, link) {
 
 // Kiem tra don + anh: dung chung voi trang admin (lib/cnshared.js, 2 ban giong het nhau)
 const { validateCn, checkCo, str, initUploads, saveUpload, checkUploads, claimUploads, uploadFile, UPLOAD_MAX } = require('./lib/cnshared');
-chatk.init({ db: store.rawDb(), webpush, json, readBody, sameOrigin, myOrders, ownerOf: chatOwner, isTest: walletAcc });
+chatk.init({ db: store.rawDb(), dir: process.env.DATA_DIR || path.join(__dirname, 'data'), webpush, json, readBody, sameOrigin, myOrders, ownerOf: chatOwner, isTest: walletAcc });
 // Trang chinh: giao dien template (ma hoa) + chen phan chat (khach/chat.js, code rieng khong thuoc template)
 let idxHtml = { key: '', buf: null, gz: null };
 function indexHtml(req, res) {

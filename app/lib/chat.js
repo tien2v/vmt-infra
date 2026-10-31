@@ -5,6 +5,9 @@
 // - chat_ev: hang doi su kien (tin moi, sua, da xem, dang nhap...) de 2 tien trinh bao cho trinh duyet ngay (SSE), giu 2 ngay.
 // - Khong bao gio xoa tin: thu hoi chi an noi dung voi khach, ban goc giu o cot orig (nhan vien xem duoc).
 
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
 const RECALL_MS = 5 * 60e3;
 const BODY_MAX = 4000;
 const EMOJI = ['❤️', '👍', '😂', '😮', '😢', '😡'];
@@ -70,7 +73,7 @@ function view(db, r, side, who) {
   else { m.body = r.body || ''; const a = j(r.att, null); if (a) m.att = a; const c = j(r.card, null); if (c) m.card = c; }
   if (r.reply) {
     const q = db.prepare('SELECT id, f, name, body, att, recalled_at FROM chat_msgs WHERE id = ?').get(r.reply);
-    if (q && !(side === 'k' && q.f === 'note')) m.reply = { id: q.id, f: q.f, name: q.name || '', body: q.recalled_at ? '' : clip(q.body, 140), img: !q.recalled_at && !!j(q.att, null), recalled: !!q.recalled_at };
+    if (q && !(side === 'k' && q.f === 'note')) m.reply = { id: q.id, f: q.f, name: q.name || '', body: q.recalled_at ? '' : clip(q.body, 140), img: !q.recalled_at && !!j(q.att, null), vid: !q.recalled_at && (j(q.att, []) || []).some((a) => a.t === 'v'), recalled: !!q.recalled_at };
   }
   return m;
 }
@@ -85,7 +88,7 @@ function messages(db, th, side, who, opt = {}) {
 }
 function msg(db, id) { return db.prepare('SELECT * FROM chat_msgs WHERE id = ?').get(Number(id) || 0) || null; }
 
-// f: 'k' khach | 's' nhan vien | 'note' ghi chu noi bo | 'sys' he thong. att = [{id}] (anh da tai). card = { t:'order', code, k }
+// f: 'k' khach | 's' nhan vien | 'note' ghi chu noi bo | 'sys' he thong. att = [{id}] anh / [{id, t:'v'}] video (da kiem tra o API). card = { t:'order', code, k }
 function send(db, t, o) {
   const body = clip(o.body, BODY_MAX);
   const att = Array.isArray(o.att) && o.att.length ? o.att.slice(0, 10) : null;
@@ -97,9 +100,9 @@ function send(db, t, o) {
   try {
     const id = Number(db.prepare('INSERT INTO chat_msgs (th, f, by, name, body, reply, att, card) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(t.id, o.f, o.by || null, clip(o.name, 60) || null, body || null, reply, att ? JSON.stringify(att) : null, card ? JSON.stringify(card) : null).lastInsertRowid);
-    if (att) for (const a of att) db.prepare("UPDATE uploads SET code = ?, owner = ?, kind = 'chat' WHERE id = ? AND code IS NULL").run('chat:' + t.id, t.owner, a.id);
+    if (att) for (const a of att) db.prepare("UPDATE uploads SET code = ?, owner = ?, kind = CASE WHEN kind = 'video' THEN 'video' ELSE 'chat' END WHERE id = ? AND code IS NULL").run('chat:' + t.id, t.owner, a.id);
     if (o.f !== 'note') {
-      const preview = body ? clip(body.replace(/\s+/g, ' '), 120) : att ? '[Ảnh]' : '[Đơn ' + card.code + ']';
+      const preview = body ? clip(body.replace(/\s+/g, ' '), 120) : att ? (att.some((a) => a.t === 'v') ? '[Video]' : '[Ảnh]') : '[Đơn ' + card.code + ']';
       const up = ['last_id = ?', 'last_at = ' + NOW, 'last_from = ?', 'last_text = ?'];
       const args = [id, o.f, preview];
       if (o.f === 'k') { up.push('wait_at = COALESCE(wait_at, ' + NOW + ')', 'cust_read = ?', "status = 'open'"); args.push(id); }
@@ -237,4 +240,83 @@ function purge(db) {
   db.prepare("DELETE FROM chat_log WHERE ts < strftime('%Y-%m-%dT%H:%M:%fZ','now','-730 days')").run();
 }
 
-module.exports = { init, ctxOk, codeOf, ensure, thread, threadBy, messages, msg, view, send, react, recall, read, typing, tView, listCustomer, unreadCustomer, unreadK, listStaff, counts, assign, setStatus, tplList, tplSave, tplDelete, inHours, oohPump, evMax, evSince, purge, log, EMOJI, RECALL_MS };
+// ---------- video trong chat (luu tren may chu: <thu muc du lieu khach>/chatfiles/<id>) ----------
+// Giai doan 1 luu tai may (sau chuyen Cloudflare R2). Gioi han: khach 100MB / video, NV 75MB (Caddy admin 80MB);
+// moi nguoi 20 video + 2GB / ngay; tong kho video toi da 40GB. Video cuoc chat da yen 30 ngay va cu hon 90 ngay -> tu xoa.
+const VIDEO_CAP = 40 * 1024 ** 3;
+const fileDir = (dir) => path.join(dir, 'chatfiles');
+const filePath = (dir, id) => path.join(fileDir(dir), String(id).replace(/[^a-f0-9]/g, ''));
+function fileSave(db, dir, req, o) {
+  return new Promise((done) => {
+    const len = Number(req.headers['content-length'] || 0);
+    if (len > o.max) { req.resume(); return done({ error: 'Video tối đa ' + Math.round(o.max / 1048576) + 'MB, anh/chị cắt ngắn bớt hoặc quay lại chất lượng thấp hơn' }); }
+    const day = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(size),0) AS b FROM uploads WHERE by = ? AND kind = 'video' AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day')").get(o.by);
+    if (day.n >= 20 || day.b + len > 2 * 1024 ** 3) { req.resume(); return done({ error: 'Đã gửi quá nhiều video trong 24 giờ, thử lại sau' }); }
+    if (db.prepare("SELECT COALESCE(SUM(size),0) AS b FROM uploads WHERE kind = 'video'").get().b + len > VIDEO_CAP) { req.resume(); return done({ error: 'Kho video đang đầy, tạm thời gửi ảnh nhé (đã báo kỹ thuật)', full: true }); }
+    const id = crypto.randomBytes(16).toString('hex');
+    fs.mkdirSync(fileDir(dir), { recursive: true });
+    const f = filePath(dir, id), tmp = f + '.part';
+    const out = fs.createWriteStream(tmp, { flags: 'wx' });
+    let n = 0, head = Buffer.alloc(0), bad = null;
+    const fail = (msg) => { if (bad) return; bad = msg; req.unpipe && req.unpipe(); req.resume(); out.destroy(); fs.rm(tmp, { force: true }, () => {}); done({ error: msg }); };
+    req.on('data', (c) => {
+      n += c.length; if (n > o.max) return fail('Video tối đa ' + Math.round(o.max / 1048576) + 'MB');
+      if (head.length < 12) head = Buffer.concat([head, c]).subarray(0, 12);
+      if (!bad && !out.write(c)) { req.pause(); out.once('drain', () => req.resume()); }
+    });
+    req.on('error', () => fail('Mất kết nối khi gửi video, thử lại'));
+    req.on('aborted', () => fail('Mất kết nối khi gửi video, thử lại'));
+    req.on('end', () => {
+      if (bad) return;
+      const isMp4 = head.length >= 12 && head.subarray(4, 8).toString('latin1') === 'ftyp';
+      const isWebm = head.length >= 4 && head.readUInt32BE(0) === 0x1a45dfa3;
+      if (n < 1000 || !(isMp4 || isWebm)) return fail('Chỉ nhận video MP4 / MOV / WEBM');
+      out.end(() => fs.rename(tmp, f, (e) => {
+        if (e) return fail('Lỗi lưu video');
+        db.prepare("INSERT INTO uploads (id, owner, by, size, kind) VALUES (?, ?, ?, ?, 'video')").run(id, o.owner || null, o.by, n);
+        done({ id });
+      }));
+    });
+  });
+}
+// Phat video (ho tro Range de iPhone / Android tua duoc)
+function fileServe(req, res, dir, id) {
+  const f = filePath(dir, id);
+  fs.stat(f, (err, st) => {
+    if (err) { res.writeHead(404, { 'Cache-Control': 'no-store' }); return res.end('Video đã hết hạn lưu'); }
+    const fd = fs.openSync(f, 'r'); const h = Buffer.alloc(4); fs.readSync(fd, h, 0, 4, 0); fs.closeSync(fd);
+    const type = h.readUInt32BE(0) === 0x1a45dfa3 ? 'video/webm' : 'video/mp4';
+    const base = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=604800', 'Content-Encoding': 'identity' };
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+    if (m) {
+      let a = m[1] === '' ? st.size - Number(m[2]) : Number(m[1]); let b = m[1] !== '' && m[2] !== '' ? Number(m[2]) : st.size - 1;
+      a = Math.max(0, a); b = Math.min(b, st.size - 1);
+      if (a > b) { res.writeHead(416, { 'Content-Range': 'bytes */' + st.size }); return res.end(); }
+      res.writeHead(206, Object.assign(base, { 'Content-Range': 'bytes ' + a + '-' + b + '/' + st.size, 'Content-Length': b - a + 1 }));
+      return fs.createReadStream(f, { start: a, end: b }).pipe(res);
+    }
+    res.writeHead(200, Object.assign(base, { 'Content-Length': st.size }));
+    fs.createReadStream(f).pipe(res);
+  });
+}
+// Don dep: video gui do (khong gan vao tin) qua 1 ngay; video cuoc chat yen 30 ngay va cu hon 90 ngay
+function filePurge(db, dir) {
+  const rows = db.prepare(`SELECT u.id FROM uploads u LEFT JOIN chat_threads t ON u.code = 'chat:' || t.id WHERE u.kind = 'video' AND (
+    (u.code IS NULL AND u.created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day')) OR
+    (u.created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-90 days') AND (t.last_at IS NULL OR t.last_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days'))))`).all();
+  for (const r of rows) { try { fs.rmSync(filePath(dir, r.id), { force: true }); } catch {} db.prepare("UPDATE uploads SET kind = 'video-xoa', size = 0 WHERE id = ?").run(r.id); }
+  try { for (const n of fs.readdirSync(fileDir(dir))) if (n.endsWith('.part')) { const p = path.join(fileDir(dir), n); if (Date.now() - fs.statSync(p).mtimeMs > 3600e3) fs.rmSync(p, { force: true }); } } catch {}
+  return rows.length;
+}
+// Kiem tra danh sach id anh / video truoc khi gan vao tin: phai do chinh nguoi nay tai, chua dung
+function attCheck(db, ids, by) {
+  const att = [];
+  for (const id of (Array.isArray(ids) ? ids : []).slice(0, 10)) {
+    const u = db.prepare('SELECT by, code, kind FROM uploads WHERE id = ?').get(String(id));
+    if (!u || u.by !== by || u.code) return { error: 'Ảnh / video không hợp lệ, chọn lại' };
+    att.push(u.kind === 'video' ? { id: String(id), t: 'v' } : { id: String(id) });
+  }
+  return { att };
+}
+
+module.exports = { fileSave, fileServe, filePurge, attCheck, init, ctxOk, codeOf, ensure, thread, threadBy, messages, msg, view, send, react, recall, read, typing, tView, listCustomer, unreadCustomer, unreadK, listStaff, counts, assign, setStatus, tplList, tplSave, tplDelete, inHours, oohPump, evMax, evSince, purge, log, EMOJI, RECALL_MS };
