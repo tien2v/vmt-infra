@@ -123,6 +123,7 @@ function applyLocal(e) {
   if (e.type === 'issue') { m.hold = 1; m.st = 'HOLD'; }
   if (e.type === 'photo') { m.ph = (m.ph || []).concat([[e.data.pid, e.data.kind, e.data.line]]); }
   if (e.type === 'ask') { m.ap = { st: 'pending', at: e.at, by: B.me.u }; if (m.st !== 'HOLD') m.st = 'WAIT_CUST'; }
+  if (e.type === 'print') { m.prn = m.prn || {}; var x = m.prn[e.data.pkg] || { n: 0 }; m.prn[e.data.pkg] = { n: x.n + 1, at: e.at, by: B.me.u }; }
 }
 var busy = false, wait = 2000;
 function pump() {
@@ -235,12 +236,13 @@ function find(raw) {
   beep(false);
   V.innerHTML = '<div class="card">' + hq('unknown') + '<h2>未找到 ' + esc(code) + '<span class="vn">Không tìm thấy trong dữ liệu (cập nhật lúc ' + esc($('#dt').textContent) + ')</span></h2>' +
     '<p class="mut">可能是无主件，或数据还没同步。Có thể là kiện vô chủ, hoặc dữ liệu chưa kịp cập nhật.</p>' +
-    '<input id="unote" placeholder="备注 · Ghi chú (tên hàng, mã khách trên kiện…)"><div class="row" style="margin-top:8px"><button class="k" id="ushot">📷 拍照<span class="vn" style="color:#cbd5e1">Chụp ảnh</span></button><button class="p" id="uin">无主件入库<span class="vn" style="color:#dbeafe">Nhận kiện vô chủ</span></button></div>' +
+    '<div class="row"><input id="ugoods" placeholder="货物名称 · Tên hàng (in lên tem)" style="flex:3"><input id="uqty" type="number" inputmode="numeric" min="1" placeholder="数量 SL" style="flex:1"></div>' +
+    '<input id="unote" style="margin-top:8px" placeholder="备注 · Ghi chú (mã khách trên kiện…)"><div class="row" style="margin-top:8px"><button class="k" id="ushot">📷 拍照<span class="vn" style="color:#cbd5e1">Chụp ảnh</span></button><button class="p" id="uin">无主件入库<span class="vn" style="color:#dbeafe">Nhận kiện vô chủ</span></button></div>' +
     '<div class="thumbs" id="uth"></div><div class="row" style="margin-top:8px"><button id="ure">刷新数据<span class="vn">Tải lại dữ liệu</span></button><button id="uback">返回<span class="vn">Quay lại</span></button></div></div>';
   var pids = [];
   $('#ushot').onclick = function () { shoot(code, null, null, function (id, pv) { pids.push(id); $('#uth').insertAdjacentHTML('beforeend', '<img src="' + pv + '">'); }); };
   $('#uin').onclick = function () {
-    act(code, 'in', { unk: 1, note: $('#unote').value });
+    act(code, 'in', { unk: 1, note: $('#unote').value, goods: $('#ugoods').value.trim(), goodsQty: $('#uqty').value });
     pids.forEach(function (id) { act(code, 'photo', { pid: id, kind: 'pkg' }); });
     beep(true); CUR = (MAP[code] || [])[0]; card(CUR);
   };
@@ -268,21 +270,51 @@ function card(r, fresh) {
     '<button class="k" id="bph">📷 拍照<span class="vn" style="color:#cbd5e1">Chụp ảnh kiện</span></button>' +
     '<button class="p" id="bcnt"' + ((r.it || []).length ? '' : ' disabled') + '>点数' + (needCount(r) ? ' ★' : '') + '<span class="vn" style="color:#dbeafe">Kiểm đếm (' + (r.it || []).length + ' dòng)</span></button>' +
     '<button class="r" id="biss">报问题<span class="vn" style="color:#fee2e2">Báo lỗi</span></button>' +
-    '</div><button class="p" style="width:100%;margin-top:8px;background:#7c3aed" id="bask">📤 发给客户确认<span class="vn" style="color:#ede9fe">Gửi khách duyệt ảnh / đề xuất đóng gói</span></button><div class="thumbs" id="pth"></div>' +
+    '</div><button class="p" style="width:100%;margin-top:8px;background:#7c3aed" id="bask">📤 发给客户确认<span class="vn" style="color:#ede9fe">Gửi khách duyệt ảnh / đề xuất đóng gói</span></button>' +
+    '</div><button class="k" style="width:100%;margin-top:8px" id="bpr"' + (r.k === 'o' ? ' disabled' : '') + '>🖨 打印面单 9710<span class="vn" style="color:#cbd5e1">' + (r.k === 'o' ? 'Đơn order: in tem trên Gobiz (sắp có)' : 'In tem 9710' + prnInfo(r)) + '</span></button>' +
+    '<div class="thumbs" id="pth"></div>' +
     '<div class="row" style="margin-top:10px"><button id="bh">历史<span class="vn">Lịch sử</span></button><button id="bn">下一个<span class="vn">Quét tiếp</span></button></div><div id="hist"></div>';
   $('#bin').onclick = function () { act(r.c, 'in', { k: r.k }); beep(true); card(r); };
   $('#bph').onclick = function () { shoot(r.c, 'pkg', null, function (id, pv) { $('#pth').insertAdjacentHTML('beforeend', '<img src="' + pv + '">'); }); };
   $('#bcnt').onclick = function () { countView(r); };
   $('#biss').onclick = function () { issueForm(r); };
   $('#bask').onclick = function () { askForm(r); };
+  $('#bpr').onclick = function () { printView(r); };
   $('#bn').onclick = function () { CUR = null; scanView(); };
   $('#bh').onclick = function () {
     $('#hist').innerHTML = '<p class="mut">…</p>';
     api('/kho/api/hist?code=' + encodeURIComponent(r.c)).then(function (x) { return x.json(); }).then(function (d) {
-      var T = { in: '入库 Nhận', photo: '拍照 Ảnh', count: '点数 Kiểm', issue: '问题 Lỗi', svc: '服务 Dịch vụ', note: '备注 Ghi chú', claim: '受理 Nhận xử lý', resolve: '处理结果 Kết quả xử lý', ask: '发给客户确认 Gửi khách duyệt', reply: '客户回复 Khách trả lời' };
-      $('#hist').innerHTML = '<div class="card">' + ((d.items || []).map(function (e) { return '<div class="lrow"><b>' + esc(T[e.type] || e.type) + '</b> · ' + esc(e.who) + '<div class="mut">' + esc(e.at || e.ts) + '</div>' + (e.type === 'reply' ? '<div><b>' + (e.data.ok ? '✓ 同意 OK' : '✗ 有问题 Có vấn đề') + '</b></div>' : '') + (e.data && e.data.result ? '<div><b>' + esc({ go: '继续发货 Đi tiếp', supplement: '补发 Bổ sung', return: '退回商家 Hoàn shop', cancel: '取消 Huỷ' }[e.data.result] || e.data.result) + '</b></div>' : '') + (e.data && e.data.note ? '<div class="mut" style="white-space:pre-wrap">' + esc(e.data.note) + '</div>' : '') + '</div>'; }).join('') || '<p class="mut">暂无 · Chưa có</p>') + '</div>';
+      var T = { in: '入库 Nhận', photo: '拍照 Ảnh', count: '点数 Kiểm', issue: '问题 Lỗi', svc: '服务 Dịch vụ', note: '备注 Ghi chú', claim: '受理 Nhận xử lý', resolve: '处理结果 Kết quả xử lý', ask: '发给客户确认 Gửi khách duyệt', reply: '客户回复 Khách trả lời', print: '打印 In tem', printed: '打印站已打印 Trạm đã in' };
+      $('#hist').innerHTML = '<div class="card">' + ((d.items || []).map(function (e) { return '<div class="lrow"><b>' + esc(T[e.type] || e.type) + '</b> · ' + esc(e.who) + '<div class="mut">' + esc(e.at || e.ts) + '</div>' + (e.type === 'reply' ? '<div><b>' + (e.data.ok ? '✓ 同意 OK' : '✗ 有问题 Có vấn đề') + '</b></div>' : '') + (e.data && e.data.result ? '<div><b>' + esc({ go: '继续发货 Đi tiếp', supplement: '补发 Bổ sung', return: '退回商家 Hoàn shop', cancel: '取消 Huỷ' }[e.data.result] || e.data.result) + '</b></div>' : '') + (e.data && e.data.pkg ? '<div class="mut">📦 ' + esc(e.data.pkg) + (e.data.where === 'station' ? ' → 打印站 trạm in' : e.data.where === 'here' ? ' → 本机 máy này' : '') + (e.data.err ? ' ⚠ ' + esc(e.data.err) : '') + '</div>' : '') + (e.data && e.data.note ? '<div class="mut" style="white-space:pre-wrap">' + esc(e.data.note) + '</div>' : '') + '</div>'; }).join('') || '<p class="mut">暂无 · Chưa có</p>') + '</div>';
     }).catch(function () { $('#hist').innerHTML = '<p class="mut">离线 · Đang mất mạng</p>'; });
   };
+}
+
+// ---------- in tem 9710: chon kien -> in o tram (dien thoai, di qua hang doi, mat mang van bam duoc) / in o may nay (may tinh) ----------
+function pkgsOf(r) { return (r.pk || []).length ? r.pk.map(function (p) { return p[0]; }) : [r.k === 'n' && (r.wb || [])[0] ? r.wb[0] : r.k === 'g' && (r.wb || []).length === 1 ? r.wb[0] : r.c]; }
+function prnInfo(r) { var m = (r.my && r.my.prn) || {}, n = 0; Object.keys(m).forEach(function (k) { n += m[k].n; }); return n ? ' · 已打印 đã in ' + n + ' lần' : ''; }
+function printView(r) {
+  var ks = pkgsOf(r), m = (r.my && r.my.prn) || {}, sel = {};
+  ks.forEach(function (k) { sel[k] = !m[k]; }); if (!ks.some(function (k) { return sel[k]; })) ks.forEach(function (k) { sel[k] = true; });
+  var phone = 'ontouchstart' in window;
+  V.innerHTML = '<div class="card">' + hq('print') + '<div class="mut">打印面单 · In tem 9710</div><div class="big">' + esc(r.c) + '</div>' +
+    '<p class="mut">选择要打印的包裹 · Chọn kiện cần in (mỗi kiện 1 tem)</p><div id="pks">' + ks.map(function (k) {
+      return '<label class="lrow" style="display:flex;gap:10px;align-items:center"><input type="checkbox" data-k="' + esc(k) + '" style="width:22px;height:22px"' + (sel[k] ? ' checked' : '') + '><b style="flex:1">' + esc(k) + '</b>' + (m[k] ? '<span class="mut">已打印 đã in ' + m[k].n + '</span>' : '') + '</label>';
+    }).join('') + '</div>' +
+    '<div class="grid" style="margin-top:8px"><button class="p" id="pst">打印站<span class="vn" style="color:#dbeafe">In ở trạm (máy tính kho)</span></button><button class="k" id="phere">本机打印<span class="vn" style="color:#cbd5e1">In ở máy này</span></button></div>' +
+    '<button style="width:100%;margin-top:8px" id="pback">返回<span class="vn">Quay lại</span></button><div id="pmsg"></div></div>';
+  if (phone) $('#phere').classList.remove('k');
+  var picked = function () { return [].filter.call(V.querySelectorAll('#pks input'), function (x) { return x.checked; }).map(function (x) { return x.getAttribute('data-k'); }); };
+  var go = function (where) {
+    var p = picked(); if (!p.length) { $('#pmsg').innerHTML = '<div class="msg bad">请选择包裹 · Chọn ít nhất 1 kiện</div>'; return; }
+    if (where === 'here' && !navigator.onLine) { $('#pmsg').innerHTML = '<div class="msg bad">离线，请用打印站 · Đang mất mạng, dùng "In ở trạm"</div>'; return; }
+    p.forEach(function (k) { act(r.c, 'print', { k: r.k, pkg: k, kind: '9710', where: where }); });
+    beep(true);
+    if (where === 'here') window.open('/kho/tem?code=' + encodeURIComponent(r.c) + '&pkg=' + encodeURIComponent(p.join(',')) + '&auto=1', '_blank');
+    else $('#pmsg').innerHTML = '<div class="msg ok">已发送 ' + p.length + ' 张到打印站 · Đã gửi ' + p.length + ' tem tới trạm in' + (navigator.onLine ? '' : ' (có mạng sẽ tự gửi)') + '</div>';
+  };
+  $('#pst').onclick = function () { go('station'); }; $('#phere').onclick = function () { go('here'); };
+  $('#pback').onclick = function () { card(r); };
 }
 
 function countView(r) {
@@ -381,6 +413,7 @@ function meView() {
   V.innerHTML = '<div class="card"><h2>' + esc(B.me.name || B.me.u) + '</h2><div class="mut">' + esc(B.me.u + ' · ' + B.me.role) + '</div></div>' +
     '<div class="card"><div>待上传 Chờ gửi: <b>' + Q.length + '</b> 操作 thao tác · <b>' + PH + '</b> 照片 ảnh</div><div class="mut">数据 Dữ liệu: ' + ROWS.length + ' 件 · ' + esc($('#dt').textContent) + '</div>' +
     '<div class="row" style="margin-top:8px"><button id="mre">刷新数据<span class="vn">Tải lại dữ liệu</span></button><button id="msy">立即上传<span class="vn">Gửi ngay</span></button></div></div>' +
+    '<a href="/kho/tram" target="_blank" style="display:block;text-decoration:none;margin-bottom:10px"><button style="width:100%">🖨 打印站 (电脑)<span class="vn">Mở trạm in tem (trên máy tính nối máy in)</span></button></a>' +
     '<a href="/kho/help" style="display:block;text-decoration:none;margin-bottom:10px"><button style="width:100%">📖 使用说明<span class="vn">Tài liệu hướng dẫn sử dụng</span></button></a>' +
     '<button class="r" style="width:100%" id="mout">退出登录<span class="vn" style="color:#fee2e2">Đăng xuất</span></button>';
   $('#mre').onclick = function () { loadList(true).then(meView); };

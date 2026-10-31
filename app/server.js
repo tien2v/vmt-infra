@@ -45,7 +45,7 @@ const ai = require('./lib/ai');
 ai.init((k) => store.kvGet(k));
 // Ban Kho TQ (/kho/): doc danh sach kien tu cache snapshot (khong doc lai ca cuc), ghi bang kho_* rieng
 const kho = require('./lib/kho');
-kho.init({ base: () => { dataFor('admin'); return cache.base; }, ksadmin });
+kho.init({ base: () => { dataFor('admin'); return cache.base; }, ksadmin, cust: (u) => extra.getCust(u) });
 const speedtest = require('./lib/speedtest');
 speedtest.init();
 // Chat theo don voi khach (trang /chat), du lieu chung khach.db voi trang khach
@@ -467,6 +467,7 @@ async function handle(req, res) {
   if (p === '/kho/') return sendFile(req, res, path.join(__dirname, 'kho.html'), 'no-cache');
   if (p === '/kho/sw.js') return sendFile(req, res, path.join(__dirname, 'kho-sw.js'), 'no-cache');
   if (p === '/kho/help') return sendFile(req, res, path.join(__dirname, 'kho-help.html'), 'no-cache');
+  if (p === '/kho/tem' || p === '/kho/tram') return sendFile(req, res, path.join(__dirname, 'kho-tem.html'), 'no-cache'); // in 1 tem / tram in (cung 1 trang)
   if (p.startsWith('/kho/api/')) {
     const KHO_ROLES = ['kho', 'admin'];
     if (!user) return json(req, res, 401, { error: 'login' });
@@ -502,6 +503,18 @@ async function handle(req, res) {
       if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
       let b; try { b = JSON.parse((await readBody(req, 500000)).toString()); } catch { return json(req, res, 400, { error: 'body' }); }
       return json(req, res, 200, { ok: kho.sync(b.ev, user.username) });
+    }
+    // ---- Tem 9710 + tram in ----
+    if (sub === 'stamp') { const r = kho.stamp(url.searchParams.get('code'), url.searchParams.get('pkg')); return json(req, res, r.ok || r.tem ? 200 : 404, r); }
+    if (sub === 'printq' && req.method === 'GET') return json(req, res, 200, { items: kho.printQueue() });
+    if (sub === 'temcfg' && req.method === 'GET') return json(req, res, 200, { cfg: kho.temCfg(), canEdit: user.role === 'admin' });
+    if ((sub === 'printq/take' || sub === 'printq/done' || sub === 'temcfg') && req.method === 'POST') {
+      if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+      if (sub === 'temcfg' && user.role !== 'admin') return json(req, res, 403, { error: 'Chỉ admin được sửa cài đặt tem' });
+      let b; try { b = JSON.parse((await readBody(req, 20000)).toString() || '{}'); } catch { return json(req, res, 400, { error: 'body' }); }
+      if (sub === 'printq/take') return json(req, res, 200, { items: kho.printTake(user.username, b.max) });
+      const r = sub === 'temcfg' ? kho.setTemCfg(b, user.username) : kho.printDone(b.id, b.err, user.username);
+      return json(req, res, r.error ? 400 : 200, r);
     }
     if (sub === 'photo' && req.method === 'POST') {
       if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });

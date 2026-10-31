@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>打印面单 · In tem 9710</title>
+<style id="pg">@page{size:105mm 148mm;margin:0}</style>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.4 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Roboto,sans-serif;color:#0f172a;background:#f1f5f9}
+.bar{position:sticky;top:0;background:#0f172a;color:#fff;padding:8px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;z-index:3}
+.bar b{font-size:15px}.bar .sp{flex:1}.bar a{color:#fff}
+button{font:inherit;border:0;border-radius:9px;padding:9px 14px;font-weight:600;background:#e2e8f0;cursor:pointer}button.p{background:#2563eb;color:#fff}button:disabled{opacity:.45}
+input,select,textarea{font:inherit;padding:8px;border:1px solid #cbd5e1;border-radius:8px;width:100%}
+.wrap{padding:12px;max-width:900px;margin:0 auto}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px;margin-bottom:10px}
+.msg{padding:10px;border-radius:9px;margin:8px 0;font-weight:600}.bad{background:#fee2e2;color:#991b1b}.ok{background:#dcfce7;color:#166534}.info{background:#e0f2fe;color:#075985}
+.mut{color:#64748b;font-size:12px}
+.q{display:flex;gap:8px;padding:6px 0;border-top:1px solid #e2e8f0;font-size:13px}.q:first-child{border-top:0}.q>*:first-child{flex:1}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#sheets{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
+/* ----- tem ----- */
+.tem{width:var(--w);height:var(--h);background:#fff;color:#000;padding:2mm;font:3mm/1.25 Arial,"PingFang SC","Microsoft YaHei",sans-serif;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+.tem .b{border:.3mm solid #000}.tem .r{display:flex}.tem .r>*{border-right:.3mm solid #000;padding:1mm}.tem .r>*:last-child{border-right:0}
+.tem .rw{border-bottom:.3mm solid #000}.tem .rw:last-child{border-bottom:0}
+.tem .lb{font-size:2.5mm;color:#000}.tem .lg{font-weight:800;font-size:4.2mm;letter-spacing:.2mm}
+.tem .big{font-size:7mm;font-weight:800;line-height:1}.tem .mid{font-size:4mm;font-weight:700}
+.tem .bc{padding:1mm 2mm .5mm;text-align:center}.tem .bc svg{width:100%;height:22mm;display:block}
+.tem .bct{font-size:4mm;font-weight:700;letter-spacing:.3mm}
+.tem .unk{display:inline-block;border:.6mm solid #000;padding:0 1.5mm;font-weight:900;font-size:4mm}
+.tem .grow{flex:1;min-height:0}
+.tem .cl{overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical}
+@media print{body{background:#fff}.bar,.noprint{display:none!important}.wrap{padding:0;max-width:none}#sheets{display:block}.tem{box-shadow:none;page-break-after:always;break-after:page}.tem:last-child{page-break-after:auto;break-after:auto}}
+</style>
+</head>
+<body>
+<div class="bar noprint"><b id="ttl">打印面单 · In tem 9710</b><span class="sp"></span><span id="me" class="mut" style="color:#cbd5e1"></span><a href="/kho/help#print">? 帮助</a></div>
+<div class="wrap">
+  <div id="top" class="noprint"></div>
+  <div id="sheets"></div>
+</div>
+<script>
+(function () {
+'use strict';
+var $ = function (s, el) { return (el || document).querySelector(s); };
+var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+var money = function (n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); };
+var api = function (u, b) { return fetch(u, b ? { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) } : { credentials: 'same-origin', cache: 'no-store' }).then(function (r) { if (r.status === 401) { location.href = '/kho/'; throw new Error('login'); } return r.json().then(function (d) { d._s = r.status; return d; }); }); };
+var P = new URLSearchParams(location.search), STATION = location.pathname === '/kho/tram';
+var PAPER = { A6: [105, 148], '100x150': [100, 150], '100x100': [100, 100] };
+
+// ---------- Code 128 (B; chuoi so chan -> C cho ngan) ----------
+var C128 = '212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 231212 112232 122132 122231 113222 123122 123221 223211 221132 221231 213212 223112 312131 311222 321122 321221 312212 322112 322211 212123 212321 232121 111323 131123 131321 112313 132113 132311 211313 231113 231311 112133 112331 132131 113123 113321 133121 313121 211331 231131 213113 213311 213131 311123 311321 331121 312113 312311 332111 314111 221411 431111 111224 111422 121124 121421 141122 141221 112214 112412 122114 122411 142112 142211 241211 221114 413111 241112 134111 111242 121142 121241 114212 124112 124211 411212 421112 421211 212141 214121 412121 111143 111341 131141 114113 114311 411113 411311 113141 114131 311141 411131 211412 211214 211232 2331112'.split(' ');
+function code128(txt) {
+  var s = String(txt), codes, setC = /^\d+$/.test(s) && s.length % 2 === 0 && s.length >= 4;
+  if (setC) { codes = [105]; for (var i = 0; i < s.length; i += 2) codes.push(+s.substr(i, 2)); }
+  else { codes = [104]; for (var j = 0; j < s.length; j++) { var c = s.charCodeAt(j); codes.push(c >= 32 && c < 128 ? c - 32 : 0); } }
+  var sum = codes[0]; for (var k = 1; k < codes.length; k++) sum += codes[k] * k;
+  codes.push(sum % 103); codes.push(106);
+  var w = codes.map(function (c) { return C128[c]; }).join(''), x = 10, bars = '', bar = true; // 10 module quiet zone
+  for (var m = 0; m < w.length; m++) { var n = +w[m]; if (bar) bars += '<rect x="' + x + '" y="0" width="' + n + '" height="60"/>'; x += n; bar = !bar; }
+  return '<svg viewBox="0 0 ' + (x + 10) + ' 60" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">' + bars + '</svg>';
+}
+
+// ---------- ve 1 tem 9710 (giu du o cua tem Gobiz + them: line, STT, ma khach) ----------
+function temHtml(t) {
+  var rcv = t.rcv || {};
+  var user = t.unk ? '<span class="unk">VÔ CHỦ 无主</span>' : '<b>' + esc(t.user) + '</b>' + (t.cc && t.cc !== t.user ? ' · <b>' + esc(t.cc) + '</b>' : '');
+  return '<div class="tem"><div class="b grow" style="display:flex;flex-direction:column">' +
+    '<div class="r rw"><div style="width:30%;display:flex;align-items:center;justify-content:center"><span class="lg">' + esc(t.logo) + '</span></div>' +
+      '<div style="flex:1;text-align:center"><div class="lb">Mã tuyến</div><div class="big">' + esc(t.route) + '</div></div>' +
+      '<div style="width:22%;text-align:center"><div class="lb">Kho đích</div><div class="big">' + esc(t.wh) + '</div></div></div>' +
+    '<div class="r rw"><div style="width:38%"><div class="lb">Từ:</div><b>' + esc(t.sender) + '</b></div>' +
+      '<div style="flex:1"><div class="lb">Đến:</div><b>' + esc(rcv.name) + '</b> · ' + esc(rcv.phone) + '<div class="cl" style="-webkit-line-clamp:3">' + esc(rcv.addr) + '</div></div></div>' +
+    '<div class="rw bc">' + code128(t.pkg) + '<div class="bct">' + esc(t.pkg) + (t.wb ? ' (' + esc(t.wb) + ')' : '') + '</div></div>' +
+    '<div class="r rw"><div style="flex:1"><div class="lb">Order No.</div><div class="mid">' + esc(t.order) + '</div></div>' +
+      '<div style="width:22%;text-align:center"><div class="lb">STT kiện</div><div class="mid">' + t.stt + '/' + t.tot + '</div></div>' +
+      '<div style="width:18%;text-align:center"><div class="lb">Line</div><div class="mid">' + esc(t.line) + '</div></div></div>' +
+    '<div class="r rw"><div style="flex:1"><div class="lb">User</div>' + user + '</div>' +
+      '<div style="width:24%"><div class="lb">Properties</div>' + esc((t.props || []).join(' ')) + '</div>' +
+      '<div style="width:30%"><div class="lb">Services</div><b>' + esc((t.svcs || []).join(' ')) + '</b></div></div>' +
+    '<div class="rw" style="padding:1mm;min-height:12mm"><div class="lb">Nội dung hàng: (Tổng số lượng 1 sản phẩm)</div><div class="cl" style="-webkit-line-clamp:2"><b>' + esc(t.goods) + '</b></div></div>' +
+    '<div class="r rw"><div style="width:30%"><div class="lb">Ngày đặt hàng</div><b>' + esc(t.date) + '</b></div>' +
+      '<div style="flex:1"><div class="lb">Tiền thu người nhận</div><div class="mid">' + (t.cod ? money(t.cod) + ' đ' : '&nbsp;') + '</div></div>' +
+      '<div style="width:30%"><div class="lb">Khối lượng tối đa</div><b>' + (t.maxKg != null ? esc(t.maxKg) + ' kg' : '') + '</b></div></div>' +
+    '<div class="r rw grow"><div style="width:42%"><div class="lb">Chữ ký người nhận</div><div class="lb">Xác nhận hàng nguyên vẹn, không móp/méo, bể vỡ</div></div>' +
+      '<div style="flex:1"><div class="lb">Chỉ dẫn giao hàng:</div><div class="lb">Không đồng kiểm · Chuyển hoàn sau 3 lần phát · Lưu kho tối đa 5 ngày</div></div></div>' +
+    '</div></div>';
+}
+function setPaper(p) {
+  var s = PAPER[p] || PAPER.A6;
+  $('#pg').textContent = '@page{size:' + s[0] + 'mm ' + s[1] + 'mm;margin:0}';
+  document.documentElement.style.setProperty('--w', s[0] + 'mm'); document.documentElement.style.setProperty('--h', s[1] + 'mm');
+}
+// In: cho anh / phong ve xong roi moi goi print; tra ve khi hop thoai in dong (Chrome --kiosk-printing: in luon, khong hoi)
+function doPrint() { return new Promise(function (ok) { setTimeout(function () { window.print(); setTimeout(ok, 300); }, 150); }); }
+
+// ---------- che do 1: in tem cho 1 don (tu ban kho tren may tinh) ----------
+function single() {
+  var code = P.get('code') || '', pkgs = (P.get('pkg') || '').split(',').filter(Boolean);
+  if (!code) { $('#top').innerHTML = '<div class="msg bad">Thiếu mã đơn · 缺少单号</div>'; return; }
+  if (!pkgs.length) pkgs = [''];
+  Promise.all(pkgs.map(function (k) { return api('/kho/api/stamp?code=' + encodeURIComponent(code) + '&pkg=' + encodeURIComponent(k)); })).then(function (rs) {
+    var ok = rs.filter(function (r) { return r.ok; }), bad = rs.filter(function (r) { return !r.ok; });
+    if (ok.length) setPaper(ok[0].tem.paper);
+    $('#sheets').innerHTML = ok.map(function (r) { return temHtml(r.tem); }).join('');
+    var again = ok.filter(function (r) { return r.tem.printed > 1; }).length;
+    $('#top').innerHTML = bad.map(function (r) { return '<div class="msg bad">' + esc(r.zh || '') + ' · ' + esc(r.error) + '</div>'; }).join('') +
+      (ok.length ? '<div class="card"><b>' + ok.length + ' tem</b> · ' + esc(code) + (again ? ' <span class="mut">(in lại · 重新打印)</span>' : '') +
+        '<div style="margin-top:8px"><button class="p" id="go">🖨 打印 In</button> <button id="cl">关闭 Đóng</button></div></div>' : '');
+    if (ok.length) { $('#go').onclick = doPrint; $('#cl').onclick = function () { window.close(); history.back(); }; if (P.get('auto')) doPrint(); }
+  }).catch(function (e) { $('#top').innerHTML = '<div class="msg bad">离线 · Mất mạng: ' + esc(e.message) + '</div>'; });
+}
+
+// ---------- che do 2: tram in (may tinh kho noi may in, de mo suot) ----------
+var ME = null, running = false, done = 0, lastErr = '';
+function station() {
+  $('#ttl').textContent = '打印站 · Trạm in tem';
+  api('/kho/api/boot').then(function (b) {
+    if (b._s !== 200) throw new Error(b.error || 'boot');
+    ME = b.me; $('#me').textContent = ME.u;
+    return api('/kho/api/temcfg');
+  }).then(function (c) {
+    setPaper(c.cfg.paper);
+    $('#top').innerHTML = '<div class="card"><div style="display:flex;gap:8px;align-items:center"><b style="flex:1" id="stt">⏳</b><button id="tg" class="p">暂停 Tạm dừng</button></div>' +
+      '<div class="mut" style="margin-top:6px">保持此页面打开。手机点「打印站」即自动打印。Để trang này mở; điện thoại bấm "In ở trạm" là máy này tự in. Muốn in không hỏi: mở Chrome bằng <code>--kiosk-printing</code> (xem hướng dẫn).</div></div>' +
+      '<div class="card"><b>最近 · Gần đây</b><div id="ql" class="mut">…</div></div>' + (c.canEdit ? cfgForm(c.cfg) : '');
+    $('#tg').onclick = function () { running = !running; $('#tg').textContent = running ? '暂停 Tạm dừng' : '继续 Chạy tiếp'; tick(); };
+    if (c.canEdit) bindCfg();
+    running = true; loop(); queueList(); setInterval(queueList, 30000);
+  }).catch(function (e) { $('#top').innerHTML = '<div class="msg bad">' + esc(e.message) + ' — <a href="/kho/">登录 Đăng nhập</a></div>'; });
+}
+function tick() { var el = $('#stt'); if (el) el.textContent = (running ? '🟢 运行中 Đang chạy' : '⏸ 已暂停 Tạm dừng') + ' · 已打印 Đã in ' + done + (lastErr ? ' · ⚠ ' + lastErr : ''); }
+function loop() {
+  if (!running) return setTimeout(loop, 3000);
+  api('/kho/api/printq/take', { max: 5 }).then(function (d) {
+    lastErr = ''; var jobs = d.items || [];
+    var chain = Promise.resolve();
+    jobs.forEach(function (j) {
+      chain = chain.then(function () {
+        if (!j.ok) return api('/kho/api/printq/done', { id: j.id, err: j.error || 'lỗi' });
+        setPaper(j.tem.paper); $('#sheets').innerHTML = temHtml(j.tem);
+        return doPrint().then(function () { done++; return api('/kho/api/printq/done', { id: j.id }); });
+      });
+    });
+    return chain.then(function () { if (jobs.length) queueList(); });
+  }).catch(function (e) { lastErr = e.message; }).then(function () { tick(); setTimeout(loop, 4000); });
+}
+function queueList() {
+  api('/kho/api/printq').then(function (d) {
+    var el = $('#ql'); if (!el) return;
+    el.innerHTML = (d.items || []).slice(0, 30).map(function (x) {
+      return '<div class="q"><span><b>' + esc(x.pkg || x.code) + '</b> · ' + esc(x.code) + '<br>' + esc(x.by + ' ' + x.ts) + '</span><span>' +
+        (x.done_at ? (x.err ? '⚠ ' + esc(x.err) : '✓ ' + esc(x.done_at.slice(11, 16))) : x.taken_by ? '🖨 ' + esc(x.taken_by) : '⏳') + '</span></div>';
+    }).join('') || '暂无 · Chưa có';
+  }).catch(function () {});
+}
+function cfgForm(c) {
+  return '<div class="card"><b>设置 · Cài đặt tem 9710</b> <span class="mut">(chỉ admin)</span><div class="grid" style="margin-top:8px">' +
+    '<label>Ngưỡng tiền thu (đ) — từ mức này trở lên để trống<input id="c_maxCod" type="number" value="' + c.maxCod + '"></label>' +
+    '<label>Tỷ giá ký gửi (đ/tệ)<input id="c_rateKs" type="number" value="' + c.rateKs + '"></label>' +
+    '<label>Mã tuyến<input id="c_route" value="' + esc(c.route) + '"></label>' +
+    '<label>Chữ logo<input id="c_logo" value="' + esc(c.logo) + '"></label>' +
+    '<label>Khổ giấy<select id="c_paper">' + Object.keys(PAPER).map(function (k) { return '<option' + (k === c.paper ? ' selected' : '') + '>' + k + '</option>'; }).join('') + '</select></label>' +
+    '<label>Kho đích kiện vô chủ<select id="c_unkWh"><option' + (c.unkWh === 'HN' ? ' selected' : '') + '>HN</option><option' + (c.unkWh === 'HCM' ? ' selected' : '') + '>HCM</option></select></label>' +
+    '</div><label style="display:block;margin-top:8px">Tên người gửi (mỗi dòng 1 tên, hệ thống chia đều theo đơn)<textarea id="c_senders" rows="3">' + esc(c.senders.join('\n')) + '</textarea></label>' +
+    '<button class="p" id="csv" style="margin-top:8px">Lưu cài đặt</button><span id="cmsg"></span></div>';
+}
+function bindCfg() {
+  $('#csv').onclick = function () {
+    var b = {}; ['maxCod', 'rateKs', 'route', 'logo', 'paper', 'unkWh', 'senders'].forEach(function (k) { b[k] = $('#c_' + k).value; });
+    api('/kho/api/temcfg', b).then(function (d) { $('#cmsg').innerHTML = d.ok ? ' <span class="msg ok">Đã lưu</span>' : ' <span class="msg bad">' + esc(d.error) + '</span>'; if (d.ok) setPaper(d.cfg.paper); });
+  };
+}
+setPaper('A6');
+if (STATION) station(); else single();
+})();
+</script>
+</body>
+</html>

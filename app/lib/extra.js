@@ -23,25 +23,29 @@ function init(dataDir) {
     CREATE TABLE IF NOT EXISTS cust_owner (u TEXT PRIMARY KEY, sale TEXT, cskh TEXT, tags TEXT, by TEXT, ts TEXT DEFAULT (datetime('now', '+7 hours')));
     CREATE TABLE IF NOT EXISTS cust_log (id INTEGER PRIMARY KEY AUTOINCREMENT, u TEXT, by TEXT, action TEXT, detail TEXT, ts TEXT DEFAULT (datetime('now', '+7 hours')));
   `);
+  // 31/10: dia chi nguoi nhan cua don (in tem 9710) — DB cu chua co cot -> them
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('gz_ship_x') WHERE name = 'rcv'").get()) db.exec('ALTER TABLE gz_ship_x ADD COLUMN rcv TEXT');
   ver = Number((db.prepare('SELECT MAX(ts) m FROM gz_ship_x').get() || {}).m || 0);
 }
 
 const S = (v, n = 300) => (v === null || v === undefined ? null : String(v).slice(0, n));
 const N = (v) => (v === null || v === undefined || v === '' || !isFinite(Number(v)) ? null : Number(v));
 
-// d = { ships: [{ code, wb:[..], pr:[[ten, anh, sl, don gia, link, thuoc tinh]], pk:[[ma, kg, quy doi, D, R, C, trang thai, gio, anh]] }], cust: [...] }
+// d = { ships: [{ code, wb:[..], pr:[[ten, anh, sl, don gia, link, thuoc tinh]], pk:[[ma, kg, quy doi, D, R, C, trang thai, gio, anh, ma van don]], rcv:[ten, SDT, dia chi] }], cust: [...] }
+// rcv / ma van don cua kien: luong n8n ban moi moi gui; ban cu khong gui -> giu rcv da co (khong xoa)
 function ingest(d) {
   const now = Date.now();
   let ns = 0, nc = 0; const fresh = [];
   db.exec('BEGIN');
   try {
-    const up = db.prepare('INSERT INTO gz_ship_x (code, wb, pr, pk, ts) VALUES (?, ?, ?, ?, ?) ON CONFLICT(code) DO UPDATE SET wb = excluded.wb, pr = excluded.pr, pk = excluded.pk, ts = excluded.ts');
+    const up = db.prepare('INSERT INTO gz_ship_x (code, wb, pr, pk, ts, rcv) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(code) DO UPDATE SET wb = excluded.wb, pr = excluded.pr, pk = excluded.pk, ts = excluded.ts, rcv = COALESCE(excluded.rcv, gz_ship_x.rcv)');
     for (const s of (Array.isArray(d.ships) ? d.ships : []).slice(0, 20000)) {
       if (!s || !s.code) continue;
       const wb = (Array.isArray(s.wb) ? s.wb : []).map((x) => S(x, 60)).filter(Boolean).slice(0, 50);
       const pr = (Array.isArray(s.pr) ? s.pr : []).slice(0, 100).map((x) => [S(x[0], 200), S(x[1], 400), N(x[2]), N(x[3]), S(x[4], 400), S(x[5], 200)]);
-      const pk = (Array.isArray(s.pk) ? s.pk : []).slice(0, 200).map((x) => [S(x[0], 60), N(x[1]), N(x[2]), N(x[3]), N(x[4]), N(x[5]), S(x[6], 40), S(x[7], 20), S(x[8], 400)]);
-      up.run(S(s.code, 60), JSON.stringify(wb), JSON.stringify(pr), JSON.stringify(pk), now); ns++;
+      const pk = (Array.isArray(s.pk) ? s.pk : []).slice(0, 200).map((x) => [S(x[0], 60), N(x[1]), N(x[2]), N(x[3]), N(x[4]), N(x[5]), S(x[6], 40), S(x[7], 20), S(x[8], 400), S(x[9], 60)]);
+      const rcv = Array.isArray(s.rcv) && s.rcv[0] ? JSON.stringify([S(s.rcv[0], 80), S(s.rcv[1], 30), S(s.rcv[2], 300)]) : null;
+      up.run(S(s.code, 60), JSON.stringify(wb), JSON.stringify(pr), JSON.stringify(pk), now, rcv); ns++;
     }
     const uc = db.prepare('INSERT INTO gz_cust (u, code, d, ts) VALUES (?, ?, ?, ?) ON CONFLICT(u) DO UPDATE SET code = excluded.code, d = excluded.d, ts = excluded.ts');
     const had = db.prepare('SELECT 1 FROM gz_cust WHERE u = ?');
@@ -73,10 +77,10 @@ function version() { return ver; }
 // Gan van don / san pham / kien vao danh sach ky gui (goi khi lam moi cache). money=false -> bo don gia.
 function attachShips(ships) {
   if (!ships || !ships.length) return;
-  const get = db.prepare('SELECT wb, pr, pk FROM gz_ship_x WHERE code = ?');
+  const get = db.prepare('SELECT wb, pr, pk, rcv FROM gz_ship_x WHERE code = ?');
   for (const s of ships) {
     const r = get.get(s.code); if (!r) continue;
-    try { s.wb = JSON.parse(r.wb); s.pr = JSON.parse(r.pr); s.pk = JSON.parse(r.pk); } catch {}
+    try { s.wb = JSON.parse(r.wb); s.pr = JSON.parse(r.pr); s.pk = JSON.parse(r.pk); if (r.rcv) s.rcv = JSON.parse(r.rcv); } catch {}
   }
 }
 

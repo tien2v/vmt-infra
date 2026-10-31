@@ -46,6 +46,8 @@ table{width:100%;border-collapse:collapse;font-size:14px;background:#fff}th,td{b
 <li><a href="#issues">问题列表 · Danh sách lỗi</a></li>
 <li><a href="#offline">网络不好 / 待上传 · Mạng yếu, chờ gửi</a></li>
 <li><a href="#history">操作记录 · Lịch sử thao tác</a></li>
+<li><a href="#print">打印面单 9710 · In tem 9710</a></li>
+<li><a href="#station">打印站 · Trạm in (máy tính)</a></li>
 <li><a href="#faq">常见问题 · Câu hỏi thường gặp</a></li>
 <li><a href="#soon">即将上线 · Sắp có</a></li>
 </ol></div>
@@ -209,7 +211,34 @@ table{width:100%;border-collapse:collapse;font-size:14px;background:#fff}th,td{b
 <p>包裹信息页点 <span class="btn">历史</span>，可以看到这个包裹所有操作：入库、拍照、点数、报问题、处理结果，每一步是谁、什么时候。记录不能删除。</p>
 <p class="vn">Bấm “Lịch sử” ở màn kiện để xem mọi thao tác: ai, lúc nào. Lịch sử không xoá được.</p>
 
-<h2 id="faq">16. 常见问题 · Câu hỏi thường gặp</h2>
+<h2 id="print">16. 打印面单 9710 · In tem 9710</h2>
+<p>9710 面单只用于 9710 商业线（贴在点完数的包裹上，A6）。条码 = 包裹号，括号里 = 快递单号（一个快递单多个包裹时每个包裹一张），右边 n/N = 第几件。</p>
+<p class="vn">Tem 9710 chỉ dùng cho line thương mại 9710 (dán lên kiện sau khi kiểm, khổ A6). Mã vạch = mã kiện, trong ngoặc = mã vận đơn (1 vận đơn nhiều kiện thì mỗi kiện 1 tem), n/N = kiện thứ mấy.</p>
+<ol>
+<li>包裹信息页点 <span class="btn">🖨 打印面单 9710</span>。<span class="vn">Ở màn kiện bấm “In tem 9710”.</span></li>
+<li>勾选要打印的包裹（没打印过的默认勾上）。<span class="vn">Tích các kiện cần in (kiện chưa in được tích sẵn).</span></li>
+<li>手机：点 <span class="btn b">打印站</span>，仓库电脑旁的打印机自动出面单；没网也可以点，有网后自动发送。<span class="vn">Điện thoại: bấm “In ở trạm” — máy in cạnh máy tính kho tự in; mất mạng vẫn bấm được, có mạng tự gửi.</span></li>
+<li>电脑：点 <span class="btn">本机打印</span>，打开面单页直接打印（需要网络）。<span class="vn">Máy tính: bấm “In ở máy này” → mở trang tem và in luôn (cần mạng).</span></li>
+</ol>
+<ul>
+<li>面单信息全部来自订单，不用手写。缺信息（收件人、商品名…）时不能打印，页面会写缺什么。<span class="vn">Thông tin tem lấy hết từ đơn, không gõ tay. Thiếu (người nhận, tên hàng…) thì không in được, trang ghi rõ thiếu gì.</span></li>
+<li>无主件：入库时填“货物名称 + 数量”，面单 User 显示 <b>VÔ CHỦ</b>，收件人系统自动生成。<span class="vn">Kiện vô chủ: lúc nhận điền “Tên hàng + SL”; tem in User <b>VÔ CHỦ</b>, người nhận hệ thống tự sinh.</span></li>
+<li>代购单（Order）暂时在 Gobiz 打印。<span class="vn">Đơn order tạm in tem trên Gobiz.</span></li>
+<li>每次打印都有记录（谁、什么时候、第几次），在“历史”里看。<span class="vn">Mỗi lần in đều ghi lại (ai, lúc nào, lần thứ mấy), xem trong “Lịch sử”.</span></li>
+</ul>
+<div class="box warn">试运行期间：正式面单还是在 Gobiz 打印；新系统的面单只用于测试的1–2袋，<b>同一个包裹不要贴两张</b>。<span class="vn">Thời gian chạy thử: tem chính vẫn in trên Gobiz; tem hệ thống mới chỉ dùng cho 1–2 bao test, <b>1 kiện đừng dán 2 tem</b>.</span></div>
+
+<h2 id="station">17. 打印站 · Trạm in (máy tính nối máy in)</h2>
+<p>iPhone 不能直接用蓝牙连打印机，所以手机点打印 → 发到仓库电脑 → 电脑上的打印机出面单。<span class="vn">iPhone không in Bluetooth trực tiếp từ web được, nên điện thoại bấm in → gửi về máy tính kho → máy in nối máy tính in ra.</span></p>
+<ol>
+<li>电脑用 Chrome 登录工作台，“我的”→ <span class="btn">🖨 打印站</span>（网址 <code>saas.7zone.net/kho/tram</code>），页面一直开着。<span class="vn">Máy tính mở Chrome, đăng nhập bàn kho, “Tôi” → “Trạm in” (địa chỉ saas.7zone.net/kho/tram), để trang mở suốt.</span></li>
+<li>打印机纸张选 A6（105×148mm），边距“无”，缩放 100%。<span class="vn">Chọn khổ giấy A6 (105×148mm), lề “Không”, tỉ lệ 100%.</span></li>
+<li>不想每次点“打印”：Chrome 快捷方式后面加 <code>--kiosk-printing</code>（先把面单打印机设成默认打印机），以后自动直接打印。<span class="vn">Muốn tự in không bấm: thêm <code>--kiosk-printing</code> vào sau đường dẫn shortcut Chrome (đặt máy in tem làm máy in mặc định) → tự in luôn.</span></li>
+<li>页面显示最近打印记录：⏳ 等待、🖨 正在打印、✓ 已打印、⚠ 出错（写原因）。<span class="vn">Trang hiện danh sách gần đây: ⏳ chờ, 🖨 đang in, ✓ đã in, ⚠ lỗi (ghi lý do).</span></li>
+<li>电脑关了或打印机卡纸：任务3分钟后自动回到队列，开机后再打。<span class="vn">Máy tắt / kẹt giấy: việc in tự quay lại hàng chờ sau 3 phút, bật lại là in tiếp.</span></li>
+</ol>
+
+<h2 id="faq">18. 常见问题 · Câu hỏi thường gặp</h2>
 <h3>收不到设置密码的邮件？ · Không nhận được email đặt mật khẩu?</h3>
 <p>看垃圾邮件；确认账号或邮箱填对了；等1–2分钟。还没有就找管理员。<span class="vn">Xem thư rác; kiểm tra đúng tài khoản/email; đợi 1–2 phút. Vẫn không có thì báo quản lý.</span></p>
 <h3>相机打不开？ · Không mở được camera?</h3>
@@ -221,9 +250,9 @@ table{width:100%;border-collapse:collapse;font-size:14px;background:#fff}th,td{b
 <h3>数据不是最新？ · Dữ liệu chưa mới?</h3>
 <p>“我的” → <span class="btn">刷新数据</span>。顶部时间是数据更新时间。<span class="vn">Vào “Tôi” → “Tải lại dữ liệu”. Giờ trên thanh trên cùng là lúc cập nhật.</span></p>
 
-<h2 id="soon">17. 即将上线 · Sắp có</h2>
+<h2 id="soon">19. 即将上线 · Sắp có</h2>
 <ul class="soon">
-<li>打印面单（9710 A6 / 小标签 100×75），手机点打印，仓库电脑旁边的打印机出标签。<span class="vn">In tem 9710 / tem nhỏ, bấm in trên điện thoại, máy in cạnh máy tính kho ra tem.</span></li>
+<li>小标签 100×75、代购单面单、面单二维码。<span class="vn">Tem nhỏ 100×75, tem cho đơn order, mã QR trên tem.</span></li>
 <li>合并打木架（多个包裹打一个木架，生成新的木架单号）。<span class="vn">Đóng gỗ gộp nhiều kiện, tạo mã thùng gỗ mới.</span></li>
 <li>装袋、打印袋标签、按袋出库。<span class="vn">Vào bao, in tem bao, xuất kho theo bao.</span></li>
 <li>自动读取量方机（安检机）的重量、尺寸、照片。<span class="vn">Tự lấy cân, kích thước, ảnh từ máy đo.</span></li>
