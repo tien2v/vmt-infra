@@ -42,6 +42,7 @@ function init() {
   `);
   shared.initUploads(db);
   ledger.init(db);
+  require('./prof').init(db);
   require('./webauthn').init(db);
   // Ma don SCN bat dau tu 100001
   if (!db.prepare("SELECT 1 FROM sqlite_sequence WHERE name = 'cn_orders'").get()) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('cn_orders', 100000)").run();

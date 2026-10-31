@@ -16,6 +16,7 @@ const price = require('./lib/price');
 
 const PORT = Number(process.env.PORT || 3001);
 const PUBLIC = path.join(__dirname, 'public');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const SESSION_HOURS = 24 * 7;
 const COOKIE = 'vmt_k';
 let VERSION = 'dev';
@@ -138,12 +139,14 @@ pwaInit();
 webpush.init(store.rawDb());
 // ---- Chat theo don (khach <-> nhan vien), xem lib/chat.js ----
 const chatk = require('./lib/chatk');
+const prof = require('./lib/prof');
 store.rawDb().exec(`CREATE TABLE IF NOT EXISTS login_creds (cred_id TEXT PRIMARY KEY, username TEXT NOT NULL, jwk TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, label TEXT, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), last_used TEXT, disabled INTEGER NOT NULL DEFAULT 0)`);
 // Day thong bao chuong len dien thoai (quet bang notif 20 giay/lan; admin cung ghi vao bang nay)
 const PUSH_TITLE = { order: 'Đơn hàng', money: 'Tài chính', support: 'Hỗ trợ', system: 'Thông báo' };
 setInterval(() => webpush.pump(
   (code) => (code && /^DUYET-\d+$/.test(code) ? '/duyet/' + code.slice(6) : code && /^SCN\d+$/.test(code) ? '/#don/cn/' + code : code && kindOf.has(code) ? '/#don/' + kindOf.get(code) + '/' + encodeURIComponent(code) : '/#tong-quan'),
-  (n) => PUSH_TITLE[notifKind(n).kind] || 'Thông báo'), 20000).unref();
+  (n) => PUSH_TITLE[notifKind(n).kind] || 'Thông báo',
+  (n) => { const u = store.getUser(n.username); return prof.decorate(store.rawDb(), u ? u.gobiz : null, n.code, n.text); }), 20000).unref();
 // Thong ke cai app chi giu 180 ngay
 const pwaPurge = () => { try { store.rawDb().prepare("DELETE FROM pwa_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-180 days')").run(); } catch {} };
 pwaPurge(); setInterval(pwaPurge, 24 * 3600e3).unref();
@@ -233,7 +236,8 @@ function payload(user) {
   // Ma van don don ky gui Gobiz (luong n8n bo sung -> bang gz_ship_x cua admin)
   const gship = s ? s.shipments.map((x) => { const w = store.shipWb(x.code); return w.length ? Object.assign({}, x, { wb: w[0], wbs: w }) : x; }) : [];
   const approvals = duyet.pending(owner(user)); // kho TQ gui anh can khach xac nhan
-  const data = { approvals, companies, orders: s ? s.orders : [], shipments: ksNew.concat(gship), peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
+  me.av = prof.avatarOf(store.rawDb(), 'k:' + chatOwner(user)); // anh dai dien
+  const data = { aliases: prof.aliasMap(store.rawDb(), owner(user)), ann: prof.annActive(store.rawDb(), brand), approvals, companies, orders: s ? s.orders : [], shipments: ksNew.concat(gship), peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
   return 'window.ME=' + JSON.stringify(me) + ';window.DATA=' + JSON.stringify(data) + ';';
 }
 
@@ -284,7 +288,7 @@ function pwMailHtml(g, bn, link) {
 
 // Kiem tra don + anh: dung chung voi trang admin (lib/cnshared.js, 2 ban giong het nhau)
 const { validateCn, checkCo, str, initUploads, saveUpload, checkUploads, claimUploads, uploadFile, UPLOAD_MAX } = require('./lib/cnshared');
-chatk.init({ db: store.rawDb(), dir: process.env.DATA_DIR || path.join(__dirname, 'data'), webpush, json, readBody, sameOrigin, myOrders, ownerOf: chatOwner, isTest: walletAcc });
+chatk.init({ db: store.rawDb(), dir: DATA_DIR, webpush, json, readBody, sameOrigin, myOrders, ownerOf: chatOwner, isTest: walletAcc });
 // Trang chinh: giao dien template (ma hoa) + chen phan chat (khach/chat.js, code rieng khong thuoc template)
 let idxHtml = { key: '', buf: null, gz: null };
 function indexHtml(req, res) {
@@ -562,6 +566,39 @@ async function handle(req, res) {
     if (!user || !store.uploadCanSee(user.username, user.gobiz, mu[1], chatOwner(user))) return send(res, 404, 'Not found');
     return fs.readFile(store.uploadPath(mu[1]), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' }));
   }
+  // ---- anh dai dien: trinh duyet da cat vuong + thu nho -> /api/upload -> gan vao tai khoan ----
+  if (p === '/api/me/avatar' && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 2000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    if (!/^[a-f0-9]{32}$/.test(String(b.id || ''))) return json(req, res, 400, { error: 'Ảnh không hợp lệ' });
+    const r = prof.avatarSet(store.rawDb(), DATA_DIR, 'k:' + chatOwner(user), b.id, 'khach:' + user.username);
+    return json(req, res, r.error ? 400 : 200, r);
+  }
+  const mav = p.match(/^\/av\/([a-f0-9]{32})\.jpg$/);
+  if (mav) {
+    if (!user || !prof.isAvatar(store.rawDb(), mav[1])) return send(res, 404, 'Not found');
+    return fs.readFile(store.uploadPath(mav[1]), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=604800, immutable' }));
+  }
+  // anh cua thong bao chung (dang hien)
+  const mtb = p.match(/^\/tb\/([a-f0-9]{32})\.jpg$/);
+  if (mtb) {
+    if (!user || !prof.isAnnImg(store.rawDb(), mtb[1])) return send(res, 404, 'Not found');
+    return fs.readFile(store.uploadPath(mtb[1]), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' }));
+  }
+  // ---- ten goi nho don: khach dat / sua / xoa, hoac tra loi ten nhan vien de xuat ----
+  if (p === '/api/alias' && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 4000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const codes = (Array.isArray(b.codes) ? b.codes : [b.code]).map((c) => String(c || '')).filter(Boolean).slice(0, 50);
+    myOrdCache.delete(user.username);
+    const mine = myOrders(user);
+    if (!codes.length || codes.some((c) => !mine.has(c))) return json(req, res, 404, { error: 'Không tìm thấy đơn' });
+    const by = 'k:' + user.username; let r;
+    for (const c of codes) { r = typeof b.accept === 'boolean' ? prof.aliasAnswer(store.rawDb(), owner(user), c, b.accept, by) : prof.aliasSet(store.rawDb(), owner(user), c, b.name, by); if (r.error) break; }
+    return json(req, res, r.error ? 400 : 200, r);
+  }
   // ---- vi + thanh toan (tam thoi chi tai khoan test) ----
   if (p.startsWith('/api/wallet') || p === '/api/pay') {
     if (!user) return json(req, res, 401, { error: 'login' });
@@ -741,7 +778,7 @@ async function handle(req, res) {
   if (p === '/api/notif') {
     if (!user) return json(req, res, 401, { error: 'login' });
     if (req.method === 'POST') { if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' }); store.notifRead(user.username); return json(req, res, 200, { ok: true }); }
-    return json(req, res, 200, { items: store.notifList(user.username).map((n) => Object.assign(n, notifKind(n), /^DUYET-\d+$/.test(n.code || '') ? { url: '/duyet/' + n.code.slice(6) } : {})) });
+    return json(req, res, 200, { items: store.notifList(user.username).map((n) => Object.assign(n, { text: prof.decorate(store.rawDb(), owner(user), n.code, n.text) }, notifKind(n), /^DUYET-\d+$/.test(n.code || '') ? { url: '/duyet/' + n.code.slice(6) } : {})) });
   }
   if (p === '/api/cn/quote' && req.method === 'POST') {
     if (!user) return json(req, res, 401, { error: 'login' });

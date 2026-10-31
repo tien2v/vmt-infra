@@ -115,7 +115,7 @@ const hasSub = (username) => !!db.prepare('SELECT 1 FROM push_subs WHERE usernam
 // ---- day thong bao chuong len dien thoai ----
 // urlOf(code) -> duong dan mo dung don; kindOf(n) -> nhan nhom (Don hang / Tai chinh ...)
 let busy = false;
-async function pump(urlOf, titleOf) {
+async function pump(urlOf, titleOf, textOf) {
   if (busy) return; busy = true;
   try {
     const cur = Number((db.prepare("SELECT v FROM kv WHERE k = 'push_cursor'").get() || {}).v || 0);
@@ -125,7 +125,7 @@ async function pump(urlOf, titleOf) {
     const withSub = new Set(db.prepare('SELECT DISTINCT username FROM push_subs').all().map((r) => r.username));
     for (const n of rows) {
       if (!withSub.has(n.username)) continue;
-      await send(n.username, { title: titleOf(n), body: n.text, url: urlOf(n.code), tag: n.code ? 'don-' + n.code : 'tb-' + n.id });
+      await send(n.username, { title: titleOf(n), body: textOf ? textOf(n) : n.text, url: urlOf(n.code), tag: n.code ? 'don-' + n.code : 'tb-' + n.id });
     }
   } catch (e) { console.error('push', e.message); } finally { busy = false; }
 }

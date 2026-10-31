@@ -27,7 +27,7 @@ input,textarea,select{font:inherit}
 .tag{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:1;padding:4px 7px;border-radius:999px;white-space:nowrap}
 .c-slate{background:var(--s150);color:var(--s600)}.c-info{background:#e0f2fe;color:#0369a1}.c-success{background:#d1fae5;color:#047857}.c-warning{background:#ffedd5;color:#c2410c}.c-error{background:#ffe4dc;color:#c2410c}.c-secondary{background:#fce7f6;color:#a2007c}.c-primary{background:var(--p100);color:var(--pf)}
 .av{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:14px;flex:none;color:#fff}
-.av.s{width:28px;height:28px;font-size:11px}.av.xs{width:20px;height:20px;font-size:9px}
+.av.s{width:28px;height:28px;font-size:11px}.av.img{background:#e5e7eb;overflow:hidden}.av.img img{width:100%;height:100%;object-fit:cover;display:block}.av.xs{width:20px;height:20px;font-size:9px}
 .av0{background:#6366f1}.av1{background:#0ea5e9}.av2{background:#10b981}.av3{background:#f59e0b}.av4{background:#ec4899}.av5{background:#8b5cf6}.av6{background:#14b8a6}.av7{background:#ef4444}
 /* cot 1: hop thu */
 .inbox{display:flex;flex-direction:column;min-height:0;min-width:0;background:#fff;border-right:1px solid var(--s200)}
@@ -192,7 +192,7 @@ const shortT=s=>{if(!s)return'';const d=new Date(s),n=new Date();if(d.toDateStri
 const dayL=s=>{const d=new Date(s),n=new Date();if(d.toDateString()===n.toDateString())return'Hôm nay';const y=new Date(n);y.setDate(n.getDate()-1);if(d.toDateString()===y.toDateString())return'Hôm qua';return d.toLocaleDateString('vi-VN',{weekday:'long',day:'2-digit',month:'2-digit'});};
 const ini=n=>{const w=String(n||'?').trim().split(/\s+/);return(w.length>1?w[w.length-2][0]+w[w.length-1][0]:w[0].slice(0,2)).toUpperCase();};
 const avc=n=>{let h=0;for(const c of String(n||''))h=(h*31+c.charCodeAt(0))>>>0;return 'av'+(h%8);};
-const av=(n,cls)=>`<span class="av ${cls||''} ${avc(n)}">${esc(ini(n))}</span>`;
+const av=(n,cls,id)=>id?`<span class="av ${cls||''} img"><img src="/cnimg/${esc(id)}.jpg" alt="" loading="lazy"></span>`:`<span class="av ${cls||''} ${avc(n)}">${esc(ini(n))}</span>`;
 const VND=n=>n==null?'—':Math.round(n).toLocaleString('vi-VN')+'đ';
 const cname=t=>t.owner&&t.owner.startsWith('test:')?'TEST · '+t.owner.slice(5):(t.fn||t.u||t.owner);
 const ctxL=t=>t.ctx==='vmt'?'Chat chung':(KN[t.kind]&&t.kind!=='vmt'?KN[t.kind]+' ':'Đơn ')+t.code;
@@ -216,7 +216,7 @@ function tabs(){const c=S.counts||{};const h=F.map(([k,l])=>`<button data-f="${k
  if(g)tb.innerHTML=`<i class="fa-solid fa-tag"></i>Đang lọc nhãn <span class="tag c-${esc(g.color)}">${esc(g.name)}</span><button data-tag="0">Bỏ lọc ✕</button>`;}
 function rowH(t){const w=waitM(t);const on=S.cur&&S.cur.id===t.id;const nm=cname(t);
  const pre=(t.lastFrom==='k'?'':t.lastFrom==='sys'?'Hệ thống: ':(t.lastFrom==='s'?(t.lastName?t.lastName.split(/\s+/).pop():'NV')+': ':''))+(t.lastText||'');
- return `<button class="row${t.unread?' unread':''}${on?' on':''}" data-t="${t.id}">${av(nm)}<span style="min-width:0"><span class="nm"><b>${esc(nm)}</b>${t.ccode?`<small>${esc(t.ccode)}</small>`:''}${t.test?'<span class="tag c-warning">TEST</span>':''}</span>
+ return `<button class="row${t.unread?' unread':''}${on?' on':''}" data-t="${t.id}">${av(nm,'',t.av)}<span style="min-width:0"><span class="nm"><b>${esc(nm)}</b>${t.ccode?`<small>${esc(t.ccode)}</small>`:''}${t.test?'<span class="tag c-warning">TEST</span>':''}</span>
 <span class="l2"><span class="tag c-${t.ctx==='vmt'?'slate':'primary'}"><i class="fa-solid ${KI[t.kind]||'fa-box'}"></i>${esc(ctxL(t))}</span>${(t.tags||[]).map(tagH).join('')}</span><span class="pre">${esc(pre)}</span></span>
 <span class="meta">${shortT(t.lastAt)}${t.unread?`<span class="bdg">${t.unread>9?'9+':t.unread}</span>`:''}${w>=0&&t.status==='open'?`<span class="wt ${w>=15?'r':w>=5?'y':''}"><i class="fa-regular fa-clock"></i> ${w<60?w+"'":Math.floor(w/60)+'h'}</span>`:''}${t.assignee?`<span title="${esc(sn(t.assignee))}">${av(sn(t.assignee),'xs')}</span>`:t.status==='open'?`<span class="btn sm grab" data-grab="${t.id}">Nhận</span>`:''}</span></button>`;}
 function renderList(){tabs();patch($('#list'),S.list.length?S.list.map(t=>['t'+t.id,rowH(t)]):[['empty',`<div class="empty"><i class="fa-regular fa-comments"></i>${S.tag?'Không có cuộc chat nào gắn nhãn này<br><button class="btn sm" data-tag="0" style="margin-top:8px">Bỏ lọc nhãn</button>':S.q?'Không tìm thấy':S.f==='unread'?'Không còn tin chưa đọc 👍':'Không có cuộc chat nào'}</div>`]]);}
@@ -275,7 +275,7 @@ function render(bottom){const box=$('#ms');const near=bottom||box.scrollHeight-b
   const nm=m.f==='k'?cname(S.cur):(m.name||m.by||'NV');
   const qh=m.f==='k'&&last&&!m.recalled&&!(m.re&&m.re.length)?`<button class="qh" data-qh="${m.id}" title="Thả tim"><i class="fa-regular fa-heart"></i></button>`:'';
   const tools=m.recalled?'':`<span class="tools">${m.f==='note'?'':`<button data-bar="${m.id}" title="Thả cảm xúc"><i class="fa-regular fa-face-smile"></i></button>`}<button data-rep="${m.id}" title="Trả lời"><i class="fa-solid fa-reply"></i></button><button data-act="${m.id}" title="Thêm"><i class="fa-solid fa-ellipsis"></i></button></span>`;
-  I.push(['m'+m.id,`<div class="g${me?' me':''}${m.f==='note'?' note':''}" id="m${m.id}" data-g="${m.id}"><span class="swi"><i class="fa-solid fa-reply"></i></span><span style="${last?'':'visibility:hidden'}">${av(nm,'s')}</span><div class="col">${first?`<span class="wh">${esc(nm)}</span>`:''}<div class="bw">${bub(m)}${qh}</div>${m.re&&m.re.length?`<div class="re">${m.re.map(r=>`<button class="${r.mine?'mine':''}" data-re="${m.id}" data-e="${r.e}">${r.e}${r.n>1?' '+r.n:''}</button>`).join('')}</div>`:''}${last?`<span class="stt">${tHM(m.at)}${m.id===lastStaff?(S.seenC>=m.id?' · <i class="fa-solid fa-check-double" style="color:var(--ok)"></i> Khách đã xem':' · Khách chưa xem'):''}</span>`:''}</div>${tools}</div>`]);}
+  I.push(['m'+m.id,`<div class="g${me?' me':''}${m.f==='note'?' note':''}" id="m${m.id}" data-g="${m.id}"><span class="swi"><i class="fa-solid fa-reply"></i></span><span style="${last?'':'visibility:hidden'}">${av(nm,'s',m.av)}</span><div class="col">${first?`<span class="wh">${esc(nm)}</span>`:''}<div class="bw">${bub(m)}${qh}</div>${m.re&&m.re.length?`<div class="re">${m.re.map(r=>`<button class="${r.mine?'mine':''}" data-re="${m.id}" data-e="${r.e}">${r.e}${r.n>1?' '+r.n:''}</button>`).join('')}</div>`:''}${last?`<span class="stt">${tHM(m.at)}${m.id===lastStaff?(S.seenC>=m.id?' · <i class="fa-solid fa-check-double" style="color:var(--ok)"></i> Khách đã xem':' · Khách chưa xem'):''}</span>`:''}</div>${tools}</div>`]);}
  const oh=box.scrollHeight,ot=box.scrollTop;patch(box,I);if(near)box.scrollTop=box.scrollHeight;else if(S._pre)box.scrollTop=box.scrollHeight-oh+ot;S._pre=false;
  box.querySelectorAll('img').forEach(im=>{if(!im.complete)im.addEventListener('load',()=>{if(near)box.scrollTop=box.scrollHeight;},{once:true});});}
 function upsert(m){const i=S.msgs.findIndex(x=>x.id===m.id);if(i>=0)S.msgs[i]=m;else{S.msgs.push(m);S.msgs.sort((a,b)=>a.id-b.id);}}

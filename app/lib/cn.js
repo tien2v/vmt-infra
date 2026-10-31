@@ -16,6 +16,7 @@ function open() {
   db.exec('PRAGMA busy_timeout = 5000');
   shared.initUploads(db);
   ledger.init(db);
+  require('./prof').init(db);
   db.exec("CREATE TABLE IF NOT EXISTS notif (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, code TEXT, text TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))");
   return db;
 }

@@ -8,7 +8,7 @@ Trước khi sửa, tự trả lời và xử lý luôn (không chắc thì hỏ
 - Admin (`app/`) và trang khách (`khach/`) có cùng chỗ cần sửa theo không?
 - Tiền, ví, sổ cái, trạng thái đơn, thông báo, log lịch sử đơn có bị ảnh hưởng không?
 - Phân quyền (kho không thấy tiền), sao lưu, test có cần cập nhật không?
-- Các file `lib/` đang có 2 bản ở `app/lib` và `khach/lib` (ledger, tth, price, cnshared, vietqr, mail, ks, ai, chat, webpush): sửa một bản thì phải sửa bản kia y hệt.
+- Các file `lib/` đang có 2 bản ở `app/lib` và `khach/lib` (ledger, tth, price, cnshared, vietqr, mail, ks, ai, chat, webpush, prof): sửa một bản thì phải sửa bản kia y hệt.
 
 ## Bàn Kho TQ (`app/kho*.html`, `app/lib/kho.js`)
 - Sửa / thêm tính năng bàn kho thì **sửa luôn tài liệu hướng dẫn** `app/kho-help.html` (song ngữ Trung–Việt) cho khớp; tính năng chưa chạy để ở mục "即将上线 · Sắp có", không mô tả như đã có.
@@ -40,3 +40,7 @@ Trước khi mã hoá lại để push:
 - Video chat lưu ở `<thư mục khach.db>/chatfiles/` (khách ≤ 100MB, NV ≤ 75MB, tổng ≤ 40GB, tự dọn: bỏ ngang 1 ngày; cuộc yên 30 ngày + cũ hơn 90 ngày). Thông báo điện thoại cho NV: khoá VAPID riêng trong vmt.db, service worker `app/chat-sw.js`.
 - Hộp thư NV `app/chat.html` (kiểu Zalo PC 3 cột, nạp `/assets/css/app.css` của Lineone để lấy chữ + icon FontAwesome; không đặt tên class trùng Lineone như `.card`). Tự chia cuộc chat (`assignPump`: CSKH → Sale → NV đang mở hộp thư ít việc nhất), AI gợi ý (`suggest`, theo quy tắc nhắn như người thật), nhãn `chat_tags`, thẻ thanh toán `card.t = 'pay'`.
 - Ghi chú nội bộ (`f = 'note'`) không bao giờ được gửi ra phía khách (API, SSE, thông báo đẩy): sửa chỗ nào đọc chat_msgs cho khách thì giữ điều kiện này.
+
+## Hồ sơ dùng chung (`lib/prof.js` 2 bản, `app/ext/me-admin.js`, `app/thongbao.html`)
+- Ảnh đại diện (`avatars`, who = `k:<chủ chat khách>` / `s:<nhân viên>`; ảnh cũ tự xoá), tên gợi nhớ đơn (`aliases` + `alias_log`; khách đặt thẳng, NV chỉ đề xuất → khách xác nhận; tối đa 40 ký tự), thông báo chung (`announce`; chữ = thanh nhỏ, có ảnh = popup 1 lần). Đều ở khach.db.
+- Trang khách: "Cần làm" chỉ gồm việc khách thật sự phải làm (`todoItems()`), không tính phần còn lại sau cọc. Giai đoạn đơn: `phaseOf()`.

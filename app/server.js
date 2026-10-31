@@ -50,6 +50,7 @@ const speedtest = require('./lib/speedtest');
 speedtest.init();
 // Chat theo don voi khach (trang /chat), du lieu chung khach.db voi trang khach
 const chats = require('./lib/chats');
+const prof = require('./lib/prof');
 setInterval(() => { try { const n = cn.autoDeliver(); if (n) console.log('autoDeliver', n); } catch (e) { console.error(e); } }, 30 * 60e3);
 setTimeout(() => { try { cn.autoDeliver(); } catch (e) {} }, 20e3);
 
@@ -309,7 +310,7 @@ function appHtml() {
       const a = "load('/assets/vmt.js')";
       const m = '      </main>\n\n      <!-- ============ DRAWER';
       if (!h.includes(a) || !h.includes(m)) { console.error('cn-admin: khong tim thay cho chen trong app.html'); return Buffer.alloc(0); }
-      h = h.replace(a, "load('/assets/vmt.js').then(function () { return load('/ext/cn-admin.js'); }).then(function () { return load('/ext/kh-admin.js'); }).then(function () { return load('/ext/loi-admin.js'); }).then(function () { return load('/ext/chat-admin.js'); })");
+      h = h.replace(a, "load('/assets/vmt.js').then(function () { return load('/ext/cn-admin.js'); }).then(function () { return load('/ext/kh-admin.js'); }).then(function () { return load('/ext/loi-admin.js'); }).then(function () { return load('/ext/chat-admin.js'); }).then(function () { return load('/ext/me-admin.js'); })");
       h = h.replace(m, fs.readFileSync(sec, 'utf8') + fs.readFileSync(ksec, 'utf8') + fs.readFileSync(lsec, 'utf8') + m);
       return Buffer.from(noDebt(h));
     });
@@ -537,7 +538,57 @@ async function handle(req, res) {
     return json(req, res, 404, { error: 'not found' });
   }
   if (p === '/chat' || p.startsWith('/api/chat')) return chats.handle(req, res, p, url, user);
-  if (p === '/api/me') return user ? json(req, res, 200, { username: user.username, name: user.name, role: user.role }) : json(req, res, 401, { error: 'login' });
+  if (p === '/api/me' && req.method === 'GET') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    const d = cn.fin(); let av = null; try { av = d ? prof.avatarOf(d, 's:' + user.username) : null; } catch (e) {}
+    return json(req, res, 200, { username: user.username, name: user.name, role: user.role, av });
+  }
+  // Anh dai dien nhan vien: trinh duyet cat vuong + thu nho -> /api/cn/upload -> gan vao tai khoan (hien trong chat ca 2 phia)
+  if (p === '/api/me/avatar' && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    const d = cn.fin(); if (!d) return json(req, res, 503, { error: 'Chưa có dữ liệu trang khách' });
+    let b; try { b = JSON.parse((await readBody(req, 2000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    if (!/^[a-f0-9]{32}$/.test(String(b.id || ''))) return json(req, res, 400, { error: 'Ảnh không hợp lệ' });
+    const r = prof.avatarSet(d, path.dirname(process.env.KHACH_DB || '/khach/khach.db'), 's:' + user.username, b.id, 'staff:' + user.username);
+    return json(req, res, r.error ? 400 : 200, r);
+  }
+  // Thong bao chung cho khach (admin + sale dang): chu = thanh nho, co anh = popup 1 lan
+  if (p === '/thong-bao' || p.startsWith('/api/announce')) {
+    if (!user) { if (p === '/thong-bao') { res.writeHead(302, { Location: '/login' }); return res.end(); } return json(req, res, 401, { error: 'login' }); }
+    if (!['admin', 'sale'].includes(user.role)) return p === '/thong-bao' ? send(res, 403, 'Chỉ quản trị / sale được vào trang này') : json(req, res, 403, { error: 'forbidden' });
+    if (p === '/thong-bao') return fs.readFile(path.join(__dirname, 'thongbao.html'), (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' }));
+    const d = cn.fin(); if (!d) return json(req, res, 503, { error: 'Chưa có dữ liệu trang khách' });
+    if (req.method === 'GET') return json(req, res, 200, { items: prof.annAll(d) });
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 8000)).toString() || '{}'); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const by = user.name || user.username;
+    const mo = p.match(/^\/api\/announce\/(\d{1,9})\/(on|off)$/);
+    const r = mo ? prof.annActiveSet(d, mo[1], mo[2] === 'on', by) : p === '/api/announce' ? prof.annSave(d, b, by) : { error: 'not found' };
+    return json(req, res, r.error ? 400 : 200, r);
+  }
+  // Ten goi nho don: NV xem + dat giup (cho khach xac nhan, bao chuong cho khach)
+  if (p === '/api/alias') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (user.role === 'kho') return json(req, res, 403, { error: 'forbidden' });
+    const d = cn.fin(); if (!d) return json(req, res, 503, { error: 'Chưa có dữ liệu trang khách' });
+    if (req.method === 'GET') {
+      const ow = String(url.searchParams.get('owner') || '').toLowerCase(), code = String(url.searchParams.get('code') || '');
+      if (!ow || !code) return json(req, res, 400, { error: 'Thiếu mã đơn' });
+      const a = prof.aliasGet(d, ow, code) || {};
+      return json(req, res, 200, { name: a.name || '', pend: a.pend || '', pendBy: a.pend_by || '', log: prof.aliasLog(d, ow, code) });
+    }
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 4000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const ow = String(b.owner || '').toLowerCase(), code = String(b.code || '').slice(0, 40);
+    if (!ow || !code) return json(req, res, 400, { error: 'Thiếu mã đơn' });
+    const r = prof.aliasPropose(d, ow, code, b.name, 's:' + user.username, user.name || user.username);
+    if (r.error) return json(req, res, 400, r);
+    for (const u of d.prepare('SELECT username FROM users WHERE lower(gobiz) = ? AND active = 1').all(ow)) {
+      d.prepare('INSERT INTO notif (username, code, text) VALUES (?, ?, ?)').run(u.username, code, 'Nhân viên đặt giúp tên gợi nhớ "' + r.pend + '" cho đơn ' + code + '. Anh/chị mở đơn để đồng ý hoặc sửa lại.');
+    }
+    return json(req, res, 200, r);
+  }
   if (p === '/api/data') {
     if (!user) return json(req, res, 401, { error: 'login' });
     const buf = dataFor(user.role);
@@ -908,6 +959,10 @@ async function handle(req, res) {
   if (p === '/ext/loi-admin.js') {
     if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });
     return sendFile(req, res, path.join(__dirname, 'ext', 'loi-admin.js'), 'private, no-cache');
+  }
+  if (p === '/ext/me-admin.js') {
+    if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });
+    return sendFile(req, res, path.join(__dirname, 'ext', 'me-admin.js'), 'private, no-cache');
   }
   if (p === '/ext/chat-admin.js') {
     if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });

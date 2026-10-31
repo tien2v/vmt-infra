@@ -8,12 +8,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const prof = require('./prof');
 const RECALL_MS = 60 * 60e3; // thu hoi trong 60 phut (giong Zalo)
 const BODY_MAX = 4000;
 const EMOJI = ['❤️', '👍', '😂', '😮', '😢', '😡'];
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
 function init(db) {
+  prof.init(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS chat_threads (
       id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, gobiz TEXT, ctx TEXT NOT NULL, kind TEXT, title TEXT,
@@ -68,6 +70,13 @@ function reactView(r, who) {
   for (const e of EMOJI) if (m[e] && m[e].length) out.push({ e, n: m[e].length, mine: m[e].includes(who) });
   return out;
 }
+// Anh dai dien khach cua cuoc chat (chu cuoc chat -> 'k:<owner>'), nho chu cuoc chat theo id
+const thOwner = new Map();
+function avOfThread(db, th) {
+  let o = thOwner.get(th);
+  if (o === undefined) { const t = db.prepare('SELECT owner FROM chat_threads WHERE id = ?').get(th); o = t ? t.owner : null; thOwner.set(th, o); if (thOwner.size > 5000) thOwner.clear(); }
+  return o ? prof.avatarOf(db, 'k:' + o) : null;
+}
 // side: 'k' (khach) | 's' (nhan vien). who: 'k' hoac 's:<username>'
 function view(db, r, side, who) {
   if (!r) return null;
@@ -75,6 +84,8 @@ function view(db, r, side, who) {
   const recalled = !!r.recalled_at;
   const m = { id: r.id, th: r.th, f: r.f, name: r.name || '', at: r.created_at, re: reactView(r, who) };
   if (side === 's' && r.by) m.by = r.by;
+  const av = r.f === 's' && r.by ? prof.avatarOf(db, 's:' + r.by) : r.f === 'k' ? avOfThread(db, r.th) : null;
+  if (av) m.av = av;
   if (recalled) { m.recalled = true; if (side === 's') m.orig = r.orig || ''; }
   else { m.body = r.body || ''; const a = j(r.att, null); if (a) m.att = a; const c = j(r.card, null); if (c) m.card = c; }
   if (r.reply) {
@@ -163,6 +174,7 @@ function tView(db, t, side) {
   if (t.last_id) { const n = db.prepare('SELECT name FROM chat_msgs WHERE id = ?').get(t.last_id); o.lastName = (n && n.name) || ''; }
   if (side === 'k') { o.unread = unreadK(db, t.id, t.cust_read); o.seenByStaff = t.staff_read; }
   else Object.assign(o, { owner: t.owner, gobiz: t.gobiz, test: !!t.test, tags: String(t.tags || '').split(',').filter(Boolean).map(Number), assignee: t.assignee, status: t.status, waitAt: t.wait_at, unread: unreadS(db, t.id, t.staff_read), seenByCust: t.cust_read });
+  if (side === 's') { const av = prof.avatarOf(db, 'k:' + t.owner); if (av) o.av = av; }
   return o;
 }
 function listCustomer(db, owner) {

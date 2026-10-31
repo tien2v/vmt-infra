@@ -73,6 +73,7 @@ svg.chs{fill:none!important}
 .ch-g.me{justify-content:flex-end}
 .ch-av{width:28px;height:28px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:11px;font-weight:800;color:var(--b-ink);background:linear-gradient(120deg,var(--b-1),var(--b-2))}
 .ch-av.sp{visibility:hidden}
+.ch-av img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
 .ch-col{display:flex;flex-direction:column;gap:2px;max-width:78%;min-width:0}
 .ch-g.me .ch-col{align-items:flex-end}
 .ch-nm{font-size:11px;color:#8b8170;margin:0 0 1px 4px}
@@ -367,7 +368,7 @@ svg.chs{fill:none!important}
       const first = !same(p, m), last = !same(m, n);
       const qh = !me && last && !m.recalled && !(m.re && m.re.length) ? `<button type="button" class="ch-qh" data-chqh="${m.id}" aria-label="Thả tim">♡</button>` : '';
       const tools = m.recalled ? '' : `<span class="ch-tools"><button type="button" data-chbar="${m.id}" title="Thả cảm xúc">☺</button><button type="button" data-chrep="${m.id}" title="Trả lời">${IC.reply}</button><button type="button" data-chact="${m.id}" title="Thêm">${IC.more}</button></span>`;
-      I.push(['m' + m.id, `<div class="ch-g${me ? ' me' : ''}" id="chm${m.id}" data-g="${m.id}"><span class="ch-swi">${IC.reply}</span>${me ? tools : `<span class="ch-av${last ? '' : ' sp'}">${esc(initials(m.name))}</span>`}<div class="ch-col">${!me && first ? `<span class="ch-nm">${esc(m.name || 'Nhân viên')}</span>` : ''}<div class="ch-bw">${bubble(m)}${qh}</div>${reacts(m)}${last ? `<span class="ch-st">${tHM(m.at)}${me && m.id === lastMine ? (S.seen >= m.id ? ' · Đã xem' : ' · Đã gửi') : ''}</span>` : ''}</div>${me ? '' : tools}</div>`]);
+      I.push(['m' + m.id, `<div class="ch-g${me ? ' me' : ''}" id="chm${m.id}" data-g="${m.id}"><span class="ch-swi">${IC.reply}</span>${me ? tools : `<span class="ch-av${last ? '' : ' sp'}">${m.av ? `<img src="/av/${esc(m.av)}.jpg" alt="" loading="lazy">` : esc(initials(m.name))}</span>`}<div class="ch-col">${!me && first ? `<span class="ch-nm">${esc(m.name || 'Nhân viên')}</span>` : ''}<div class="ch-bw">${bubble(m)}${qh}</div>${reacts(m)}${last ? `<span class="ch-st">${tHM(m.at)}${me && m.id === lastMine ? (S.seen >= m.id ? ' · Đã xem' : ' · Đã gửi') : ''}</span>` : ''}</div>${me ? '' : tools}</div>`]);
     }
     const oldH = box.scrollHeight, oldT = box.scrollTop;
     patch(box, I);
