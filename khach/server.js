@@ -204,7 +204,7 @@ function payload(user) {
   if (me.walletOn) { me.wallet = ledger.walletView(store.rawDb(), owner(user)); me.hasPin = ledger.hasPin(store.rawDb(), owner(user)); }
   const cn = store.cnList(user.username, user.gobiz).map((o) => Object.assign(o, { mine: true }));
   // Ky gui he thong moi (ma 84…) gop vao danh sach ky gui cung don Gobiz; dia chi kho TQ kem ma khach
-  me.grp = (c && c.grp) || ''; me.kh = me.code || owner(user); // ky hieu tren kien: HN-/SG- + MA KHACH (khach ghi username van nhan duoc)
+  me.grp = (c && c.grp) || ''; me.kh = me.code || owner(user); // ky hieu tren kien = MA KHACH (khach ghi username van nhan duoc)
   me.khUser = owner(user); me.ksDef = ks.getDefault(me.khUser);
   const ksNew = ks.list(user.username, user.gobiz, { group: me.grp });
   me.whCn = ks.warehouses().filter((w) => w.active !== false).map((w) => Object.assign(ks.whView(w, null, me.grp), { type: w.type }));
@@ -438,7 +438,7 @@ async function handle(req, res) {
     if (ks.countRecent(user.username) + v.wbs.length > 200) return json(req, res, 429, { error: 'Tạo quá nhiều đơn trong 1 giờ, vui lòng thử lại sau' });
     const r = ks.create(user.username, user.gobiz, isTestAcc(user), v, clientIp(req), { group: custGroup(user) });
     if (r.error) return json(req, res, 409, r);
-    return json(req, res, 200, { ok: true, orders: r.orders });
+    return json(req, res, 200, { ok: true, orders: r.orders, merged: r.merged });
   }
   if (p === '/api/ks/default') {
     if (!user) return json(req, res, 401, { error: 'login' });
@@ -452,7 +452,7 @@ async function handle(req, res) {
     if (!user) return json(req, res, 401, { error: 'login' });
     let b; try { b = JSON.parse((await readBody(req, 20000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
     const { wbs } = ks.parseWbs(b.wbs);
-    return json(req, res, 200, { dup: ks.existing(user.username, wbs.slice(0, 200)) });
+    return json(req, res, 200, ks.existing(user.username, wbs.slice(0, 200), user.gobiz));
   }
   const mkv = p.match(/^\/api\/ks\/(84\d{10})\/svcs$/);
   if (mkv && req.method === 'POST') {

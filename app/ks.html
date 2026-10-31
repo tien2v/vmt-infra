@@ -65,7 +65,7 @@ a{color:#4f46e5}
 
 <section id="tKho" hidden>
   <div class="card">
-    <p class="muted" style="margin:0 0 10px;font-size:13px">Địa chỉ hiện cho khách ở form ký gửi và trong đơn. Ghi <b>{MA}</b> ở chỗ cần chèn ký hiệu khách, hệ thống tự thay bằng <b>HN-mã khách</b> hoặc <b>SG-mã khách</b> theo kho nhận khách chọn (khách ghi username vẫn nhận được).<br>Chính ngạch: hệ thống tự chia theo cân ước tính — từ 100kg đi kho mã bắt đầu <b>B1</b>, dưới 100kg đi kho <b>T3</b>.</p>
+    <p class="muted" style="margin:0 0 10px;font-size:13px">Địa chỉ hiện cho khách ở form ký gửi và trong đơn. Ghi <b>{MA}</b> ở chỗ cần chèn ký hiệu khách, hệ thống tự thay bằng <b>mã khách</b> (khách ghi username vẫn nhận được). Kho nhận Hà Nội / TP.HCM lấy theo đơn hoặc cài đặt mặc định của khách.<br>Chính ngạch: hệ thống tự chia theo cân ước tính — từ 100kg đi kho mã bắt đầu <b>B1</b>, dưới 100kg đi kho <b>T3</b>.</p>
     <label>Nhóm khách đại lý dùng SĐT đại lý <span class="muted">(tên nhóm Gobiz, cách nhau dấu phẩy, vd kghn28, tango)</span></label><input class="f" id="agentGroups" placeholder="để trống = mọi khách dùng SĐT chính">
     <div id="whs" style="margin-top:12px"></div>
     <div id="whAct" style="display:flex;gap:10px;flex-wrap:wrap"><button class="s" id="whAdd" type="button">+ Thêm kho</button><button class="p" id="whSave" type="button">Lưu</button></div>
@@ -92,18 +92,19 @@ async function load() {
 }
 function render() {
   $('#cnt').textContent = DATA.length + ' đơn';
-  $('#rows').innerHTML = DATA.length ? DATA.map((o) => '<tr class="row" data-c="' + o.code + '"><td><b>' + esc(o.wb) + '</b><br><span class="muted">' + o.code + '</span>' + (o.lot ? '<br><span class="muted">' + esc(o.lot) + '</span>' : '') + '</td><td>' + esc(o.gobiz || o.username) + (o.test ? '<span class="test">test</span>' : '') + '</td><td class="hide-m">' + (o.mode === 'chinh' ? 'Chính ngạch' : 'TMĐT · ' + (LINE[o.line] || o.line)) + '</td><td class="hide-m">' + esc(o.whCnName || '—') + ' → ' + (o.wh === 'HCM' ? 'HCM' : 'HN') + '</td><td><span class="st ' + o.status + '">' + esc(o.label) + '</span></td><td class="hide-m muted">' + dtt(o.created) + '</td></tr>' + (OPEN === o.code ? '<tr><td colspan="6"><div class="det" id="det"></div></td></tr>' : '')).join('') : '<tr><td colspan="6" class="muted" style="padding:20px">Chưa có đơn ký gửi nào trên hệ thống mới.</td></tr>';
+  $('#rows').innerHTML = DATA.length ? DATA.map((o) => '<tr class="row" data-c="' + o.code + '"><td><b>' + esc(o.wb) + '</b><br><span class="muted">' + o.code + '</span>' + (o.lot ? '<br><span class="muted">' + esc(o.lot) + '</span>' : '') + (o.auto ? '<br><span class="test">tự tạo</span>' : '') + (o.brand ? '<span class="test">thương hiệu</span>' : '') + (o.special ? '<span class="test">đặc thù · về chậm</span>' : '') + '</td><td>' + esc(o.gobiz || o.username) + (o.test ? '<span class="test">test</span>' : '') + '</td><td class="hide-m">' + (o.mode === 'chinh' ? 'Chính ngạch' : 'TMĐT · ' + (LINE[o.line] || o.line)) + '</td><td class="hide-m">' + esc(o.whCnName || '—') + ' → ' + (o.wh === 'HCM' ? 'HCM' : 'HN') + '</td><td><span class="st ' + o.status + '">' + esc(o.label) + '</span></td><td class="hide-m muted">' + dtt(o.created) + '</td></tr>' + (OPEN === o.code ? '<tr><td colspan="6"><div class="det" id="det"></div></td></tr>' : '')).join('') : '<tr><td colspan="6" class="muted" style="padding:20px">Chưa có đơn ký gửi nào trên hệ thống mới.</td></tr>';
   if (OPEN) detail(DATA.find((o) => o.code === OPEN));
 }
 async function detail(o) {
   if (!o) return;
   const el = $('#det');
   const items = o.items.length ? o.items.map((i) => esc(i.name) + (i.nameZh ? ' <span class="muted">· ' + esc(i.nameZh) + '</span>' : '') + ' — SL ' + i.qty + (i.price != null && ROLE !== 'kho' ? ' × ¥' + i.price : '')).join('<br>') : '<span class="muted">Không khai hàng</span>';
-  el.innerHTML = '<div class="row2"><dl style="flex:1;min-width:260px"><dt>Vận đơn</dt><dd><b>' + esc(o.wb) + '</b></dd><dt>Shop</dt><dd>' + esc(o.shop || '—') + '</dd><dt>Hàng</dt><dd>' + items + '</dd><dt>Dịch vụ</dt><dd>' + ([...o.svcs.map((s) => SVC[s] || s), o.svcOther].filter(Boolean).map(esc).join(', ') || '—') + '</dd>' + (o.estW ? '<dt>Cân ước tính</dt><dd>' + o.estW + ' kg</dd>' : '') + (o.note ? '<dt>Ghi chú</dt><dd>' + esc(o.note) + '</dd>' : '') + '</dl><div style="flex:1;min-width:260px"><strong style="font-size:13px">Lịch sử thao tác</strong><div id="lg" class="muted" style="font-size:13px">Đang tải…</div></div></div>';
+  el.innerHTML = '<div class="row2"><dl style="flex:1;min-width:260px"><dt>Vận đơn</dt><dd><b>' + esc(o.wb) + '</b></dd><dt>Shop</dt><dd>' + esc(o.shop || '—') + '</dd><dt>Hàng</dt><dd>' + items + '</dd><dt>Dịch vụ</dt><dd>' + ([...o.svcs.map((s) => SVC[s] || s), o.svcOther].filter(Boolean).map(esc).join(', ') || '—') + '</dd>' + (o.estW ? '<dt>Cân ước tính</dt><dd>' + o.estW + ' kg</dd>' : '') + (o.note ? '<dt>Ghi chú</dt><dd>' + esc(o.note) + '</dd>' : '') + '<dt>Đánh dấu</dt><dd><label style="display:inline-flex;gap:4px;margin:0 10px 0 0"><input type="checkbox" data-fl="brand"' + (o.brand ? ' checked' : '') + '> Hàng thương hiệu</label><label style="display:inline-flex;gap:4px;margin:0"><input type="checkbox" data-fl="special"' + (o.special ? ' checked' : '') + '> Hàng đặc thù (về chậm)</label></dd></dl><div style="flex:1;min-width:260px"><strong style="font-size:13px">Lịch sử thao tác</strong><div id="lg" class="muted" style="font-size:13px">Đang tải…</div></div></div>';
   const j = await api('/api/ks/' + o.code + '/log');
   const lg = $('#lg'); if (lg) lg.innerHTML = (j.items || []).map((l) => '<div style="padding:4px 0;border-bottom:1px solid #eee">' + dtt(l.ts) + ' · <b style="font-family:inherit">' + esc(l.by) + '</b> · ' + esc(l.action) + (l.ip ? ' <span class="muted">(IP ' + esc(l.ip) + ')</span>' : '') + (l.changes || []).map((c) => '<br>&nbsp;&nbsp;' + esc(c[0]) + ': ' + esc(c[1]) + ' → ' + esc(c[2])).join('') + '</div>').join('') || 'Chưa có';
 }
-$('#rows').addEventListener('click', (e) => { const r = e.target.closest('tr.row'); if (!r) return; OPEN = OPEN === r.dataset.c ? null : r.dataset.c; render(); });
+$('#rows').addEventListener('change', async (e) => { const f = e.target.closest('[data-fl]'); if (!f || !OPEN) return; const j = await api('/api/ks/' + OPEN + '/flags', { method: 'POST', body: JSON.stringify({ [f.dataset.fl]: f.checked }) }); if (j.error) { alert(j.error); f.checked = !f.checked; return; } const o = DATA.find((x) => x.code === OPEN); if (o) { o.brand = j.order.brand; o.special = j.order.special; } detail(o); });
+$('#rows').addEventListener('click', (e) => { if (e.target.closest('[data-fl], label')) return; const r = e.target.closest('tr.row'); if (!r) return; OPEN = OPEN === r.dataset.c ? null : r.dataset.c; render(); });
 let qt; $('#q').addEventListener('input', () => { clearTimeout(qt); qt = setTimeout(load, 300); }); $('#st').onchange = load;
 
 // ---- Kho TQ ----
@@ -146,7 +147,7 @@ $('#tGo').onclick = async () => {
   const body = { cust: $('#tCust').value, wbs: $('#tWbs').value, lot: $('#tLot').value, shop: $('#tShop').value, mode: $('#tMode').value, wh: $('#tWh').value, line: $('#tLine').value, estW: $('#tEstW').value, items, svcs: [...document.querySelectorAll('#tSvcs input:checked')].map((x) => x.value), note: $('#tNote').value };
   const j = await api('/api/ks/create', { method: 'POST', body: JSON.stringify(body) });
   if (j.error) { $('#tMsg').innerHTML = '<div class="err">' + esc(j.error) + '</div>'; return; }
-  $('#tMsg').innerHTML = '<div class="ok">Đã tạo ' + j.orders.length + ' đơn cho ' + esc(j.owner) + ': ' + j.orders.map((o) => esc(o.wb) + ' (' + o.code + ')').join(', ') + '</div>';
+  $('#tMsg').innerHTML = '<div class="ok">' + (j.merged && j.merged.length ? 'Cập nhật ' + j.merged.length + ' đơn tự tạo, ' : '') + 'Xong ' + j.orders.length + ' đơn cho ' + esc(j.owner) + ': ' + j.orders.map((o) => esc(o.wb) + ' (' + o.code + ')').join(', ') + '</div>';
   ['#tWbs', '#tText', '#tItems', '#tLot', '#tShop', '#tNote'].forEach((x) => $(x).value = ''); TIMG = []; tImgR(); load();
 };
 load();

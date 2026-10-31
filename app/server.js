@@ -617,6 +617,14 @@ async function handle(req, res) {
       const r = ksadmin.autoCreate({ mark: b.mark, wb: b.wb, by: user.username, isKnown: (u) => !!extra.getCust(u) || customers().some((c) => String(c.u).toLowerCase() === u) });
       return json(req, res, r.error ? 400 : 200, r);
     }
+    const mf = p.match(/^\/api\/ks\/(84\d{10})\/flags$/);
+    if (mf && req.method === 'POST') { // kho / sale danh dau hang thuong hieu / dac thu
+      if (!['admin', 'kho', 'sale'].includes(user.role)) return json(req, res, 403, { error: 'forbidden' });
+      if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+      let b; try { b = JSON.parse((await readBody(req, 2000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+      const r = ksadmin.setFlags(mf[1], { brand: b.brand, special: b.special }, user.username);
+      return json(req, res, r.error ? (r.code || 400) : 200, r);
+    }
     const ml = p.match(/^\/api\/ks\/(84\d{10})\/log$/);
     if (ml) return json(req, res, 200, { items: ksadmin.log(ml[1]) });
     if (p === '/api/ks/warehouses' && req.method === 'GET') return json(req, res, 200, { items: ksadmin.warehouses(), agentGroups: ksadmin.agentGroups(), log: user.role === 'admin' ? ksadmin.warehousesLog().slice(0, 20) : [], canEdit: user.role === 'admin' });

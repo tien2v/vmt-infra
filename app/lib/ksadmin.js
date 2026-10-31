@@ -25,7 +25,7 @@ function list(q, status, limit) {
   return rows.map((r) => {
     let x = {}; try { x = JSON.parse(r.data); } catch {}
     return { code: r.code, username: r.username, gobiz: r.gobiz, test: !!r.test, status: r.status, label: LABEL[r.status] || r.status, wb: r.wb, created: r.created_at, modified: r.updated_at || r.created_at,
-      lot: x.lot || '', shop: x.shop || '', mode: x.mode, line: x.line, wh: x.wh, whCnName: x.whCnName, estW: x.estW, svcs: x.svcs || [], svcOther: x.svcOther || '', note: x.note2 || '', items: x.items || [], value: x.value || 0 };
+      lot: x.lot || '', shop: x.shop || '', brand: !!x.brand, special: !!x.special, auto: !!x.auto, mode: x.mode, line: x.line, wh: x.wh, whCnName: x.whCnName, estW: x.estW, svcs: x.svcs || [], svcOther: x.svcOther || '', note: x.note2 || '', items: x.items || [], value: x.value || 0 };
   }).filter((o) => (!status || o.status === status) && (!k || [o.code, o.wb, o.username, o.gobiz, o.lot, o.shop].join(' ').toLowerCase().includes(k)));
 }
 function log(code) {
@@ -111,9 +111,11 @@ function staffCreate(b, staff, ip, isKnown) {
   const v = k.validate(b); if (v.error) return v;
   const r = k.create(own, own, false, v, ip, {}, 'nv:' + staff);
   if (r.error) return r;
-  try { const d = open(); for (const o of r.orders) d.prepare('INSERT INTO notif (username, code, text) VALUES (?, ?, ?)').run(own, o.code, 'Nhân viên VMT đã tạo đơn ký gửi ' + o.wb + ' giúp anh/chị.'); } catch {}
-  return { ok: true, owner: own, orders: r.orders };
+  try { const d = open(); for (const o of r.orders) d.prepare('INSERT INTO notif (username, code, text) VALUES (?, ?, ?)').run(own, o.code, ((r.merged || []).includes(o.code) ? 'Nhân viên VMT đã cập nhật thông tin đơn ký gửi ' : 'Nhân viên VMT đã tạo đơn ký gửi ') + o.wb + ' giúp anh/chị.'); } catch {}
+  return { ok: true, owner: own, orders: r.orders, merged: r.merged || [] };
 }
+
+function setFlags(code, b, by) { const k = ksLib(); if (!k) return { error: 'Chưa có dữ liệu trang khách' }; return k.setFlags(code, b, by); }
 
 function autoCreate(o) {
   const d = open(); if (!d || !hasTable(d)) return { error: 'Chưa có dữ liệu ký gửi' };
@@ -143,4 +145,4 @@ function autoCreate(o) {
   } catch (e) { try { d.exec('ROLLBACK'); } catch {} throw e; }
 }
 
-module.exports = { staffCreate, ksLib, autoCreate, parseMark, init, list, log, warehouses, setWarehouses, warehousesLog, agentGroups, setAgentGroups, LABEL };
+module.exports = { setFlags, staffCreate, ksLib, autoCreate, parseMark, init, list, log, warehouses, setWarehouses, warehousesLog, agentGroups, setAgentGroups, LABEL };

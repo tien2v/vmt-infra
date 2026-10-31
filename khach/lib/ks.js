@@ -16,7 +16,7 @@ const LINES = { TC: 'standard_shipping', TK: 'eco_shipping', UT: 'express_shippi
 const SVCS = ['insurance', 'wood_brace', 'counting', 'paper_brace', 'bubble_wrapping'];
 const SVC_NAME = { insurance: 'Bảo hiểm', wood_brace: 'Đóng gỗ', counting: 'Kiểm đếm', paper_brace: 'Nẹp giấy', bubble_wrapping: 'Cuốn bọt khí' };
 // Kho TQ mac dinh (dia chi anh gui 31/10) — admin sua o saas.7zone.net/ky-gui -> Kho Trung Quoc (kv 'cn_warehouses').
-// {MA} = ky hieu khach ghi tren kien: "HN-<ma khach>" / "SG-<ma khach>".
+// {MA} = ma khach ghi tren kien.
 const DEFAULT_WH = [
   { id: 'T3GZ', name: 'Kho Quảng Châu (T3)', short: 'QC', type: 'tieu', recv: '{MA}', addr: '广州市，花都区，花东镇，{MA}花都大道东129号6号仓库101房(2号武越仓）', zip: '510890', phone: '13719002017', phoneAgent: '13060999201', phoneOrder: '18566814214', active: true },
   { id: 'T3BT', name: 'Kho Bằng Tường chính ngạch (T3)', short: 'BT', type: 'chinh', recv: '{MA}李高翔', addr: '广西壮族自治区, 崇左市, 凭祥市, 凭祥镇 {MA}南山希望小学坡底DGVMT443仓库DG', zip: '532699', phone: '13878623546', phoneAgent: '', phoneOrder: '', active: true },
@@ -53,8 +53,9 @@ function pickWh(mode, estW) {
 }
 // Nhom khach dai ly dung SDT kho rieng (kv 'cn_agent_groups', vd "kghn28,tango")
 function agentGroups() { return String(adminKv('cn_agent_groups') || '').toLowerCase().split(/[\s,;]+/).filter(Boolean); }
-// Ky hieu khach tren kien: HN-<ma khach> / SG-<ma khach> (anh chot 31/10 16h17: dung MA KHACH; khach ghi username van nhan duoc)
-const markOf = (dest, kh) => (dest === 'HCM' ? 'SG' : 'HN') + '-' + String(kh || '');
+// Ky hieu khach tren kien = MA KHACH (anh chot 31/10 16h26): khong can HN-/SG-, kho nhan lay theo don hoac cai dat mac dinh cua khach.
+// Khach cu ghi username / HN-… / SG-… van nhan duoc (ben kho doc).
+const markOf = (dest, kh) => String(kh || '');
 // Ma khach (bang cust_codes, cung ma nap tien); chua co thi tam dung username
 function custCodeOf(owner) { try { const r = db.prepare('SELECT code FROM cust_codes WHERE owner = ?').get(String(owner || '').toLowerCase()); if (r) return r.code; } catch {} return String(owner || ''); }
 // Dia chi kho hien cho khach. mark = ky hieu (null: de nguyen {MA} cho trinh duyet tu thay theo kho nhan khach chon)
@@ -109,6 +110,7 @@ function validate(b) {
   return { wbs, data: {
     lot: str(b.lot, 80), shop: str(b.shop, 120), items, value, svcs, svcOther, note2: str(b.note, 500),
     mode, line, wh, estW, whCn: whCn.id, whCnName: whCn.name, whCnShort: whCn.short || 'TQ',
+    brand: !!b.brand, special: !!b.special, // hang thuong hieu / hang dac thu (thuong ve cham)
   } };
 }
 
@@ -127,29 +129,54 @@ function rowOf(r, ctx) {
     fees: [{ t: ship, prov: null, act: null, q: null, p: null, free: false }].concat((d.svcs || []).map((t) => ({ t, prov: null, act: null, q: null, p: null, free: false }))),
     ms: (d.ms || []).map((m) => ({ t: m.t, s: m.s })),
     items: d.items || [], svcs: d.svcs || [], svcOther: d.svcOther || '', note2: d.note2 || '', mode: d.mode, line: d.line, estW: d.estW,
-    whCnName: d.whCnName, mark: markOf(d.wh, custCodeOf(r.gobiz || r.username)), whAddr: whView(w, markOf(d.wh, custCodeOf(r.gobiz || r.username)), ctx && ctx.group), brand: !!d.brand, auto: !!d.auto, canEdit: ['MERCHANT_DELIVERING', 'PUTAWAY'].includes(r.status),
+    whCnName: d.whCnName, mark: markOf(d.wh, custCodeOf(r.gobiz || r.username)), whAddr: whView(w, markOf(d.wh, custCodeOf(r.gobiz || r.username)), ctx && ctx.group), brand: !!d.brand, special: !!d.special, auto: !!d.auto, canEdit: ['MERCHANT_DELIVERING', 'PUTAWAY'].includes(r.status),
   };
 }
 
 // Tao nhieu don (moi ma van don 1 don) trong 1 giao dich: trung 1 ma la khong tao gi
+// Tao don (moi ma van don 1 don) trong 1 giao dich. Van don da co don TU TAO (kien ve kho TQ truoc) va chua dong bao
+// -> CAP NHAT vao don do, khong tao don moi (anh chot 31/10 16h26). Van don da co don khach tu tao -> bao trung, khong tao gi.
+const EDITABLE = ['MERCHANT_DELIVERING', 'PUTAWAY'];
+function findOpen(username, gobiz, wb) {
+  return db.prepare("SELECT * FROM ks_orders WHERE wb = ? AND status <> 'CANCELLED' AND (username = ? OR lower(username) = lower(?) OR (gobiz IS NOT NULL AND lower(gobiz) = lower(?))) ORDER BY seq DESC LIMIT 1").get(wb, username, gobiz || username, gobiz || username);
+}
+const isMergeable = (r) => { if (!r || !EDITABLE.includes(r.status)) return false; try { return !!JSON.parse(r.data).auto; } catch { return false; } };
+function mergeInto(r, v, actor, ip) {
+  const d = JSON.parse(r.data); const L = { TC: 'Tiêu chuẩn', TK: 'Tiết kiệm', UT: 'Ưu tiên', CN: 'Chính ngạch' };
+  const nm = (a) => (a || []).map((x) => SVC_NAME[x]).join(', ') || 'Không';
+  const ch = [];
+  const set = (k, lb, val, show) => { if (JSON.stringify(d[k] ?? null) !== JSON.stringify(val ?? null)) { ch.push([lb, show ? show(d[k]) : String(d[k] ?? ''), show ? show(val) : String(val ?? '')]); d[k] = val; } };
+  // kho TQ da nhan kien -> giu kho TQ + hinh thuc cua don; chi cap nhat thong tin khach khai
+  set('wh', 'Kho nhận', v.data.wh); set('line', 'Vận chuyển', v.data.mode === d.mode ? v.data.line : d.line, (x) => L[x] || x);
+  set('svcs', 'Dịch vụ', v.data.svcs, nm); set('svcOther', 'Yêu cầu khác', v.data.svcOther);
+  if (v.data.items.length) { set('items', 'Hàng', v.data.items, (a) => (a || []).length + ' dòng'); d.value = v.data.value; }
+  if (v.data.lot) set('lot', 'Tên gợi nhớ', v.data.lot); if (v.data.shop) set('shop', 'Shop', v.data.shop); if (v.data.note2) set('note2', 'Ghi chú', v.data.note2);
+  if (v.data.brand && !d.brand) set('brand', 'Hàng thương hiệu', true, (x) => (x ? 'Có' : 'Không'));
+  if (v.data.special && !d.special) set('special', 'Hàng đặc thù', true, (x) => (x ? 'Có' : 'Không'));
+  d.claimedAt = new Date().toISOString(); d.svcsAt = d.claimedAt;
+  db.prepare('UPDATE ks_orders SET data = ?, updated_at = ? WHERE code = ?').run(JSON.stringify(d), d.claimedAt, r.code);
+  db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(r.code, actor, actor.startsWith('nv:') ? 'Nhân viên khai bổ sung đơn tự tạo' : 'Khách khai bổ sung đơn tự tạo', JSON.stringify({ changes: ch, ip: ip || null }));
+}
 function create(username, gobiz, test, v, ip, ctx, by) {
   const actor = by || ('khach:' + username);
   const now = new Date().toISOString();
   db.exec('BEGIN IMMEDIATE');
   try {
-    const dup = v.wbs.filter((wb) => db.prepare("SELECT 1 FROM ks_orders WHERE username = ? AND wb = ? AND status <> 'CANCELLED'").get(username, wb));
-    if (dup.length) { db.exec('ROLLBACK'); return { error: 'Mã vận đơn đã có đơn: ' + dup.slice(0, 5).join(', ') + (dup.length > 5 ? '…' : ''), dup }; }
+    const plan = v.wbs.map((wb) => { const r = findOpen(username, gobiz, wb); return { wb, r, merge: isMergeable(r) }; });
+    const dup = plan.filter((x) => x.r && !x.merge).map((x) => x.wb);
+    if (dup.length) { db.exec('ROLLBACK'); return { error: 'Mã vận đơn đã có đơn (sửa trên đơn đó): ' + dup.slice(0, 5).join(', ') + (dup.length > 5 ? '…' : ''), dup }; }
     const taken = (c) => !!db.prepare('SELECT 1 FROM ks_orders WHERE code = ?').get(c);
-    const codes = [];
-    for (const wb of v.wbs) {
+    const codes = []; const merged = [];
+    for (const x of plan) {
+      if (x.merge) { mergeInto(x.r, v, actor, ip); codes.push(x.r.code); merged.push(x.r.code); continue; }
       const code = tth.makeCode(PREFIX, new Date(), taken);
       const data = Object.assign({}, v.data, { ms: [{ t: now, s: 'MERCHANT_DELIVERING', by: actor }], fee: null, paid: 0, unpaid: 0 });
-      db.prepare('INSERT INTO ks_orders (code, username, gobiz, test, wb, data) VALUES (?, ?, ?, ?, ?, ?)').run(code, username, gobiz, test ? 1 : 0, wb, JSON.stringify(data));
-      db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, actor, by ? 'Nhân viên tạo đơn giúp khách' : 'Khách tạo đơn', JSON.stringify({ changes: [], ip: ip || null, wb, batch: v.wbs.length > 1 ? v.wbs.length : undefined }));
+      db.prepare('INSERT INTO ks_orders (code, username, gobiz, test, wb, data) VALUES (?, ?, ?, ?, ?, ?)').run(code, username, gobiz, test ? 1 : 0, x.wb, JSON.stringify(data));
+      db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, actor, by ? 'Nhân viên tạo đơn giúp khách' : 'Khách tạo đơn', JSON.stringify({ changes: [], ip: ip || null, wb: x.wb, batch: v.wbs.length > 1 ? v.wbs.length : undefined }));
       codes.push(code);
     }
     db.exec('COMMIT');
-    return { orders: codes.map((c) => rowOf(db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(c), ctx)) };
+    return { orders: codes.map((c) => rowOf(db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(c), ctx)), merged };
   } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
 }
 
@@ -158,8 +185,10 @@ function list(username, gobiz, ctx) {
 }
 function countRecent(username) { return db.prepare("SELECT COUNT(*) AS n FROM ks_orders WHERE username = ? AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hour')").get(username).n; }
 // Vận đơn đã có đơn (để form báo trùng trước khi bấm)
-function existing(username, wbs) {
-  return wbs.filter((wb) => db.prepare("SELECT 1 FROM ks_orders WHERE username = ? AND wb = ? AND status <> 'CANCELLED'").get(username, wb));
+function existing(username, wbs, gobiz) {
+  const dup = []; const upd = [];
+  for (const wb of wbs) { const r = findOpen(username, gobiz, wb); if (r) (isMergeable(r) ? upd : dup).push(wb); }
+  return { dup, upd };
 }
 
 // Khach tu huy khi hang chua ve kho TQ
@@ -190,17 +219,32 @@ function setSvcs(username, gobiz, code, b, by, ip) {
     if (svcs.includes('insurance') && !((d.items || []).length && d.value > 0)) { db.exec('ROLLBACK'); return { error: 'Bảo hiểm cần khai hàng và giá trị — liên hệ CSKH để bổ sung hàng', code: 400 }; }
     if (svcs.includes('counting') && !(d.items || []).length) { db.exec('ROLLBACK'); return { error: 'Kiểm đếm cần danh sách hàng — liên hệ CSKH để bổ sung hàng', code: 400 }; }
     const brand = b.brand == null ? !!d.brand : !!b.brand;
+    const special = b.special == null ? !!d.special : !!b.special;
     const ch = [];
     const nm = (a) => a.map((x) => SVC_NAME[x]).join(', ') || 'Không';
     if ((d.svcs || []).join(',') !== svcs.join(',')) ch.push(['Dịch vụ', nm(d.svcs || []), nm(svcs)]);
     if (!!d.brand !== brand) ch.push(['Hàng thương hiệu', d.brand ? 'Có' : 'Không', brand ? 'Có' : 'Không']);
+    if (!!d.special !== special) ch.push(['Hàng đặc thù', d.special ? 'Có' : 'Không', special ? 'Có' : 'Không']);
     if (!ch.length) { db.exec('ROLLBACK'); return { order: rowOf(r) }; }
-    d.svcs = svcs; d.brand = brand; d.svcsAt = new Date().toISOString();
+    d.svcs = svcs; d.brand = brand; d.special = special; d.svcsAt = new Date().toISOString();
     db.prepare('UPDATE ks_orders SET data = ?, updated_at = ? WHERE code = ?').run(JSON.stringify(d), d.svcsAt, code);
     db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, by, 'Đổi dịch vụ', JSON.stringify({ changes: ch, ip: ip || null }));
     db.exec('COMMIT');
     return { order: rowOf(db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(code)) };
   } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
+}
+
+// Kho / nhan vien danh dau hang thuong hieu / hang dac thu (khach cung bam duoc qua setSvcs). Ghi lich su.
+function setFlags(code, b, by) {
+  const r = db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(code);
+  if (!r) return { error: 'Không tìm thấy đơn', code: 404 };
+  const d = JSON.parse(r.data); const ch = [];
+  for (const [k, lb] of [['brand', 'Hàng thương hiệu'], ['special', 'Hàng đặc thù']]) if (b[k] != null && !!b[k] !== !!d[k]) { ch.push([lb, d[k] ? 'Có' : 'Không', b[k] ? 'Có' : 'Không']); d[k] = !!b[k]; }
+  if (!ch.length) return { ok: true, order: rowOf(r) };
+  const now = new Date().toISOString();
+  db.prepare('UPDATE ks_orders SET data = ?, updated_at = ? WHERE code = ?').run(JSON.stringify(d), now, code);
+  db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, by, 'Đánh dấu hàng', JSON.stringify({ changes: ch }));
+  return { ok: true, order: rowOf(db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(code)) };
 }
 
 // ---- Cai dat ky gui mac dinh (anh chot 31/10 16h): kien khach KHONG tao don, tren kien chi co username / ma khach
@@ -233,4 +277,4 @@ function setDefault(owner, b, by, ip) {
   return { ok: true, def: getDefault(owner) };
 }
 
-module.exports = { setSvcs, custCodeOf, getDefault, setDefault, DEF_SVCS, init, validate, create, list, cancel, existing, countRecent, warehouses, pickWh, whView, markOf, agentGroups, parseWbs, DEFAULT_WH, SVC_NAME, LINES, CHINH_B1_KG };
+module.exports = { setFlags, findOpen, setSvcs, custCodeOf, getDefault, setDefault, DEF_SVCS, init, validate, create, list, cancel, existing, countRecent, warehouses, pickWh, whView, markOf, agentGroups, parseWbs, DEFAULT_WH, SVC_NAME, LINES, CHINH_B1_KG };
