@@ -119,6 +119,7 @@ function pwaInit() {
 }
 pwaInit();
 webpush.init(store.rawDb());
+store.rawDb().exec(`CREATE TABLE IF NOT EXISTS login_creds (cred_id TEXT PRIMARY KEY, username TEXT NOT NULL, jwk TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, label TEXT, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), last_used TEXT, disabled INTEGER NOT NULL DEFAULT 0)`);
 // Day thong bao chuong len dien thoai (quet bang notif 20 giay/lan; admin cung ghi vao bang nay)
 const PUSH_TITLE = { order: 'Đơn hàng', money: 'Tài chính', support: 'Hỗ trợ', system: 'Thông báo' };
 setInterval(() => webpush.pump(
@@ -228,6 +229,65 @@ async function handle(req, res) {
     if (!u) { addFail('ip:' + ip); addFail('u:' + username); return json(req, res, 401, { error: 'Sai tên đăng nhập hoặc mật khẩu' }); }
     setCookie(res, makeSession(u), SESSION_HOURS * 3600);
     return json(req, res, 200, { ok: true });
+  }
+  // ---------- Dang nhap bang Face ID / van tay (passkey) ----------
+  // Tach rieng voi Face ID thanh toan (vi): dang nhap chi mo phien xem; tra tien van can PIN / Face ID cua vi.
+  if (p.startsWith('/api/passkey/')) {
+    const user = readSession(req);
+    const WA = require('./lib/webauthn');
+    const host = String(req.headers.host || '').toLowerCase(); const rpId = host.replace(/:\d+$/, '');
+    const origin = (/^(localhost|127\.0\.0\.1)$/.test(rpId) ? 'http://' : 'https://') + host;
+    if (req.method !== 'POST' || !sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 20000)).toString() || '{}'); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const db = store.rawDb(); const ip = clientIp(req);
+    if (p === '/api/passkey/login-challenge' || p === '/api/passkey/login') {
+      if (tooMany('ip:' + ip)) return json(req, res, 429, { error: 'Thử sai nhiều lần, vui lòng đợi 15 phút' });
+      const username = String(b.username || '').trim().toLowerCase();
+      const u = store.getUser(username);
+      const creds = u && u.active ? db.prepare('SELECT cred_id FROM login_creds WHERE username = ? AND disabled = 0').all(username).map((x) => x.cred_id) : [];
+      if (p === '/api/passkey/login-challenge') {
+        if (!creds.length) return json(req, res, 400, { error: 'Máy này chưa bật đăng nhập bằng Face ID, đăng nhập bằng mật khẩu' });
+        return json(req, res, 200, { challenge: WA.challenge('login:' + username, 'login', null), rpId, creds });
+      }
+      try {
+        const w = b.cred || {};
+        WA.take(String(b.challenge || ''), 'login:' + username, 'login', null);
+        const c = db.prepare('SELECT * FROM login_creds WHERE cred_id = ? AND username = ? AND disabled = 0').get(String(w.id || ''), username);
+        if (!c || !u || !u.active) throw new Error('Face ID trên máy này không còn hiệu lực, đăng nhập bằng mật khẩu');
+        const n = WA.verifyAssert(w, { jwk: JSON.parse(c.jwk), count: c.count }, b.challenge, origin, rpId);
+        db.prepare("UPDATE login_creds SET count = ?, last_used = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE cred_id = ?").run(n, c.cred_id);
+        store.logLogin(username, ip + ' faceid', true);
+        setCookie(res, makeSession(u), SESSION_HOURS * 3600);
+        return json(req, res, 200, { ok: true });
+      } catch (e) { addFail('ip:' + ip); store.logLogin(username, ip + ' faceid', false); return json(req, res, 401, { error: e.message || 'Xác thực không thành công' }); }
+    }
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (p === '/api/passkey/list') return json(req, res, 200, { items: db.prepare('SELECT cred_id AS id, label, created_at, last_used FROM login_creds WHERE username = ? AND disabled = 0 ORDER BY created_at DESC').all(user.username) });
+    if (p === '/api/passkey/reg-challenge') {
+      const ex = db.prepare('SELECT cred_id FROM login_creds WHERE username = ? AND disabled = 0').all(user.username).map((x) => x.cred_id);
+      return json(req, res, 200, { challenge: WA.challenge('login:' + user.username, 'login-reg', null), rpId, exclude: ex, user: { id: WA.b64u(crypto.createHash('sha256').update('vmt-login:' + user.username).digest().subarray(0, 16)), name: user.username } });
+    }
+    if (p === '/api/passkey/register') {
+      // Bat Face ID dang nhap phai nhap lai mat khau (chong ai muon may / lay duoc phien dang nhap tu them thiet bi cua ho)
+      if (tooMany('u:' + user.username)) return json(req, res, 429, { error: 'Thử sai nhiều lần, vui lòng đợi 15 phút' });
+      if (!store.checkPassword(user.username, String(b.password || ''))) { addFail('u:' + user.username); return json(req, res, 401, { error: 'Mật khẩu không đúng' }); }
+      try {
+        WA.take(String(b.challenge || ''), 'login:' + user.username, 'login-reg', null);
+        const r = WA.verifyRegister(b.cred || {}, b.challenge, origin, rpId);
+        if (db.prepare('SELECT 1 FROM login_creds WHERE cred_id = ?').get(r.credId)) return json(req, res, 409, { error: 'Máy này đã bật rồi' });
+        db.prepare('INSERT INTO login_creds (cred_id, username, jwk, count, label) VALUES (?, ?, ?, ?, ?)').run(r.credId, user.username, JSON.stringify(r.jwk), r.count, String(b.label || '').slice(0, 60) || 'Thiết bị');
+        // toi da 10 thiet bi / tai khoan
+        db.prepare('UPDATE login_creds SET disabled = 1 WHERE username = ? AND disabled = 0 AND cred_id NOT IN (SELECT cred_id FROM login_creds WHERE username = ? AND disabled = 0 ORDER BY created_at DESC LIMIT 10)').run(user.username, user.username);
+        store.logLogin(user.username, ip + ' faceid_on', true);
+        return json(req, res, 200, { ok: true, id: r.credId });
+      } catch (e) { return json(req, res, 400, { error: e.message || 'Không bật được Face ID' }); }
+    }
+    if (p === '/api/passkey/remove') {
+      db.prepare('UPDATE login_creds SET disabled = 1 WHERE username = ? AND cred_id = ?').run(user.username, String(b.id || ''));
+      store.logLogin(user.username, ip + ' faceid_off', true);
+      return json(req, res, 200, { ok: true });
+    }
+    return json(req, res, 404, { error: 'not found' });
   }
   if (p === '/api/logout') { setCookie(res, '', 0); res.writeHead(302, { Location: '/login' }); return res.end(); }
   if (p === '/login') return loginPage(req, res);
