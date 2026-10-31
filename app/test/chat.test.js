@@ -76,3 +76,16 @@ test('video: luu, kiem tra, gan vao tin, don dep', async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 test('2 ban webpush.js giong het', () => { const fs = require('node:fs'), p = require('node:path'); assert.equal(fs.readFileSync(p.join(__dirname, '../lib/webpush.js'), 'utf8'), fs.readFileSync(p.join(__dirname, '../../khach/lib/webpush.js'), 'utf8')); });
+test('nhan + the thanh toan', () => {
+  const db = mk(); const t = C.ensure(db, { owner: 'k1', ctx: 'don:SCN1' });
+  const tags = C.tagList(db); assert.ok(tags.length >= 5, 'co nhan mac dinh');
+  C.send(db, t, { f: 'k', body: 'hỏi' });
+  assert.ok(C.setTags(db, C.thread(db, t.id), [tags[0].id, 999, tags[1].id], 'nv').ok);
+  assert.deepEqual(C.tView(db, C.thread(db, t.id), 's').tags, [tags[0].id, tags[1].id]);
+  assert.equal(C.listStaff(db, 'all', 'nv', '', false, tags[0].id).length, 1); assert.equal(C.listStaff(db, 'all', 'nv', '', false, tags[2].id).length, 0);
+  assert.ok(C.tagSave(db, { name: 'VIP', color: 'xxx' }).ok); assert.equal(C.tagList(db).pop().color, 'slate');
+  C.tagDelete(db, tags[0].id); assert.ok(!C.tagList(db).some((x) => x.id === tags[0].id));
+  C.send(db, C.thread(db, t.id), { f: 's', by: 'nv', body: '', card: { t: 'pay', code: 'SCN1', k: 'cn' } });
+  assert.equal(C.thread(db, t.id).last_text, '[Thanh toán đơn SCN1]');
+  const m = C.messages(db, t.id, 'k', 'k').pop(); assert.equal(m.card.t, 'pay');
+});

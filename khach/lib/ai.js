@@ -142,4 +142,4 @@ async function ksFill(text, images) {
   return { ok: true, data: cleanKs(r.data) };
 }
 
-module.exports = { init, ready, cnFill, ksFill, toZh, _cleanCn: cleanCn, _cleanKs: cleanKs };
+module.exports = { init, ready, askJson, cnFill, ksFill, toZh, _cleanCn: cleanCn, _cleanKs: cleanKs };

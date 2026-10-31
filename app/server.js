@@ -335,7 +335,10 @@ function khOrders(u) {
 }
 const webpush = require('./lib/webpush');
 webpush.init(store.rawDb()); // thong bao dien thoai cho nhan vien (tin nhan khach); khoa VAPID rieng trong vmt.db
-chats.init({ json, send, sendFile, readBody, sameOrigin, cn, customers, khOrders, webpush, kvGet: store.kvGet, kvSet: store.kvSet, dir: path.dirname(process.env.KHACH_DB || '/khach/khach.db'), staffList: () => store.listUsers().filter((x) => x.active && chats.ROLES.includes(x.role)).map((x) => ({ u: x.username, n: x.name || x.username, role: x.role })) });
+// Phu trach khach (sale / CSKH) + tom tat khach cho chat (tu chia cuoc chat, AI goi y, mau cau tu dien)
+const custOwner = (u) => { const r = khRows().find((x) => x.k === u); return r ? { sale: r.sale, cskh: r.cskh } : null; };
+const khBrief = (u) => { const r = khDetail(u, { role: 'admin' }); if (!r) return null; return { fn: r.c.fn, code: r.c.code, bal: r.c.bal, unpaid: r.c.unpaid, orders: r.orders.slice(0, 40) }; };
+chats.init({ ai, custOwner, khBrief, json, send, sendFile, readBody, sameOrigin, cn, customers, khOrders, webpush, kvGet: store.kvGet, kvSet: store.kvSet, dir: path.dirname(process.env.KHACH_DB || '/khach/khach.db'), staffList: () => store.listUsers().filter((x) => x.active && chats.ROLES.includes(x.role)).map((x) => ({ u: x.username, n: x.name || x.username, role: x.role })) });
 
 // ---------- dinh tuyen ----------
 async function handle(req, res) {

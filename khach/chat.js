@@ -89,7 +89,9 @@ svg.chs{fill:none!important}
 .ch-imgs.one img{max-width:240px;max-height:320px;width:auto}
 .ch-card{display:flex;align-items:center;gap:10px;min-width:210px;cursor:pointer;text-align:left}
 .ch-card .icon-tile{width:38px;height:38px;border-radius:12px;flex:none}
-.ch-card b{display:block;font-size:14px}.ch-card small{display:block;font-size:12px;color:#6f6656}
+.ch-card b{display:block;font-size:14px}
+.ch-paybtn{display:block;width:100%;margin-top:8px;min-height:40px;border-radius:12px;font-weight:800}
+.ch-paid{margin-top:6px;font-size:12px;font-weight:700;color:#2a7a14}.ch-card small{display:block;font-size:12px;color:#6f6656}
 .ch-lk{display:block;margin-top:6px;padding:7px 9px;border-radius:11px;background:#ffffffb3;border:1px solid #e1d7c5;font-size:12px;font-weight:700;text-decoration:none!important}
 .ch-re{display:flex;gap:3px;flex-wrap:wrap;margin-top:-6px;padding:0 6px;z-index:1}
 .ch-re button{display:inline-flex;align-items:center;gap:2px;font-size:12px;padding:1px 6px;border-radius:999px;background:#fff;border:1px solid #e6dcc9;box-shadow:0 1px 2px #0000000d;color:#6f6656;font-weight:700}
@@ -337,7 +339,11 @@ svg.chs{fill:none!important}
     if (m.recalled) return `<div class="ch-b rc" data-mid="${m.id}">Tin nhắn đã được thu hồi</div>`;
     let h = '';
     if (m.reply) h += `<span class="ch-q" data-chjump="${m.reply.id}">${IC.reply} ${esc(m.reply.f === 'k' ? 'Bạn' : (m.reply.name || 'Nhân viên'))}: ${esc(m.reply.recalled ? 'Tin đã thu hồi' : m.reply.body || (m.reply.vid ? '[Video]' : m.reply.img ? '[Ảnh]' : '[Đơn hàng]'))}</span>`;
-    if (m.card) { const x = xOf(m.card.code); h += `<div class="ch-card" data-chord="${esc(m.card.code)}">${tIcon({ kind: m.card.k || (x && x.k) })}<span><b>${esc(m.card.code)}</b><small>${esc((KN[m.card.k] || 'Đơn hàng') + (x && typeof lab === 'function' ? ' · ' + lab(x) : ''))}</small></span></div>`; }
+    if (m.card && m.card.t === 'pay') { // the hanh dong NV gui: bam la sang thanh toan (tien van qua PIN / Face ID)
+      const x = xOf(m.card.code); const due = x ? x.unpaid || 0 : null;
+      h += `<div class="ch-card" data-chord="${esc(m.card.code)}">${tIcon({ kind: 'peer' })}<span><b>Thanh toán đơn ${esc(m.card.code)}</b><small>${esc(due ? 'Còn thiếu ' + (typeof vnd === 'function' ? vnd(due) : due) : due === 0 ? 'Đơn này đã thanh toán xong' : (KN[m.card.k] || 'Đơn hàng'))}</small></span></div>` +
+        (due ? `<button type="button" class="primary-button ch-paybtn" data-chpay="${esc(m.card.code)}" data-k="${esc(m.card.k || (x && x.k) || '')}">Thanh toán ngay</button>` : due === 0 ? '<div class="ch-paid">✓ Đã thanh toán</div>' : '');
+    } else if (m.card) { const x = xOf(m.card.code); h += `<div class="ch-card" data-chord="${esc(m.card.code)}">${tIcon({ kind: m.card.k || (x && x.k) })}<span><b>${esc(m.card.code)}</b><small>${esc((KN[m.card.k] || 'Đơn hàng') + (x && typeof lab === 'function' ? ' · ' + lab(x) : ''))}</small></span></div>`; }
     if (m.body) h += (m.card ? '<div style="margin-top:6px">' : '') + fmt(m.body) + (m.card ? '</div>' : '');
     const pics = (m.att || []).filter((a) => a.t !== 'v'), vids = (m.att || []).filter((a) => a.t === 'v');
     const imgs = (pics.length ? `<div class="ch-imgs${pics.length === 1 ? ' one' : ''}">${pics.map((a) => `<img src="/u/${esc(a.id)}.jpg" alt="" loading="lazy" data-chiv>`).join('')}</div>` : '') +
@@ -573,6 +579,7 @@ svg.chs{fill:none!important}
     if (e.target.closest('[data-chback]')) { if (history.length > 1 && S._fromList) history.back(); else location.hash = '#tin-nhan'; return; }
     const pk = e.target.closest('[data-chpick]'); if (pk) { picker(pk.dataset.chpick); return; }
     if (e.target.closest('[data-chsnd]')) { soundOn = !soundOn; try { localStorage.setItem('vmt_chat_snd', soundOn ? '1' : '0'); } catch (x) {} renderList(); toast(soundOn ? 'Đã bật âm báo tin nhắn' : 'Đã tắt âm báo tin nhắn'); return; }
+    const pb = e.target.closest('[data-chpay]'); if (pb) { const code = pb.dataset.chpay, k = pb.dataset.k || kOf(code); if (k === 'cn') location.hash = '#vi/' + encodeURIComponent(code); else if (k && typeof openDetail === 'function') openDetail(k, code); else toast('Không tìm thấy đơn ' + code); return; }
     const od = e.target.closest('[data-chord]'); if (od) { const code = od.dataset.chord; const k = kOf(code); if (k && typeof openDetail === 'function') openDetail(k, code); else toast('Không tìm thấy đơn ' + code); return; }
     const iv = e.target.closest('img[data-chiv]'); if (iv) { const v = document.createElement('div'); v.className = 'ch-iv'; v.innerHTML = `<img src="${esc(iv.src)}" alt="">`; v.addEventListener('click', () => v.remove()); document.body.appendChild(v); return; }
     const re = e.target.closest('[data-chre]'); if (re) { react(+re.dataset.chre, re.dataset.e); return; }

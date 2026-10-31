@@ -38,4 +38,5 @@ Trước khi mã hoá lại để push:
 - Dữ liệu ở khach.db (chat_threads, chat_msgs, chat_ev, chat_log, chat_tpl); 2 tiến trình cùng ghi, báo nhau qua bảng `chat_ev` (giữ 2 ngày).
 - Giao diện chat trang khách là file riêng `khach/chat.js` (không mã hoá), máy chủ tự chèn vào cuối index.html → sửa chat không cần mã hoá lại giao diện.
 - Video chat lưu ở `<thư mục khach.db>/chatfiles/` (khách ≤ 100MB, NV ≤ 75MB, tổng ≤ 40GB, tự dọn: bỏ ngang 1 ngày; cuộc yên 30 ngày + cũ hơn 90 ngày). Thông báo điện thoại cho NV: khoá VAPID riêng trong vmt.db, service worker `app/chat-sw.js`.
+- Hộp thư NV `app/chat.html` (kiểu Zalo PC 3 cột, nạp `/assets/css/app.css` của Lineone để lấy chữ + icon FontAwesome; không đặt tên class trùng Lineone như `.card`). Tự chia cuộc chat (`assignPump`: CSKH → Sale → NV đang mở hộp thư ít việc nhất), AI gợi ý (`suggest`, theo quy tắc nhắn như người thật), nhãn `chat_tags`, thẻ thanh toán `card.t = 'pay'`.
 - Ghi chú nội bộ (`f = 'note'`) không bao giờ được gửi ra phía khách (API, SSE, thông báo đẩy): sửa chỗ nào đọc chat_msgs cho khách thì giữ điều kiện này.

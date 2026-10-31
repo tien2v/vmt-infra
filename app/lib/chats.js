@@ -13,6 +13,7 @@ function init(o) {
   H = o; // json, send, sendFile, readBody, sameOrigin, cn, customers(), staffList(), khOrders(u) -> Map code->kind, dir (thu muc khach.db), webpush, kvGet, kvSet
   setInterval(evPump, 1000).unref();
   setInterval(pushPump, 3000).unref();
+  setInterval(assignPump, 2000).unref();
   setInterval(() => { for (const c of clients) { try { c.res.write(': ping\n\n'); } catch {} } }, 25e3).unref();
 }
 let evCur = 0;
@@ -64,6 +65,83 @@ async function pushPump() {
   } catch (e) { console.error('chat staff push', e.message); } finally { pushBusy = false; }
 }
 
+// Tu chia khach cho NV (anh chot 31/10): khach nhan ma cuoc chat chua ai nhan -> CSKH phu trach khach -> Sale phu trach
+// -> NV dang mo hop thu (it cuoc dang cho nhat) -> de "Chua ai nhan". Tai khoan test noi bo khong chia.
+let asBusy = false;
+function assignPump() {
+  if (asBusy) return; asBusy = true;
+  try {
+    let d; try { d = db(); } catch (e) { return; }
+    const cur0 = H.kvGet('chat_assign_cur');
+    if (cur0 == null) { H.kvSet('chat_assign_cur', String(d.prepare('SELECT MAX(id) AS m FROM chat_msgs').get().m || 0)); return; }
+    const rows = d.prepare("SELECT id, th FROM chat_msgs WHERE id > ? AND f = 'k' ORDER BY id LIMIT 300").all(Number(cur0) || 0);
+    if (!rows.length) return;
+    H.kvSet('chat_assign_cur', String(rows[rows.length - 1].id));
+    const staff = H.staffList(); const ok = new Set(staff.map((x) => x.u));
+    for (const th of new Set(rows.map((r) => r.th))) {
+      const t = chat.thread(d, th); if (!t || t.assignee || t.test) continue;
+      const own = H.custOwner(String(t.gobiz || t.owner).toLowerCase()) || {};
+      let to = null, why = '';
+      if (own.cskh && ok.has(own.cskh)) { to = own.cskh; why = 'CSKH phụ trách khách'; }
+      else if (own.sale && ok.has(own.sale)) { to = own.sale; why = 'Sale phụ trách khách'; }
+      else {
+        const online = [...new Set([...clients].map((c) => c.u))].filter((u) => ok.has(u));
+        if (online.length) {
+          const load = (u) => d.prepare("SELECT COUNT(*) AS n FROM chat_threads WHERE assignee = ? AND status = 'open' AND wait_at IS NOT NULL").get(u).n;
+          to = online.sort((a, b) => load(a) - load(b))[0]; why = 'NV đang trực, ít việc nhất';
+        }
+      }
+      if (to) { chat.assign(d, t, to, 'he-thong'); chat.log(d, t.id, 'he-thong', 'Tự chia cuộc chat', { to, why }); }
+    }
+  } catch (e) { console.error('chat assign', e.message); } finally { asBusy = false; }
+}
+
+// AI goi y cau tra loi (Gemini). Theo quy tac nhan tin cua anh: viet nhu nguoi that, khong cau mau, khong "quy khach", it emoji,
+// so lieu lay dung tu du lieu, khong bia. NV doc, sua roi moi gui (AI khong bao gio tu gui).
+const ST = { DEPOSITED: 'Đã đặt cọc', ACCEPTED: 'Đã tiếp nhận', PROCESSING: 'Đang xử lý', PURCHASING: 'Đang mua hàng', PURCHASED: 'Đã mua hàng', MERCHANT_DELIVERING: 'Người bán đang giao tới kho TQ', PUTAWAY: 'Đã về kho Trung Quốc', TRANSPORTING: 'Đang vận chuyển về VN', READY_FOR_DELIVERY: 'Đã về kho VN, chờ giao', DELIVERING: 'Đang giao', DELIVERED: 'Hoàn thành', CANCELLED: 'Đã huỷ', REQUEST_FOR_PAY: 'Chờ thanh toán', PAYMENT_PAID: 'Đã thanh toán', TRANSACTION_COMPLETED: 'Hoàn thành', PAYMENT_CANCELLED: 'Đã huỷ', PENDING: 'Chờ tiếp nhận', VN_WAREHOUSE: 'Kho VN đã nhận', CLEARED: 'Đang giao tại TQ', RETURN: 'Trả hàng' };
+const KN = { order: 'Đặt hàng hộ', ship: 'Ký gửi về VN', peer: 'Thanh toán hộ', cn: 'Ship to China' };
+function ctxOf(t) {
+  const u = String(t.gobiz || t.owner).toLowerCase(); const b = H.khBrief(u) || {};
+  const code = chat.codeOf(t.ctx); const o = code ? (b.orders || []).find((x) => x.code === code) || null : null;
+  return { cust: { u, fn: b.fn || '', code: b.code || '', bal: b.bal == null ? null : b.bal, unpaid: b.unpaid || 0 },
+    order: code ? Object.assign({ code, k: t.kind }, o ? { st: o.st, stl: ST[o.st] || o.st || '', unpaid: o.unpaid || 0, v: o.v || null } : {}) : null,
+    recent: (b.orders || []).slice(0, 8).map((x) => ({ code: x.code, k: x.t, stl: ST[x.st] || x.st || '', unpaid: x.unpaid || 0 })) };
+}
+const vnd = (n) => (n == null ? '' : Math.round(n).toLocaleString('vi-VN') + 'đ');
+async function suggest(d, t, staffName) {
+  if (!H.ai || !H.ai.ready()) return { error: 'Chưa cài AI (anh nhập khoá Gemini ở trang Kết nối)' };
+  const c = ctxOf(t);
+  const msgs = d.prepare("SELECT f, name, body, att, card, recalled_at FROM chat_msgs WHERE th = ? ORDER BY id DESC LIMIT 20").all(t.id).reverse()
+    .filter((m) => !m.recalled_at).map((m) => (m.f === 'k' ? 'KHÁCH' : m.f === 'note' ? 'GHI CHÚ NỘI BỘ (khách không thấy)' : m.f === 'sys' ? 'HỆ THỐNG' : 'NV ' + (m.name || '')) + ': ' + (m.body || (m.att ? (/"t":"v"/.test(m.att) ? '[gửi video]' : '[gửi ảnh]') : m.card ? '[thẻ đơn]' : '')));
+  const info = [
+    'Khách: ' + (c.cust.fn || c.cust.u) + (c.cust.code ? ' (mã ' + c.cust.code + ')' : ''),
+    c.cust.bal != null ? 'Số dư ví: ' + vnd(c.cust.bal) : '', c.cust.unpaid ? 'Tổng còn thiếu: ' + vnd(c.cust.unpaid) : '',
+    c.order ? 'Cuộc chat về đơn ' + c.order.code + ' (' + (KN[c.order.k] || 'đơn') + ')' + (c.order.stl ? ', trạng thái: ' + c.order.stl : '') + (c.order.unpaid ? ', còn thiếu ' + vnd(c.order.unpaid) : '') : 'Cuộc chat chung (không gắn đơn)',
+    c.recent.length ? 'Đơn gần đây: ' + c.recent.map((x) => x.code + ' ' + x.stl + (x.unpaid ? ' thiếu ' + vnd(x.unpaid) : '')).join('; ') : '',
+  ].filter(Boolean).join('\n');
+  const prompt = `Bạn đang giúp nhân viên chăm sóc khách của một công ty dịch vụ đặt hàng / ký gửi / vận chuyển hàng Trung Quốc – Việt Nam soạn câu trả lời trong khung chat.
+Nhân viên tên ${staffName}. Đọc cuộc trò chuyện và thông tin dưới đây, viết 3 phương án trả lời tin nhắn mới nhất của khách.
+
+QUY TẮC BẮT BUỘC:
+- Viết như người thật đang nhắn tin: đơn giản, tự nhiên, gọn, 1–3 câu. Mỗi phương án viết khác nhau (cách mở đầu, cách kết), không lặp cụm từ của các tin nhân viên đã gửi trước đó.
+- Xưng "em", gọi khách "anh" hoặc "chị" (không rõ giới tính thì dùng "anh/chị"). KHÔNG dùng văn trang trọng hay câu sáo như "Xin chào quý khách", "Trân trọng", "Cảm ơn quý khách đã tin tưởng". Không lạm dụng emoji (tối đa 1, có thể không dùng).
+- Số liệu (mã đơn, số tiền, trạng thái) chỉ lấy ĐÚNG từ thông tin bên dưới, không làm tròn, không tự nghĩ ra. Thông tin không có thì nói sẽ kiểm tra rồi báo lại, hoặc hỏi thêm khách, KHÔNG bịa ngày về, giá, phí.
+- Ghi chú nội bộ chỉ để hiểu bối cảnh, không nhắc lại cho khách.
+- Không hứa điều không chắc (hoàn tiền, miễn phí, ngày giao cụ thể) nếu dữ liệu không có.
+
+THÔNG TIN:
+${info}
+
+CUỘC TRÒ CHUYỆN (cũ → mới):
+${msgs.join('\n')}
+
+Trả về DUY NHẤT JSON: {"replies": ["...", "...", "..."]}`;
+  const r = await H.ai.askJson(prompt, null, 30000);
+  if (r.error) return { error: r.error };
+  const replies = ((r.data && r.data.replies) || []).map((x) => String(x || '').replace(/\s+\n/g, '\n').trim().slice(0, 800)).filter(Boolean).slice(0, 3);
+  return replies.length ? { replies } : { error: 'AI không gợi ý được, thử lại' };
+}
+
 // ten khach (Gobiz) de hien trong hop thu; tai khoan test noi bo: owner 'test:<user>'
 function custMap() { const m = new Map(); for (const c of H.customers()) m.set(String(c.u).toLowerCase(), c); return m; }
 function decorate(list) {
@@ -109,7 +187,14 @@ async function handle(req, res, p, url, user) {
   if (p === '/api/chat/summary') return json(req, res, 200, Object.assign(chat.counts(d, me, false), { lastId: (d.prepare("SELECT MAX(id) AS m FROM chat_msgs WHERE f = 'k'").get().m || 0) }));
   if (p === '/api/chat/inbox') {
     const f = String(url.searchParams.get('f') || 'all');
-    return json(req, res, 200, { threads: decorate(chat.listStaff(d, f, me, url.searchParams.get('q') || '', test)), counts: chat.counts(d, me, test), me: { u: me, n: user.name || me, role: user.role }, staff: H.staffList(), inHours: chat.inHours() });
+    return json(req, res, 200, { threads: decorate(chat.listStaff(d, f, me, url.searchParams.get('q') || '', test, url.searchParams.get('tag'))), counts: chat.counts(d, me, test), me: { u: me, n: user.name || me, role: user.role }, staff: H.staffList(), tags: chat.tagList(d), ai: !!(H.ai && H.ai.ready()), inHours: chat.inHours() });
+  }
+  if (p === '/api/chat/tags') { // danh sach nhan: ai cung xem; chi admin sua
+    if (req.method === 'GET') return json(req, res, 200, { items: chat.tagList(d) });
+    if (user.role !== 'admin' || !H.sameOrigin(req)) return json(req, res, 403, { error: 'Chỉ admin sửa danh sách nhãn' });
+    let b = {}; try { b = JSON.parse((await H.readBody(req, 2000)).toString() || '{}'); } catch {}
+    const r = b.del ? chat.tagDelete(d, b.del) : chat.tagSave(d, b);
+    return r.error ? json(req, res, 400, r) : json(req, res, 200, { ok: true, items: chat.tagList(d) });
   }
   if (p === '/api/chat/tpl') {
     if (req.method === 'GET') return json(req, res, 200, { items: chat.tplList(d) });
@@ -128,14 +213,17 @@ async function handle(req, res, p, url, user) {
     const t = chat.ensure(d, { owner: u, gobiz: c.u, ctx, kind, by: who });
     return json(req, res, 200, { thread: decorate([chat.tView(d, t, 's')])[0] });
   }
-  const mt = p.match(/^\/api\/chat\/t\/(\d{1,12})(?:\/(send|read|typing|assign|status|log))?$/);
+  const mt = p.match(/^\/api\/chat\/t\/(\d{1,12})(?:\/(send|read|typing|assign|status|log|tags|ctx|suggest))?$/);
   if (mt) {
     const t = chat.thread(d, mt[1]); if (!t) return json(req, res, 404, { error: 'Không tìm thấy cuộc chat' });
     if (!mt[2] && req.method === 'GET') return json(req, res, 200, { thread: decorate([chat.tView(d, t, 's')])[0], msgs: chat.messages(d, t.id, 's', who, { before: url.searchParams.get('before'), after: url.searchParams.get('after') }) });
+    if (mt[2] === 'ctx') return json(req, res, 200, ctxOf(t)); // so lieu cho mau cau tu dien + the don
     if (mt[2] === 'log') return json(req, res, 200, { items: d.prepare('SELECT * FROM chat_log WHERE th = ? ORDER BY ts DESC LIMIT 100').all(t.id) });
     if (req.method !== 'POST' || !H.sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
     let b = {}; try { b = JSON.parse((await H.readBody(req, 20000)).toString() || '{}'); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
     if (mt[2] === 'read') return json(req, res, 200, chat.read(d, t, 's', b.upto));
+    if (mt[2] === 'tags') { chat.setTags(d, t, b.tags, me); return json(req, res, 200, { ok: true, thread: decorate([chat.tView(d, chat.thread(d, t.id), 's')])[0] }); }
+    if (mt[2] === 'suggest') { if (!hit('ai:' + me, 60, 3600e3)) return json(req, res, 429, { error: 'Dùng gợi ý quá nhiều trong 1 giờ, nghỉ chút nhé' }); const r = await suggest(d, t, user.name || me); return json(req, res, r.error ? 502 : 200, r); }
     if (mt[2] === 'typing') { chat.typing(d, t, 's', user.name || me); return json(req, res, 200, { ok: true }); }
     if (mt[2] === 'assign') { const to = b.to ? String(b.to) : null; if (to && !H.staffList().some((s) => s.u === to)) return json(req, res, 400, { error: 'Không có nhân viên này' }); chat.assign(d, t, to, me); return json(req, res, 200, { ok: true, thread: decorate([chat.tView(d, chat.thread(d, t.id), 's')])[0] }); }
     if (mt[2] === 'status') { chat.setStatus(d, t, String(b.status || ''), me); return json(req, res, 200, { ok: true, thread: decorate([chat.tView(d, chat.thread(d, t.id), 's')])[0] }); }
@@ -145,7 +233,7 @@ async function handle(req, res, p, url, user) {
       if (ac.error) return json(req, res, 400, { error: ac.error });
       const att = ac.att;
       let card = null;
-      if (b.card && b.card.code) { const k = H.khOrders(String(t.gobiz || t.owner).toLowerCase()).get(String(b.card.code)); if (!k) return json(req, res, 400, { error: 'Đơn này không phải của khách' }); card = { code: String(b.card.code), k }; }
+      if (b.card && b.card.code) { const k = H.khOrders(String(t.gobiz || t.owner).toLowerCase()).get(String(b.card.code)); if (!k) return json(req, res, 400, { error: 'Đơn này không phải của khách' }); card = { t: b.card.t === 'pay' ? 'pay' : 'order', code: String(b.card.code), k }; }
       const r = chat.send(d, t, { f: b.note ? 'note' : 's', by: me, name: user.name || me, body: b.body, reply: b.reply, att: att.length ? att : null, card });
       if (r.error) return json(req, res, 400, { error: r.error });
       return json(req, res, 200, { ok: true, msg: chat.view(d, r.msg, 's', who), thread: decorate([chat.tView(d, chat.thread(d, t.id), 's')])[0] });

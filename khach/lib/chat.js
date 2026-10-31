@@ -31,7 +31,13 @@ function init(db) {
     CREATE TABLE IF NOT EXISTS chat_ev (id INTEGER PRIMARY KEY AUTOINCREMENT, th INTEGER, owner TEXT, t TEXT NOT NULL, mid INTEGER, data TEXT, at TEXT DEFAULT (${NOW}));
     CREATE TABLE IF NOT EXISTS chat_log (ts TEXT DEFAULT (${NOW}), th INTEGER, by TEXT, action TEXT, detail TEXT);
     CREATE TABLE IF NOT EXISTS chat_tpl (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, text TEXT NOT NULL, by TEXT, updated_at TEXT DEFAULT (${NOW}));
+    CREATE TABLE IF NOT EXISTS chat_tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, color TEXT NOT NULL DEFAULT 'slate', sort INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0);
   `);
+  try { db.exec('ALTER TABLE chat_threads ADD COLUMN tags TEXT'); } catch {} // nhan cuoc chat: ',1,4,' (id chat_tags)
+  if (!db.prepare('SELECT 1 FROM chat_tags LIMIT 1').get()) { // nhan mac dinh (admin sua / xoa / them duoc)
+    const ins = db.prepare('INSERT INTO chat_tags (name, color, sort) VALUES (?, ?, ?)');
+    [['Hỏi giá', 'info'], ['Chờ thanh toán', 'warning'], ['Khiếu nại', 'error'], ['Gấp', 'error'], ['Khách mới', 'success'], ['Đã chốt', 'success']].forEach((t, i) => ins.run(t[0], t[1], i));
+  }
 }
 
 const ctxOk = (c) => c === 'vmt' || /^don:[A-Za-z0-9_-]{3,40}$/.test(String(c || ''));
@@ -92,7 +98,8 @@ function msg(db, id) { return db.prepare('SELECT * FROM chat_msgs WHERE id = ?')
 function send(db, t, o) {
   const body = clip(o.body, BODY_MAX);
   const att = Array.isArray(o.att) && o.att.length ? o.att.slice(0, 10) : null;
-  const card = o.card && o.card.code ? { t: 'order', code: clip(o.card.code, 40), k: clip(o.card.k, 8) } : null;
+  // the: 'order' = the don (bam mo don) · 'pay' = the hanh dong "Thanh toan don" (NV gui, khach bam la sang trang thanh toan)
+  const card = o.card && o.card.code ? { t: o.card.t === 'pay' ? 'pay' : 'order', code: clip(o.card.code, 40), k: clip(o.card.k, 8) } : null;
   if (!body && !att && !card) return { error: 'Tin nhắn trống' };
   let reply = Number(o.reply) || null;
   if (reply) { const q = msg(db, reply); if (!q || q.th !== t.id || (o.f === 'k' && q.f === 'note')) reply = null; }
@@ -102,7 +109,7 @@ function send(db, t, o) {
       .run(t.id, o.f, o.by || null, clip(o.name, 60) || null, body || null, reply, att ? JSON.stringify(att) : null, card ? JSON.stringify(card) : null).lastInsertRowid);
     if (att) for (const a of att) db.prepare("UPDATE uploads SET code = ?, owner = ?, kind = CASE WHEN kind = 'video' THEN 'video' ELSE 'chat' END WHERE id = ? AND code IS NULL").run('chat:' + t.id, t.owner, a.id);
     if (o.f !== 'note') {
-      const preview = body ? clip(body.replace(/\s+/g, ' '), 120) : att ? (att.some((a) => a.t === 'v') ? '[Video]' : '[Ảnh]') : '[Đơn ' + card.code + ']';
+      const preview = body ? clip(body.replace(/\s+/g, ' '), 120) : att ? (att.some((a) => a.t === 'v') ? '[Video]' : '[Ảnh]') : (card.t === 'pay' ? '[Thanh toán đơn ' : '[Đơn ') + card.code + ']';
       const up = ['last_id = ?', 'last_at = ' + NOW, 'last_from = ?', 'last_text = ?'];
       const args = [id, o.f, preview];
       if (o.f === 'k') { up.push('wait_at = COALESCE(wait_at, ' + NOW + ')', 'cust_read = ?', "status = 'open'"); args.push(id); }
@@ -155,7 +162,7 @@ function tView(db, t, side) {
   const o = { id: t.id, ctx: t.ctx, code: codeOf(t.ctx), kind: t.kind, title: t.title, lastAt: t.last_at, lastFrom: t.last_from, lastText: t.last_text, lastId: t.last_id };
   if (t.last_id) { const n = db.prepare('SELECT name FROM chat_msgs WHERE id = ?').get(t.last_id); o.lastName = (n && n.name) || ''; }
   if (side === 'k') { o.unread = unreadK(db, t.id, t.cust_read); o.seenByStaff = t.staff_read; }
-  else Object.assign(o, { owner: t.owner, gobiz: t.gobiz, test: !!t.test, assignee: t.assignee, status: t.status, waitAt: t.wait_at, unread: unreadS(db, t.id, t.staff_read), seenByCust: t.cust_read });
+  else Object.assign(o, { owner: t.owner, gobiz: t.gobiz, test: !!t.test, tags: String(t.tags || '').split(',').filter(Boolean).map(Number), assignee: t.assignee, status: t.status, waitAt: t.wait_at, unread: unreadS(db, t.id, t.staff_read), seenByCust: t.cust_read });
   return o;
 }
 function listCustomer(db, owner) {
@@ -165,8 +172,9 @@ function unreadCustomer(db, owner) {
   return db.prepare("SELECT COUNT(*) AS n FROM chat_threads t WHERE t.owner = ? AND EXISTS (SELECT 1 FROM chat_msgs m WHERE m.th = t.id AND m.id > t.cust_read AND m.f IN ('s','sys') AND m.recalled_at IS NULL)").get(owner).n;
 }
 // f: unread | mine | free | wait | done | all. q: tim theo khach / ma don / noi dung tin
-function listStaff(db, f, me, q, test) {
+function listStaff(db, f, me, q, test, tag) {
   const w = ['t.last_id > 0'], a = [];
+  if (Number(tag)) { w.push("t.tags LIKE ?"); a.push('%,' + Number(tag) + ',%'); }
   if (!test) w.push('t.test = 0');
   if (f === 'mine') { w.push('t.assignee = ?', "t.status = 'open'"); a.push(me); }
   else if (f === 'free') w.push('t.assignee IS NULL', "t.status = 'open'");
@@ -198,6 +206,28 @@ function setStatus(db, t, st, by) {
   if (!['open', 'done'].includes(st) || t.status === st) return { ok: true };
   db.prepare('UPDATE chat_threads SET status = ?' + (st === 'done' ? ', wait_at = NULL' : '') + ' WHERE id = ?').run(st, t.id);
   log(db, t.id, by, st === 'done' ? 'Đã xử lý' : 'Mở lại', null);
+  ev(db, t.id, t.owner, 'th', null);
+  return { ok: true };
+}
+
+// ---------- nhan (tag) cuoc chat ----------
+const TAG_COLORS = ['slate', 'info', 'success', 'warning', 'error', 'secondary', 'primary'];
+function tagList(db) { return db.prepare('SELECT id, name, color FROM chat_tags WHERE deleted = 0 ORDER BY sort, id').all(); }
+function tagSave(db, o) {
+  const name = clip(o.name, 30), color = TAG_COLORS.includes(o.color) ? o.color : 'slate';
+  if (!name) return { error: 'Cần tên nhãn' };
+  if (o.id) db.prepare('UPDATE chat_tags SET name = ?, color = ? WHERE id = ?').run(name, color, Number(o.id));
+  else { if (db.prepare('SELECT COUNT(*) AS n FROM chat_tags WHERE deleted = 0').get().n >= 40) return { error: 'Tối đa 40 nhãn' }; db.prepare('INSERT INTO chat_tags (name, color, sort) VALUES (?, ?, 99)').run(name, color); }
+  return { ok: true };
+}
+function tagDelete(db, id) { db.prepare('UPDATE chat_tags SET deleted = 1 WHERE id = ?').run(Number(id) || 0); return { ok: true }; }
+function setTags(db, t, ids, by) {
+  const ok = new Set(tagList(db).map((x) => x.id));
+  const list = [...new Set((Array.isArray(ids) ? ids : []).map(Number).filter((x) => ok.has(x)))].slice(0, 10);
+  const v = list.length ? ',' + list.join(',') + ',' : null;
+  if ((t.tags || null) === v) return { ok: true };
+  db.prepare('UPDATE chat_threads SET tags = ? WHERE id = ?').run(v, t.id);
+  log(db, t.id, by, 'Đổi nhãn', { from: t.tags || null, to: v });
   ev(db, t.id, t.owner, 'th', null);
   return { ok: true };
 }
@@ -319,4 +349,4 @@ function attCheck(db, ids, by) {
   return { att };
 }
 
-module.exports = { fileSave, fileServe, filePurge, attCheck, init, ctxOk, codeOf, ensure, thread, threadBy, messages, msg, view, send, react, recall, read, typing, tView, listCustomer, unreadCustomer, unreadK, listStaff, counts, assign, setStatus, tplList, tplSave, tplDelete, inHours, oohPump, evMax, evSince, purge, log, EMOJI, RECALL_MS };
+module.exports = { tagList, tagSave, tagDelete, setTags, fileSave, fileServe, filePurge, attCheck, init, ctxOk, codeOf, ensure, thread, threadBy, messages, msg, view, send, react, recall, read, typing, tView, listCustomer, unreadCustomer, unreadK, listStaff, counts, assign, setStatus, tplList, tplSave, tplDelete, inHours, oohPump, evMax, evSince, purge, log, EMOJI, RECALL_MS };

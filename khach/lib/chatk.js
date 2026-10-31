@@ -54,7 +54,7 @@ async function pushPump() {
       const n = chat.unreadK(db, t.id, t.cust_read); if (!n) continue;
       const last = db.prepare("SELECT * FROM chat_msgs WHERE th = ? AND id > ? AND f IN ('s','sys') AND recalled_at IS NULL ORDER BY id DESC LIMIT 1").get(t.id, t.cust_read);
       if (!last) continue;
-      const txt = last.body ? String(last.body).replace(/\s+/g, ' ').slice(0, 140) : last.att ? (/"t":"v"/.test(last.att) ? 'Đã gửi video' : 'Đã gửi ảnh') : 'Đã gửi thẻ đơn hàng';
+      const txt = last.body ? String(last.body).replace(/\s+/g, ' ').slice(0, 140) : last.att ? (/"t":"v"/.test(last.att) ? 'Đã gửi video' : 'Đã gửi ảnh') : /"t":"pay"/.test(last.card || '') ? 'Gửi yêu cầu thanh toán đơn, bấm để thanh toán' : 'Đã gửi thẻ đơn hàng';
       const body = (n > 1 ? n + ' tin mới · ' : '') + (last.name ? last.name + ': ' : '') + txt;
       for (const u of usersOf(t.owner)) await webpush.send(u, { title: titleOf(t), body, url: '/#tin-nhan/' + t.id, tag: 'chat-' + t.id });
     }
