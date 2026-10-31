@@ -13,23 +13,49 @@ function cfg() {
 const ready = () => !!cfg().key;
 
 // Goi Gemini, tra ve object JSON. images: [{mime, data(base64)}]
+// Google hay bao qua tai (503 / 429 "high demand") luc cao diem -> tu thu lai, roi chuyen model du phong (Flash Lite, ban on dinh cu).
+// Tong thoi gian khong qua timeoutMs; khach chi thay loi tieng Viet de hieu.
+const FALLBACKS = ['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash'];
+const busyErr = (code, msg) => code === 429 || code === 500 || code === 503 || code === 504 || /overload|high demand|unavailable|try again|resource.?exhausted/i.test(msg || '');
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+async function callOnce(key, model, body, ms) {
+  try {
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body, signal: AbortSignal.timeout(ms),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return { code: r.status, msg: (j.error && j.error.message) || '' };
+    const text = ((((j.candidates || [])[0] || {}).content || {}).parts || []).map((p) => p.text || '').join('');
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) return { code: 0, msg: 'empty', empty: true };
+    try { return { data: JSON.parse(m[0]) }; } catch { return { code: 0, msg: 'bad json', empty: true }; }
+  } catch (e) { return { code: 0, msg: String(e && e.name) + ' ' + e, timeout: /timeout|abort/i.test(String(e && e.name) + e) }; }
+}
 async function askJson(prompt, images, timeoutMs) {
   const c = cfg();
   if (!c.key) return { error: 'Chưa cài AI' };
   const parts = [{ text: prompt }].concat((images || []).map((i) => ({ inline_data: { mime_type: i.mime || 'image/jpeg', data: i.data } })));
-  try {
-    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(c.model) + ':generateContent', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': c.key },
-      body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }),
-      signal: AbortSignal.timeout(timeoutMs || 60000),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) return { error: (j.error && j.error.message) || ('AI lỗi HTTP ' + r.status) };
-    const text = ((((j.candidates || [])[0] || {}).content || {}).parts || []).map((p) => p.text || '').join('');
-    const m = text.match(/\{[\s\S]*\}/);
-    if (!m) return { error: 'AI không trả kết quả' };
-    return { data: JSON.parse(m[0]) };
-  } catch (e) { return { error: /timeout|abort/i.test(String(e && e.name) + e) ? 'AI phản hồi chậm, thử lại' : 'Không đọc được kết quả AI' }; }
+  const body = JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } });
+  const end = Date.now() + (timeoutMs || 60000);
+  const models = [...new Set([c.model, ...FALLBACKS])];
+  let last = null;
+  for (let mi = 0; mi < models.length; mi++) {
+    for (let attempt = 0; attempt < (mi === 0 ? 2 : 1); attempt++) {
+      const left = end - Date.now();
+      if (left < 4000) break;
+      const r = await callOnce(c.key, models[mi], body, Math.min(left, 40000));
+      if (r.data) return { data: r.data, model: models[mi] };
+      last = r;
+      if (r.code === 400 || r.code === 401 || r.code === 403) return { error: 'Khoá AI không dùng được (' + r.code + '). Báo nhân viên kiểm tra trang Kết nối.' };
+      if (r.code === 404) break; // model khong co voi khoa nay -> sang model sau
+      if (busyErr(r.code, r.msg) && attempt === 0 && mi === 0) { await wait(1500); continue; }
+      break;
+    }
+  }
+  console.error('ai:', last && (last.code + ' ' + last.msg));
+  if (last && last.timeout) return { error: 'AI phản hồi chậm, anh/chị thử lại hoặc nhập tay' };
+  if (last && last.empty) return { error: 'AI không đọc ra được thông tin, anh/chị thử ảnh rõ hơn hoặc nhập tay' };
+  return { error: 'AI đang quá tải, anh/chị thử lại sau ít phút hoặc nhập tay' };
 }
 
 const s = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);

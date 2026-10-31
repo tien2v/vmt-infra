@@ -369,7 +369,7 @@ async function handle(req, res) {
     if (!text.trim() && !imgs.length) return json(req, res, 400, { error: 'Dán tin nhắn hoặc thêm ảnh trước' });
     const t0 = Date.now(); const r = await ai.ksFill(text, imgs);
     aiLog(user.username, 'ks', !r.error, Date.now() - t0, imgs.length);
-    if (r.error) return json(req, res, 502, { error: 'Chưa đọc được (' + r.error + '). Anh/chị thử lại hoặc nhập tay.' });
+    if (r.error) return json(req, res, 502, { error: r.error });
     return json(req, res, 200, r);
   }
   // Dien nhanh form Ship to China: { text, images: [base64 JPEG] } -> du lieu goi y (khach xem lai roi moi gui)
@@ -384,7 +384,7 @@ async function handle(req, res) {
     if (!text.trim() && !imgs.length) return json(req, res, 400, { error: 'Dán tin nhắn hoặc thêm ảnh trước' });
     const t0 = Date.now(); const r = await ai.cnFill(text, imgs);
     aiLog(user.username, 'cn', !r.error, Date.now() - t0, imgs.length);
-    if (r.error) return json(req, res, 502, { error: 'Chưa đọc được (' + r.error + '). Anh/chị thử lại hoặc nhập tay.' });
+    if (r.error) return json(req, res, 502, { error: r.error });
     return json(req, res, 200, r);
   }
   if (p === '/api/upload' && req.method === 'POST') {
