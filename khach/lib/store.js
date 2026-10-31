@@ -182,8 +182,10 @@ function cnCreate(username, gobiz, test, data, ip) {
 }
 function uploadSave(username, buf) { return shared.saveUpload(db, DATA_DIR, username, 'khach:' + username, buf); }
 // Khach xem duoc anh minh tai, hoac anh gan vao don cua minh (ke ca don nhan vien tao gium)
-function uploadCanSee(username, gobiz, id) {
-  return !!db.prepare('SELECT 1 FROM uploads u LEFT JOIN cn_orders o ON o.code = u.code WHERE u.id = ? AND (u.by = ? OR u.owner = ? OR o.username = ? OR (o.gobiz IS NOT NULL AND lower(o.gobiz) = lower(?)))').get(id, 'khach:' + username, username, username, gobiz || '');
+function uploadCanSee(username, gobiz, id, chatOwner) {
+  if (db.prepare('SELECT 1 FROM uploads u LEFT JOIN cn_orders o ON o.code = u.code WHERE u.id = ? AND (u.by = ? OR u.owner = ? OR o.username = ? OR (o.gobiz IS NOT NULL AND lower(o.gobiz) = lower(?)))').get(id, 'khach:' + username, username, username, gobiz || '')) return true;
+  // Anh trong chat (ca anh nhan vien gui): thuoc cuoc chat cua khach nay
+  return !!(chatOwner && db.prepare("SELECT 1 FROM uploads u JOIN chat_threads t ON u.code = 'chat:' || t.id WHERE u.id = ? AND t.owner = ?").get(id, chatOwner));
 }
 const uploadPath = (id) => shared.uploadFile(DATA_DIR, id);
 function cnList(username, gobiz) { return db.prepare('SELECT * FROM cn_orders WHERE username = ? OR (gobiz IS NOT NULL AND lower(gobiz) = lower(?)) ORDER BY seq DESC LIMIT 500').all(username, gobiz || '').map(cnRow); }

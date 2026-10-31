@@ -48,6 +48,8 @@ const kho = require('./lib/kho');
 kho.init({ base: () => { dataFor('admin'); return cache.base; }, ksadmin });
 const speedtest = require('./lib/speedtest');
 speedtest.init();
+// Chat theo don voi khach (trang /chat), du lieu chung khach.db voi trang khach
+const chats = require('./lib/chats');
 setInterval(() => { try { const n = cn.autoDeliver(); if (n) console.log('autoDeliver', n); } catch (e) { console.error(e); } }, 30 * 60e3);
 setTimeout(() => { try { cn.autoDeliver(); } catch (e) {} }, 20e3);
 
@@ -307,13 +309,31 @@ function appHtml() {
       const a = "load('/assets/vmt.js')";
       const m = '      </main>\n\n      <!-- ============ DRAWER';
       if (!h.includes(a) || !h.includes(m)) { console.error('cn-admin: khong tim thay cho chen trong app.html'); return Buffer.alloc(0); }
-      h = h.replace(a, "load('/assets/vmt.js').then(function () { return load('/ext/cn-admin.js'); }).then(function () { return load('/ext/kh-admin.js'); }).then(function () { return load('/ext/loi-admin.js'); })");
+      h = h.replace(a, "load('/assets/vmt.js').then(function () { return load('/ext/cn-admin.js'); }).then(function () { return load('/ext/kh-admin.js'); }).then(function () { return load('/ext/loi-admin.js'); }).then(function () { return load('/ext/chat-admin.js'); })");
       h = h.replace(m, fs.readFileSync(sec, 'utf8') + fs.readFileSync(ksec, 'utf8') + fs.readFileSync(lsec, 'utf8') + m);
       return Buffer.from(noDebt(h));
     });
     return c.raw.length ? c : null;
   } catch (e) { console.error(e); return null; }
 }
+
+// Ma don cua 1 khach Gobiz -> loai (de nhan vien mo / gui the don trong chat). Nho 30 giay.
+const khOrdCache = new Map();
+function khOrders(u) {
+  u = String(u || '').toLowerCase(); const c = khOrdCache.get(u); if (c && Date.now() - c.at < 30e3) return c.m;
+  const m = new Map();
+  try {
+    dataFor('admin'); const b = cache.base || {}; const cust = b.cust || {};
+    const idOf = Object.keys(cust).find((id) => String(cust[id][1] || '').toLowerCase() === u);
+    if (idOf) { for (const o of b.orders || []) if (String(o.cid) === idOf) m.set(o.code, 'order'); for (const x of b.ships || []) if (String(x.cid) === idOf) m.set(x.code, 'ship'); }
+    for (const x of b.peer || []) if (String(x.cu || '').toLowerCase() === u) m.set(x.code, 'peer');
+    for (const o of cn.list('admin', { withTest: true })) if (String(o.gobiz || o.username || '').toLowerCase() === u) m.set(o.code, 'cn');
+    for (const o of ksadmin.list(u, '', 2000)) if (String(o.gobiz || o.username || '').toLowerCase() === u) m.set(o.code, 'ship');
+  } catch (e) { console.error('khOrders', e.message); }
+  khOrdCache.set(u, { at: Date.now(), m }); if (khOrdCache.size > 500) khOrdCache.clear();
+  return m;
+}
+chats.init({ json, send, sendFile, readBody, sameOrigin, cn, customers, khOrders, staffList: () => store.listUsers().filter((x) => x.active && chats.ROLES.includes(x.role)).map((x) => ({ u: x.username, n: x.name || x.username, role: x.role })) });
 
 // ---------- dinh tuyen ----------
 async function handle(req, res) {
@@ -483,6 +503,7 @@ async function handle(req, res) {
     }
     return json(req, res, 404, { error: 'not found' });
   }
+  if (p === '/chat' || p.startsWith('/api/chat')) return chats.handle(req, res, p, url, user);
   if (p === '/api/me') return user ? json(req, res, 200, { username: user.username, name: user.name, role: user.role }) : json(req, res, 401, { error: 'login' });
   if (p === '/api/data') {
     if (!user) return json(req, res, 401, { error: 'login' });
@@ -854,6 +875,10 @@ async function handle(req, res) {
   if (p === '/ext/loi-admin.js') {
     if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });
     return sendFile(req, res, path.join(__dirname, 'ext', 'loi-admin.js'), 'private, no-cache');
+  }
+  if (p === '/ext/chat-admin.js') {
+    if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });
+    return sendFile(req, res, path.join(__dirname, 'ext', 'chat-admin.js'), 'private, no-cache');
   }
   if (p === '/ext/cn-admin.js') {
     if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });

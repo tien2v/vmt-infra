@@ -136,6 +136,8 @@ function pwaInit() {
 }
 pwaInit();
 webpush.init(store.rawDb());
+// ---- Chat theo don (khach <-> nhan vien), xem lib/chat.js ----
+const chatk = require('./lib/chatk');
 store.rawDb().exec(`CREATE TABLE IF NOT EXISTS login_creds (cred_id TEXT PRIMARY KEY, username TEXT NOT NULL, jwk TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, label TEXT, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), last_used TEXT, disabled INTEGER NOT NULL DEFAULT 0)`);
 // Day thong bao chuong len dien thoai (quet bang notif 20 giay/lan; admin cung ghi vao bang nay)
 const PUSH_TITLE = { order: 'Đơn hàng', money: 'Tài chính', support: 'Hỗ trợ', system: 'Thông báo' };
@@ -186,6 +188,20 @@ function notifKind(n) {
 }
 
 const owner = (user) => String(user.gobiz || user.username).toLowerCase();
+// Chu cuoc chat: khach that = ma Gobiz; tai khoan test noi bo = chinh username (khong lan vao chat cua khach that dang muon du lieu)
+const chatOwner = (user) => (walletAcc(user) ? 'test:' + user.username : owner(user));
+// Ma don cua khach -> loai (de mo chat theo don): don Gobiz + Ship to China + ky gui moi. Nho 30 giay / tai khoan.
+const myOrdCache = new Map();
+function myOrders(user) {
+  const c = myOrdCache.get(user.username); if (c && Date.now() - c.at < 30e3) return c.m;
+  const m = new Map(); const ix = index(); const s = ix ? ix.byUser.get(String(user.gobiz).toLowerCase()) : null;
+  if (s) { for (const x of s.orders) m.set(x.code, { k: 'order' }); for (const x of s.shipments) m.set(x.code, { k: 'ship' }); for (const x of s.peer) m.set(x.code, { k: 'peer' }); }
+  for (const x of store.cnList(user.username, user.gobiz)) m.set(x.code, { k: 'cn' });
+  try { for (const x of ks.list(user.username, user.gobiz, { group: custGroup(user) })) m.set(x.code, { k: 'ship' }); } catch (e) {}
+  myOrdCache.set(user.username, { at: Date.now(), m });
+  if (myOrdCache.size > 2000) myOrdCache.clear();
+  return m;
+}
 function custGroup(user) { const ix = index(); const x = ix ? ix.byUser.get(String(user.gobiz).toLowerCase()) : null; return (x && x.cust && x.cust.grp) || ''; }
 function gobizNames() { const ix = index(); return ix ? [...ix.byUser.keys()] : []; }
 function payload(user) {
@@ -200,6 +216,7 @@ function payload(user) {
   // Ma khach moi (= ma nap tien), tach khoi Gobiz. Vi moi: tam thoi chi bat cho tai khoan test.
   me.code = ledger.codeOf(store.rawDb(), owner(user), gobizNames());
   me.walletOn = walletAcc(user);
+  me.chatUnread = chatk.unread(user);
   me.ai = ai.ready();
   me.appInstalled = !!store.rawDb().prepare("SELECT 1 FROM pwa_log WHERE username = ? AND event IN ('standalone','installed') LIMIT 1").get(user.username);
   if (me.walletOn) { me.wallet = ledger.walletView(store.rawDb(), owner(user)); me.hasPin = ledger.hasPin(store.rawDb(), owner(user)); }
@@ -263,6 +280,31 @@ function pwMailHtml(g, bn, link) {
 
 // Kiem tra don + anh: dung chung voi trang admin (lib/cnshared.js, 2 ban giong het nhau)
 const { validateCn, checkCo, str, initUploads, saveUpload, checkUploads, claimUploads, uploadFile, UPLOAD_MAX } = require('./lib/cnshared');
+chatk.init({ db: store.rawDb(), webpush, json, readBody, sameOrigin, myOrders, ownerOf: chatOwner, isTest: walletAcc });
+// Trang chinh: giao dien template (ma hoa) + chen phan chat (khach/chat.js, code rieng khong thuoc template)
+let idxHtml = { key: '', buf: null, gz: null };
+function indexHtml(req, res) {
+  const f = path.join(PUBLIC, 'index.html'), cf = path.join(__dirname, 'chat.js');
+  let key; try { key = fs.statSync(f).mtimeMs + ':' + fs.statSync(cf).mtimeMs; } catch { return send(res, 404, 'Not found'); }
+  if (idxHtml.key !== key) {
+    const tag = '<script src="/chat.js?v=' + encodeURIComponent(String(fs.statSync(cf).mtimeMs | 0) + VERSION.slice(0, 7)) + '" defer></script>';
+    let h = fs.readFileSync(f, 'utf8'); h = h.includes('</body>') ? h.replace('</body>', tag + '</body>') : h + tag;
+    const buf = Buffer.from(h); idxHtml = { key, buf, gz: zlib.gzipSync(buf) };
+  }
+  if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) return send(res, 200, idxHtml.gz, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' });
+  return send(res, 200, idxHtml.buf, { 'Content-Type': 'text/html; charset=utf-8' });
+}
+let chatJs = { m: 0, gz: null, raw: null };
+function serveChatJs(req, res) {
+  const f = path.join(__dirname, 'chat.js');
+  fs.stat(f, (err, st) => {
+    if (err) return send(res, 404, 'Not found');
+    if (chatJs.m !== st.mtimeMs) { const raw = fs.readFileSync(f); chatJs = { m: st.mtimeMs, raw, gz: zlib.gzipSync(raw) }; }
+    const gzOk = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+    res.writeHead(200, Object.assign({ 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=604800, immutable' }, gzOk ? { 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' } : {}));
+    res.end(gzOk ? chatJs.gz : chatJs.raw);
+  });
+}
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
@@ -401,8 +443,10 @@ async function handle(req, res) {
   const mp = p.match(/^\/pwa\/([a-z0-9-]+\.png)$/);
   if (mp) return pwaFile(req, res, mp[1]);
   if (p.startsWith('/assets/') || p === '/icons.js' || p === '/manifest.json') return serveFile(req, res, p.slice(1), true);
+  if (p === '/chat.js') return serveChatJs(req, res);
 
   const user = readSession(req);
+  if (p.startsWith('/api/chat')) return chatk.handle(req, res, p, url, user);
   if (p === '/api/data.js') {
     if (!user) return send(res, 401, 'location.href="/login";', { 'Content-Type': 'text/javascript; charset=utf-8' });
     return gz(req, res, 200, Buffer.from(payload(user)), 'text/javascript; charset=utf-8');
@@ -511,7 +555,7 @@ async function handle(req, res) {
   }
   const mu = p.match(/^\/u\/([a-f0-9]{32})\.jpg$/);
   if (mu) {
-    if (!user || !store.uploadCanSee(user.username, user.gobiz, mu[1])) return send(res, 404, 'Not found');
+    if (!user || !store.uploadCanSee(user.username, user.gobiz, mu[1], chatOwner(user))) return send(res, 404, 'Not found');
     return fs.readFile(store.uploadPath(mu[1]), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' }));
   }
   // ---- vi + thanh toan (tam thoi chi tai khoan test) ----
@@ -689,7 +733,7 @@ async function handle(req, res) {
   }
   if (p === '/' || p === '/index.html') {
     if (!user) return loginPage(req, res); // tra thang trang dang nhap (khong chuyen huong) de Zalo / Facebook doc duoc anh xem truoc
-    return serveFile(req, res, 'index.html', false);
+    return indexHtml(req, res);
   }
   return send(res, 404, 'Not found');
 }
