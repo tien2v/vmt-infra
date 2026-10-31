@@ -55,7 +55,9 @@ svg.chs{fill:none!important}
 .ch-empty .secondary-button{margin-top:10px}
 .ch-tabdot{position:absolute;top:2px;left:calc(50% + 6px);min-width:17px;height:17px;padding:0 5px;border-radius:999px;background:#e5484d;color:#fff;font-size:10px;font-weight:800;display:grid;place-items:center;font-style:normal;box-shadow:0 0 0 2px #fff}
 [data-mt="tin-nhan"]{position:relative}
-.nav-link .ch-badge{margin-left:auto}
+#chTop{position:relative}
+.ch-topn{position:absolute;top:-4px;right:-4px;min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:#e5484d;color:#fff;font-size:11px;font-weight:800;font-style:normal;display:grid;place-items:center;box-shadow:0 0 0 2px #fff;line-height:1}
+@media (max-width:767px){.ch-topw{display:none!important}}
 /* cuoc chat */
 .ch-t{display:flex;flex-direction:column;min-height:0;background:#f7f3ea}
 .ch-t[hidden]{display:none!important}
@@ -161,16 +163,17 @@ svg.chs{fill:none!important}
     unreadN = n;
     const a = document.querySelector('.m-tabbar [data-mt="tin-nhan"]');
     if (a) { let d = a.querySelector('.ch-tabdot'); if (!d) { d = document.createElement('em'); d.className = 'ch-tabdot'; a.appendChild(d); } d.hidden = !n; d.textContent = n > 9 ? '9+' : n; }
-    const l = document.querySelector('.nav-link[data-v="tin-nhan"]');
-    if (l) { let d = l.querySelector('.ch-badge'); if (!d) { d = document.createElement('em'); d.className = 'ch-badge'; d.style.fontStyle = 'normal'; l.appendChild(d); } d.hidden = !n; d.textContent = n > 9 ? '9+' : n; }
+    const tp = document.querySelector('#chTop .ch-topn'); if (tp) { tp.hidden = !n; tp.textContent = n > 9 ? '9+' : n; }
     try { if (navigator.setAppBadge) n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } catch (e) {}
   }
-  function sideLink() { // menu may tinh: them muc "Tin nhan" duoi Tong quan
-    if (document.querySelector('.nav-link[data-v="tin-nhan"]')) return;
-    const first = document.querySelector('.navigation .nav-group ul'); if (!first) return;
-    const li = document.createElement('li');
-    li.innerHTML = `<a class="nav-link" href="#tin-nhan" data-v="tin-nhan">${ico('chats')}<span class="nav-label">Tin nhắn</span></a>`;
-    first.appendChild(li);
+  // May tinh: nut Tin nhan tren thanh tren cung, canh chuong (giong Shopee / Lazada / Facebook), so do = so cuoc chua doc.
+  // Dien thoai dung tab Tin nhan o thanh duoi (da co so do).
+  function sideLink() {
+    if (document.getElementById('chTop')) return;
+    const bell = document.getElementById('nfBtn'); const wrap = bell && bell.closest('.header-menu-wrap'); if (!wrap) return;
+    const w = document.createElement('div'); w.className = 'header-menu-wrap ch-topw';
+    w.innerHTML = `<a class="notification-trigger icon-button" id="chTop" href="#tin-nhan" aria-label="Tin nhắn" title="Tin nhắn">${ico('chats')}<em class="ch-topn" hidden></em></a>`;
+    wrap.parentNode.insertBefore(w, wrap);
   }
 
   // ---------- am bao ----------
@@ -238,7 +241,13 @@ svg.chs{fill:none!important}
     inp.addEventListener('paste', (e) => { const fs = [...(e.clipboardData ? e.clipboardData.files : [])].filter((f) => /^image\//.test(f.type)); if (fs.length) { e.preventDefault(); addFiles(fs); } });
     $('#chSend', T).addEventListener('click', sendNow);
     $('#chFile', T).addEventListener('change', (e) => { addFiles([...e.target.files]); e.target.value = ''; });
-    $('[data-chimg]', T).addEventListener('click', () => $('#chFile', T).click());
+    // Dien thoai: chon ro Thu vien anh & video / Chi video / Chup anh / Quay video (mot so may Android chi hien anh khi chon chung)
+    const pick = (accept, cap) => { const f = $('#chFile', T); f.accept = accept; if (cap) f.setAttribute('capture', cap); else f.removeAttribute('capture'); f.multiple = !cap; f.click(); };
+    $('[data-chimg]', T).addEventListener('click', () => {
+      if (!matchMedia('(hover:none)').matches) return pick('image/*,video/*');
+      const o = sheet(`<div class="ch-act"><button type="button" data-p="lib">${IC.camera} Ảnh & video có sẵn</button><button type="button" data-p="vid">🎬 Chọn video có sẵn</button><button type="button" data-p="cam">📷 Chụp ảnh</button><button type="button" data-p="rec">⏺ Quay video</button><button type="button" data-x>Đóng</button></div>`);
+      o.addEventListener('click', (e) => { const b = e.target.closest('[data-p]'); if (!b) return; o.remove(); ({ lib: () => pick('image/*,video/*'), vid: () => pick('video/*'), cam: () => pick('image/*', 'environment'), rec: () => pick('video/*', 'environment') })[b.dataset.p](); });
+    });
     $('#chMs', T).addEventListener('scroll', () => { const m = $('#chMs', T); if (m.scrollTop < 40 && S.more && !S.busy) older(); });
     T.addEventListener('dragover', (e) => e.preventDefault());
     T.addEventListener('drop', (e) => { e.preventDefault(); addFiles([...(e.dataTransfer ? e.dataTransfer.files : [])].filter((f) => /^image\//.test(f.type))); });
@@ -339,27 +348,38 @@ svg.chs{fill:none!important}
   const reacts = (m) => (m.re && m.re.length ? `<div class="ch-re">${m.re.map((r) => `<button type="button" class="${r.mine ? 'mine' : ''}" data-chre="${m.id}" data-e="${r.e}">${r.e}${r.n > 1 ? ' ' + r.n : ''}</button>`).join('')}</div>` : '');
   function renderMsgs(bottom) {
     const box = $('#chMs', T); const near = bottom || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
-    const L = S.msgs; let h = S.more ? '<button type="button" class="ch-more" data-chold>Xem tin cũ hơn</button>' : '';
-    if (!L.length) h += `<div class="ch-empty">${S.cur && S.cur.ctx && S.cur.ctx.startsWith('don:') ? 'Anh/chị cần hỏi gì về đơn này cứ nhắn ở đây, nhân viên thấy ngay đơn đang hỏi.' : 'Anh/chị cần gì cứ nhắn, gửi được cả ảnh, video và mã đơn.'}</div>`;
+    const L = S.msgs; const I = []; if (S.more) I.push(['more', '<button type="button" class="ch-more" data-chold>Xem tin cũ hơn</button>']);
+    if (!L.length) I.push(['empty', `<div class="ch-empty">${S.cur && S.cur.ctx && S.cur.ctx.startsWith('don:') ? 'Anh/chị cần hỏi gì về đơn này cứ nhắn ở đây, nhân viên thấy ngay đơn đang hỏi.' : 'Anh/chị cần gì cứ nhắn, gửi được cả ảnh, video và mã đơn.'}</div>`]);
     let lastDay = '', lastMine = 0;
     for (const m of L) if (m.f === 'k' && !m.recalled) lastMine = m.id;
     for (let i = 0; i < L.length; i++) {
       const m = L[i], p = L[i - 1], n = L[i + 1];
-      const d = new Date(m.at).toDateString(); if (d !== lastDay) { h += `<div class="ch-day"><span>${dayL(m.at)}</span></div>`; lastDay = d; }
-      if (m.f === 'sys') { h += `<div class="ch-sys"><span>${fmt(m.body)}</span></div>`; continue; }
+      const d = new Date(m.at).toDateString(); if (d !== lastDay) { I.push(['d' + d, `<div class="ch-day"><span>${dayL(m.at)}</span></div>`]); lastDay = d; }
+      if (m.f === 'sys') { I.push(['m' + m.id, `<div class="ch-sys"><span>${fmt(m.body)}</span></div>`]); continue; }
       const me = m.f === 'k';
       const same = (a, b) => a && b && a.f === b.f && a.name === b.name && Math.abs(new Date(a.at) - new Date(b.at)) < 180e3 && new Date(a.at).toDateString() === new Date(b.at).toDateString();
       const first = !same(p, m), last = !same(m, n);
       const qh = !me && last && !m.recalled && !(m.re && m.re.length) ? `<button type="button" class="ch-qh" data-chqh="${m.id}" aria-label="Thả tim">♡</button>` : '';
       const tools = m.recalled ? '' : `<span class="ch-tools"><button type="button" data-chbar="${m.id}" title="Thả cảm xúc">☺</button><button type="button" data-chrep="${m.id}" title="Trả lời">${IC.reply}</button><button type="button" data-chact="${m.id}" title="Thêm">${IC.more}</button></span>`;
-      h += `<div class="ch-g${me ? ' me' : ''}" id="chm${m.id}" data-g="${m.id}"><span class="ch-swi">${IC.reply}</span>${me ? tools : `<span class="ch-av${last ? '' : ' sp'}">${esc(initials(m.name))}</span>`}<div class="ch-col">${!me && first ? `<span class="ch-nm">${esc(m.name || 'Nhân viên')}</span>` : ''}<div class="ch-bw">${bubble(m)}${qh}</div>${reacts(m)}${last ? `<span class="ch-st">${tHM(m.at)}${me && m.id === lastMine ? (S.seen >= m.id ? ' · Đã xem' : ' · Đã gửi') : ''}</span>` : ''}</div>${me ? '' : tools}</div>`;
+      I.push(['m' + m.id, `<div class="ch-g${me ? ' me' : ''}" id="chm${m.id}" data-g="${m.id}"><span class="ch-swi">${IC.reply}</span>${me ? tools : `<span class="ch-av${last ? '' : ' sp'}">${esc(initials(m.name))}</span>`}<div class="ch-col">${!me && first ? `<span class="ch-nm">${esc(m.name || 'Nhân viên')}</span>` : ''}<div class="ch-bw">${bubble(m)}${qh}</div>${reacts(m)}${last ? `<span class="ch-st">${tHM(m.at)}${me && m.id === lastMine ? (S.seen >= m.id ? ' · Đã xem' : ' · Đã gửi') : ''}</span>` : ''}</div>${me ? '' : tools}</div>`]);
     }
     const oldH = box.scrollHeight, oldT = box.scrollTop;
-    box.innerHTML = h;
+    patch(box, I);
     if (near) box.scrollTop = box.scrollHeight;
     else if (S._prepend) box.scrollTop = box.scrollHeight - oldH + oldT;
     S._prepend = false;
     box.querySelectorAll('img[data-chiv]').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (near) box.scrollTop = box.scrollHeight; }, { once: true }); });
+  }
+  // Chi ve lai phan thay doi (anh / video khong tai lai, khong chop khi co tin moi)
+  function patch(box, items) {
+    const old = new Map(); for (const n of box.children) if (n.dataset.k) old.set(n.dataset.k, n);
+    let prev = null; const keep = new Set();
+    for (const [k, h] of items) {
+      let n = old.get(k);
+      if (!n || n._h !== h) { const t = document.createElement('template'); t.innerHTML = h.trim(); const nn = t.content.firstElementChild; nn.dataset.k = k; nn._h = h; if (n) n.replaceWith(nn); n = nn; }
+      keep.add(n); const want = prev ? prev.nextElementSibling : box.firstElementChild; if (n !== want) box.insertBefore(n, want); prev = n;
+    }
+    for (const n of [...box.children]) if (!keep.has(n)) n.remove();
   }
   async function older() {
     if (!S.cur || !S.cur.id || !S.msgs.length) return; S.busy = true;
@@ -468,7 +488,7 @@ svg.chs{fill:none!important}
   }
   function actions(mid) {
     const m = S.msgs.find((x) => x.id === mid); if (!m || m.f === 'sys') return;
-    const mine = m.f === 'k'; const canRecall = mine && !m.recalled && Date.now() - new Date(m.at) < 5 * 60e3;
+    const mine = m.f === 'k'; const canRecall = mine && !m.recalled && Date.now() - new Date(m.at) < 60 * 60e3;
     const o = sheet((m.recalled ? '' : `<div class="ch-emo">${EMO.map((e) => `<button type="button" data-e="${e}" class="${(m.re || []).some((r) => r.e === e && r.mine) ? 'mine' : ''}">${e}</button>`).join('')}</div>`) +
       `<div class="ch-act">${m.recalled ? '' : `<button type="button" data-a="rep">${IC.reply} Trả lời</button>`}${m.body && !m.recalled ? `<button type="button" data-a="copy">${IC.copy} Sao chép</button>` : ''}${canRecall ? `<button type="button" class="red" data-a="recall">${IC.undo} Thu hồi</button>` : ''}<button type="button" data-x>Đóng</button></div>`);
     o.addEventListener('click', async (e) => {
@@ -477,7 +497,7 @@ svg.chs{fill:none!important}
       if (!a) return; o.remove();
       if (a.dataset.a === 'rep') { S.reply = m; renderRb(); $('#chIn', T).focus(); }
       if (a.dataset.a === 'copy') { try { await navigator.clipboard.writeText(m.body); toast('Đã sao chép'); } catch (x) {} }
-      if (a.dataset.a === 'recall') { try { const j = await post('/api/chat/m/' + mid + '/recall', {}); upsert(j.msg); renderMsgs(); loadListSoon(); } catch (x) { toast(x.message); } }
+      if (a.dataset.a === 'recall') { try { const j = await post('/api/chat/m/' + mid + '/recall', {}); upsert(j.msg); renderMsgs(); loadListSoon(); const inp = $('#chIn', T); if (m.body && !inp.value.trim()) { inp.value = m.body; grow(); upd(); inp.focus(); toast('Đã thu hồi. Nội dung cũ đã về ô nhắn, sửa lại rồi gửi nhé'); } else toast('Đã thu hồi tin nhắn'); } catch (x) { toast(x.message); } }
     });
   }
   async function react(mid, e, addOnly) { const m = S.msgs.find((x) => x.id === mid); if (!m || m.recalled || m.f === 'sys') return; if (addOnly && (m.re || []).some((r) => r.e === e && r.mine)) return; try { const j = await post('/api/chat/m/' + mid + '/react', { e }); upsert(j.msg); renderMsgs(); } catch (x) { toast(x.message); } }

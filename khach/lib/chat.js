@@ -8,7 +8,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const RECALL_MS = 5 * 60e3;
+const RECALL_MS = 60 * 60e3; // thu hoi trong 60 phut (giong Zalo)
 const BODY_MAX = 4000;
 const EMOJI = ['❤️', '👍', '😂', '😮', '😢', '😡'];
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
@@ -124,12 +124,12 @@ function react(db, m, who, e) {
   const t = thread(db, m.th); ev(db, m.th, t.owner, 'upd', m.id);
   return { ok: true };
 }
-// Chi nguoi gui, trong 5 phut. Khach: moi tin 'k' cua cuoc minh; nhan vien: tin cua chinh minh
+// Chi nguoi gui, trong 60 phut. Khach: moi tin 'k' cua cuoc minh; nhan vien: tin cua chinh minh
 function recall(db, m, by, isStaff) {
   if (m.recalled_at) return { ok: true };
   const mine = isStaff ? (['s', 'note'].includes(m.f) && m.by === by) : m.f === 'k';
   if (!mine) return { error: 'Chỉ thu hồi được tin của mình', code: 403 };
-  if (Date.now() - Date.parse(m.created_at) > RECALL_MS) return { error: 'Chỉ thu hồi được trong 5 phút', code: 409 };
+  if (Date.now() - Date.parse(m.created_at) > RECALL_MS) return { error: 'Chỉ thu hồi được trong 60 phút sau khi gửi', code: 409 };
   db.prepare('UPDATE chat_msgs SET recalled_at = ' + NOW + ', orig = ? WHERE id = ?').run(JSON.stringify({ body: m.body, att: j(m.att, null), card: j(m.card, null) }), m.id);
   const t = thread(db, m.th);
   if (t.last_id === m.id) db.prepare("UPDATE chat_threads SET last_text = 'Đã thu hồi tin nhắn' WHERE id = ?").run(t.id);

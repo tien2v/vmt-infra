@@ -32,7 +32,7 @@ test('luong chat co ban', () => {
   assert.equal(C.recall(db, C.msg(db, m3.id), 'khach:k1', false).code, 403);
   assert.ok(C.recall(db, C.msg(db, m1.id), 'khach:k1', false).ok);
   assert.equal(C.view(db, C.msg(db, m1.id), 'k', 'k').body, undefined); assert.ok(C.view(db, C.msg(db, m1.id), 's', '').orig.includes('Hỏi đơn'));
-  db.prepare("UPDATE chat_msgs SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-6 minutes') WHERE id = ?").run(m3.id);
+  db.prepare("UPDATE chat_msgs SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-61 minutes') WHERE id = ?").run(m3.id);
   assert.equal(C.recall(db, C.msg(db, m3.id), 'nv1', true).code, 409);
   // giao viec / da xu ly
   C.assign(db, C.thread(db, t.id), 'nv2', 'nv1'); assert.equal(C.listStaff(db, 'mine', 'nv2', '', false).length, 1);
