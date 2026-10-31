@@ -43,11 +43,12 @@ button:disabled{opacity:.45}
 .msg{padding:10px;border-radius:9px;margin:8px 0;font-weight:600}.msg.ok{background:#dcfce7;color:#166534}.msg.bad{background:#fee2e2;color:#991b1b}.msg.info{background:#e0f2fe;color:#075985}
 #cam{border-radius:10px;overflow:hidden;margin-top:8px}
 .hid{display:none!important}
+.hq{float:right;font-size:13px;font-weight:600;color:var(--b);text-decoration:none;border:1px solid #bfdbfe;border-radius:99px;padding:2px 9px;background:#eff6ff}
 .lrow{padding:10px 0;border-top:1px solid var(--ln)}.lrow:first-child{border-top:0}
 </style>
 </head>
 <body>
-<div class="top"><b>仓库 Kho TQ</b><span class="sp"></span><span id="q" class="pill hid"></span><span id="dt" class="mut" style="color:#cbd5e1"></span><span id="net" class="dot"></span></div>
+<div class="top"><b>仓库 Kho TQ</b><span class="sp"></span><a id="help" href="/kho/help" style="color:#fff;text-decoration:none;font-weight:700;border:1px solid #475569;border-radius:99px;padding:1px 9px">? 帮助</a><span id="q" class="pill hid"></span><span id="dt" class="mut" style="color:#cbd5e1"></span><span id="net" class="dot"></span></div>
 <div class="wrap" id="v"></div>
 <div class="nav hid" id="nav">
   <button data-t="scan" class="on">扫描<span class="vn">Quét</span></button>
@@ -61,6 +62,7 @@ button:disabled{opacity:.45}
 'use strict';
 var $ = function (s, el) { return (el || document).querySelector(s); };
 var V = $('#v');
+var hq = function (sec) { return '<a class="hq" href="/kho/help#' + sec + '">? 说明 Hướng dẫn</a>'; };
 var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
 var nowS = function () { var d = new Date(Date.now() + 7 * 3600e3); return d.toISOString().replace('T', ' ').slice(0, 19); }; // gio VN
 var rid = function () { var a = new Uint8Array(12); crypto.getRandomValues(a); return btoa(String.fromCharCode.apply(null, a)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
@@ -192,7 +194,7 @@ function render() {
   if (TAB === 'me') return meView();
 }
 function scanView(msg) {
-  V.innerHTML = '<div class="card"><h2>扫描或输入单号<span class="vn">Quét hoặc gõ mã vận đơn / mã kiện / mã đơn</span></h2>' +
+  V.innerHTML = '<div class="card">' + hq('scan') + '<h2>扫描或输入单号<span class="vn">Quét hoặc gõ mã vận đơn / mã kiện / mã đơn</span></h2>' +
     '<form id="sf"><input id="code" autocomplete="off" autocapitalize="characters" placeholder="运单号 / 单号 · Mã vận đơn"></form>' +
     '<div class="row" style="margin-top:8px"><button class="k" id="camb">📷 相机扫码<span class="vn" style="color:#cbd5e1">Quét bằng camera</span></button><button class="p" id="go">查找<span class="vn" style="color:#dbeafe">Tìm</span></button></div>' +
     '<div id="cam"></div>' + (msg || '') + '</div>' +
@@ -226,7 +228,7 @@ function find(raw) {
   if (rs.length > 1) { beep(true); V.innerHTML = '<div class="card"><h2>' + esc(code) + ' 对应多个单<span class="vn">Mã này thuộc nhiều đơn, chọn 1</span></h2>' + rs.map(function (r, i) { return '<div class="lrow" data-i="' + i + '"><b>' + esc(r.c) + '</b> ' + stTag(r) + '<div class="mut">' + esc(KIND[r.k][0] + ' · ' + r.cc + ' ' + r.cu) + '</div></div>'; }).join('') + '</div>';
     [].forEach.call(V.querySelectorAll('.lrow'), function (el) { el.onclick = function () { CUR = rs[+el.getAttribute('data-i')]; card(CUR, true); }; }); return; }
   beep(false);
-  V.innerHTML = '<div class="card"><h2>未找到 ' + esc(code) + '<span class="vn">Không tìm thấy trong dữ liệu (cập nhật lúc ' + esc($('#dt').textContent) + ')</span></h2>' +
+  V.innerHTML = '<div class="card">' + hq('unknown') + '<h2>未找到 ' + esc(code) + '<span class="vn">Không tìm thấy trong dữ liệu (cập nhật lúc ' + esc($('#dt').textContent) + ')</span></h2>' +
     '<p class="mut">可能是无主件，或数据还没同步。Có thể là kiện vô chủ, hoặc dữ liệu chưa kịp cập nhật.</p>' +
     '<input id="unote" placeholder="备注 · Ghi chú (tên hàng, mã khách trên kiện…)"><div class="row" style="margin-top:8px"><button class="k" id="ushot">📷 拍照<span class="vn" style="color:#cbd5e1">Chụp ảnh</span></button><button class="p" id="uin">无主件入库<span class="vn" style="color:#dbeafe">Nhận kiện vô chủ</span></button></div>' +
     '<div class="thumbs" id="uth"></div><div class="row" style="margin-top:8px"><button id="ure">刷新数据<span class="vn">Tải lại dữ liệu</span></button><button id="uback">返回<span class="vn">Quay lại</span></button></div></div>';
@@ -247,7 +249,7 @@ function card(r, fresh) {
   if (fresh && (r.sv || []).length) say((r.sv || []).map(function (k) { return (B.svc[k] || [k])[0]; }).join('，'));
   var k = KIND[r.k] || ['', ''];
   var pk = (r.pk || []).map(function (p) { return '<div class="mut">📦 ' + esc(p[0]) + (p[1] != null ? ' · ' + p[1] + 'kg' : '') + (p[2] ? ' · ' + p[2] + '×' + p[3] + '×' + p[4] : '') + '</div>'; }).join('');
-  V.innerHTML = '<div class="card"><div class="mut">' + esc(k[0] + ' · ' + k[1]) + (r.shop ? ' · ' + esc(r.shop) : '') + '</div>' +
+  V.innerHTML = '<div class="card">' + hq('card') + '<div class="mut">' + esc(k[0] + ' · ' + k[1]) + (r.shop ? ' · ' + esc(r.shop) : '') + '</div>' +
     '<div class="big">' + esc(r.c) + '</div>' + stTag(r) +
     '<div style="margin-top:6px">客户 Khách: <b>' + esc(r.cc || '—') + '</b> ' + esc(r.cu || '') + (r.dw ? ' · 目的仓 Kho đích: <b>' + esc(r.dw) + '</b>' : '') + '</div>' +
     ((r.wb || []).length ? '<div class="mut">运单 Vận đơn: ' + esc(r.wb.join(', ')) + '</div>' : '') + pk +
@@ -279,7 +281,7 @@ function card(r, fresh) {
 function countView(r) {
   var m = r.my || {}, prev = (m.cnt && m.cnt.lines) || [], t0 = Date.now();
   var L = (r.it || []).map(function (x, i) { var p = prev.filter(function (l) { return l.i === i; })[0] || {}; return { i: i, want: x[2], got: p.got != null ? p.got : null, st: p.st || '', pids: p.pids || [] }; });
-  V.innerHTML = '<div class="card"><div class="mut">点数 · Kiểm đếm</div><div class="big">' + esc(r.c) + '</div>' + svcTags(r) + '</div><div class="card" id="lines">' +
+  V.innerHTML = '<div class="card">' + hq('count') + '<div class="mut">点数 · Kiểm đếm</div><div class="big">' + esc(r.c) + '</div>' + svcTags(r) + '</div><div class="card" id="lines">' +
     (r.it || []).map(function (x, i) {
       return '<div class="li" data-i="' + i + '">' + (x[1] ? '<img loading="lazy" referrerpolicy="no-referrer" src="' + esc(thumb(x[1])) + '">' : '<div class="ph"></div>') +
         '<div class="t"><div class="n">' + esc(x[0]) + '</div>' + (x[3] ? '<div class="mut">' + esc(x[3]) + '</div>' : '') +
@@ -312,7 +314,7 @@ function issueForm(r, badL) {
   var pick = badL && badL.length ? (badL.some(function (l) { return l.st === 'short'; }) ? 'short' : badL.some(function (l) { return l.st === 'bad'; }) ? 'shop_damage' : 'wrong') : '';
   var pids = []; (badL || []).forEach(function (l) { pids = pids.concat(l.pids || []); });
   var note = (badL || []).map(function (l) { var x = r.it[l.i] || []; return '#' + (l.i + 1) + ' ' + x[0] + ': 应' + l.want + ' 实' + l.got + ' (' + l.st + ')'; }).join('\n');
-  V.innerHTML = '<div class="card"><div class="mut">报问题 · Báo lỗi</div><div class="big">' + esc(r.c) + '</div>' + (badL ? '<div class="msg info">点数有差异 · Kiểm đếm có chênh lệch, báo lỗi để bộ phận liên quan xử lý</div>' : '') +
+  V.innerHTML = '<div class="card">' + hq('issue') + '<div class="mut">报问题 · Báo lỗi</div><div class="big">' + esc(r.c) + '</div>' + (badL ? '<div class="msg info">点数有差异 · Kiểm đếm có chênh lệch, báo lỗi để bộ phận liên quan xử lý</div>' : '') +
     '<div class="chips" id="kinds">' + Object.keys(B.issue).map(function (k) { var x = B.issue[k], d = B.dept[x[2]]; return '<span class="chip' + (k === pick ? ' on' : '') + '" data-k="' + k + '">' + esc(x[0]) + ' ' + esc(x[1]) + ' → ' + esc(d[0] + ' ' + d[1]) + '</span>'; }).join('') + '</div>' +
     '<textarea id="inote" style="margin-top:8px" placeholder="说明 · Mô tả">' + esc(note) + '</textarea><div class="thumbs" id="ith"></div>' +
     '<div class="row" style="margin-top:8px"><button class="k" id="ish">📷 拍照<span class="vn" style="color:#cbd5e1">Chụp ảnh lỗi</span></button><button class="r" id="isend">提交 · 扣留<span class="vn" style="color:#fee2e2">Gửi + giữ kiện lại</span></button></div>' +
@@ -331,7 +333,7 @@ function listView() {
   var F = { todo: ['待入库', 'Chờ nhận', function (r) { return !(r.my && r.my.in); }], cnt: ['待点数', 'Cần kiểm', function (r) { return needCount(r) && !(r.my && r.my.cnt && r.my.cnt.done); }], in: ['已入库', 'Đã nhận', function (r) { return r.my && r.my.in; }], hold: ['问题', 'Giữ lại', function (r) { return r.my && r.my.st === 'HOLD'; }] };
   var nq = q.trim().toUpperCase();
   var rs = ROWS.filter(F[f][2]).filter(function (r) { return !nq || (r.c + ' ' + (r.wb || []).join(' ') + ' ' + r.cc + ' ' + r.cu).toUpperCase().indexOf(nq) >= 0; });
-  V.innerHTML = '<div class="card"><div class="chips">' + Object.keys(F).map(function (k) { return '<span class="chip' + (k === f ? ' on' : '') + '" data-f="' + k + '">' + F[k][0] + ' ' + F[k][1] + ' ' + ROWS.filter(F[k][2]).length + '</span>'; }).join('') + '</div>' +
+  V.innerHTML = '<div class="card">' + hq('list') + '<div class="chips">' + Object.keys(F).map(function (k) { return '<span class="chip' + (k === f ? ' on' : '') + '" data-f="' + k + '">' + F[k][0] + ' ' + F[k][1] + ' ' + ROWS.filter(F[k][2]).length + '</span>'; }).join('') + '</div>' +
     '<input id="lq" style="margin-top:8px" placeholder="搜索 · Tìm mã / khách" value="' + esc(q) + '"></div><div class="card" id="lst">' +
     (rs.slice(0, 100).map(function (r, i) { return '<div class="lrow" data-i="' + i + '"><b>' + esc(r.c) + '</b> ' + stTag(r) + '<div class="mut">' + esc(KIND[r.k][0] + ' · ' + (r.cc || '') + ' ' + (r.cu || '') + ((r.wb || []).length ? ' · ' + r.wb[0] : '')) + '</div>' + ((r.sv || []).length ? '<div>' + svcTags(r) + '</div>' : '') + '</div>'; }).join('') || '<p class="mut">无 · Không có</p>') +
     (rs.length > 100 ? '<p class="mut">+' + (rs.length - 100) + '…</p>' : '') + '</div>';
@@ -340,7 +342,7 @@ function listView() {
   [].forEach.call(V.querySelectorAll('#lst .lrow'), function (el) { el.onclick = function () { CUR = rs[+el.getAttribute('data-i')]; card(CUR); }; });
 }
 function issView() {
-  V.innerHTML = '<div class="card"><h2>未处理问题<span class="vn">Lỗi đang chờ xử lý</span></h2><div id="il"><p class="mut">…</p></div></div>';
+  V.innerHTML = '<div class="card">' + hq('issues') + '<h2>未处理问题<span class="vn">Lỗi đang chờ xử lý</span></h2><div id="il"><p class="mut">…</p></div></div>';
   api('/kho/api/issues?status=open').then(function (r) { return r.json(); }).then(function (d) {
     $('#il').innerHTML = (d.items || []).map(function (x) {
       var k = B.issue[x.kind] || [x.kind, x.kind], dp = B.dept[x.dept] || [x.dept, x.dept];
@@ -352,6 +354,7 @@ function meView() {
   V.innerHTML = '<div class="card"><h2>' + esc(B.me.name || B.me.u) + '</h2><div class="mut">' + esc(B.me.u + ' · ' + B.me.role) + '</div></div>' +
     '<div class="card"><div>待上传 Chờ gửi: <b>' + Q.length + '</b> 操作 thao tác · <b>' + PH + '</b> 照片 ảnh</div><div class="mut">数据 Dữ liệu: ' + ROWS.length + ' 件 · ' + esc($('#dt').textContent) + '</div>' +
     '<div class="row" style="margin-top:8px"><button id="mre">刷新数据<span class="vn">Tải lại dữ liệu</span></button><button id="msy">立即上传<span class="vn">Gửi ngay</span></button></div></div>' +
+    '<a href="/kho/help" style="display:block;text-decoration:none;margin-bottom:10px"><button style="width:100%">📖 使用说明<span class="vn">Tài liệu hướng dẫn sử dụng</span></button></a>' +
     '<button class="r" style="width:100%" id="mout">退出登录<span class="vn" style="color:#fee2e2">Đăng xuất</span></button>';
   $('#mre').onclick = function () { loadList(true).then(meView); };
   $('#msy').onclick = function () { wait = 2000; pump(); setTimeout(meView, 1500); };
@@ -362,12 +365,23 @@ function meView() {
 }
 function showLogin(err) {
   $('#nav').classList.add('hid');
-  V.innerHTML = '<div class="card" style="margin-top:30px"><h2>仓库登录<span class="vn">Đăng nhập Kho TQ</span></h2><form id="lf"><input id="lu" autocomplete="username" autocapitalize="none" placeholder="账号 · Tài khoản" style="margin-bottom:8px"><input id="lp" type="password" autocomplete="current-password" placeholder="密码 · Mật khẩu" style="margin-bottom:8px"><button class="p" style="width:100%">登录 · Đăng nhập</button></form><div id="lm">' + (err && err.message && err.message !== 'login' ? '<div class="msg bad">' + esc(err.message) + '</div>' : '') + '</div></div>';
+  V.innerHTML = '<div class="card" style="margin-top:24px">' + hq('login') + '<h2>仓库登录<span class="vn">Đăng nhập Kho TQ</span></h2><form id="lf"><input id="lu" autocomplete="username" autocapitalize="none" placeholder="账号或邮箱 · Tài khoản hoặc email" style="margin-bottom:8px"><input id="lp" type="password" autocomplete="current-password" placeholder="密码 · Mật khẩu" style="margin-bottom:8px"><button class="p" style="width:100%">登录 · Đăng nhập</button></form>' +
+    '<button style="width:100%;margin-top:10px" id="lfg">首次登录 / 忘记密码<span class="vn">Lần đầu đăng nhập / Quên mật khẩu → nhận link qua email</span></button><div id="lm">' + (err && err.message && err.message !== 'login' ? '<div class="msg bad">' + esc(err.message) + '</div>' : '') + '</div></div>';
   $('#lf').onsubmit = function (e) {
     e.preventDefault();
     fetch('/api/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: $('#lu').value, password: $('#lp').value }) })
       .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || '登录失败'); }); }).then(start)
       .catch(function (e) { $('#lm').innerHTML = '<div class="msg bad">' + esc(e.message) + '</div>'; });
+  };
+  $('#lfg').onclick = function () {
+    var id = $('#lu').value.trim();
+    if (!id) { $('#lm').innerHTML = '<div class="msg info">先在上面填账号或邮箱，再点这里 · Điền tài khoản hoặc email ở ô trên rồi bấm lại</div>'; $('#lu').focus(); return; }
+    $('#lfg').disabled = true;
+    fetch('/api/pw/forgot', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) })
+      .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || '发送失败'); return d; }); })
+      .then(function (d) { $('#lm').innerHTML = '<div class="msg ok">' + esc(d.msg) + '</div>'; })
+      .catch(function (e) { $('#lm').innerHTML = '<div class="msg bad">' + esc(e.message) + '</div>'; })
+      .then(function () { setTimeout(function () { var b = $('#lfg'); if (b) b.disabled = false; }, 30000); });
   };
 }
 [].forEach.call(document.querySelectorAll('.nav button'), function (b) { b.onclick = function () { camStop(); TAB = b.getAttribute('data-t'); if (TAB === 'scan') CUR = null; render(); }; });

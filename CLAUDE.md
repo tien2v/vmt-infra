@@ -10,6 +10,11 @@ Trước khi sửa, tự trả lời và xử lý luôn (không chắc thì hỏ
 - Phân quyền (kho không thấy tiền), sao lưu, test có cần cập nhật không?
 - Các file `lib/` đang có 2 bản ở `app/lib` và `khach/lib` (ledger, tth, price, cnshared, vietqr, mail): sửa một bản thì phải sửa bản kia y hệt.
 
+## Bàn Kho TQ (`app/kho*.html`, `app/lib/kho.js`)
+- Sửa / thêm tính năng bàn kho thì **sửa luôn tài liệu hướng dẫn** `app/kho-help.html` (song ngữ Trung–Việt) cho khớp; tính năng chưa chạy để ở mục "即将上线 · Sắp có", không mô tả như đã có.
+- Mạng TQ → VN chậm: giữ trang nhẹ, không gọi mạng khi quét; thao tác đi qua hàng đợi `/kho/api/sync`. Đổi file giao diện bàn kho thì tăng tên cache trong `app/kho-sw.js`.
+- Tài khoản nhân viên khai sẵn (tên + email) nằm trong `app/staff.json.enc` (mã hoá bằng .uikey, email không để công khai); thêm người: giải mã, sửa, mã hoá lại. Nhân viên tự đặt mật khẩu qua email (`/api/pw/forgot`).
+
 ## Gọn gàng, không rác, không nặng máy chủ
 Sau mỗi lần làm, rà và xoá:
 - Code tạm, tài khoản tạm, đoạn gỡ lỗi, file / chức năng không còn dùng.

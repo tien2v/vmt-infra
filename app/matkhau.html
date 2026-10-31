@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设置密码 · Đặt mật khẩu</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Roboto,sans-serif;background:#f1f5f9;color:#0f172a}
+.c{max-width:420px;margin:40px auto;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:20px}
+h1{font-size:20px;margin:0 0 4px}.vn{display:block;font-size:12px;color:#64748b;font-weight:400}
+input{width:100%;padding:12px;font-size:16px;border:1px solid #cbd5e1;border-radius:10px;margin-top:10px}
+button{width:100%;margin-top:14px;padding:13px;font-size:16px;font-weight:600;border:0;border-radius:10px;background:#2563eb;color:#fff}
+.m{margin-top:12px;padding:10px;border-radius:9px;font-weight:600}.bad{background:#fee2e2;color:#991b1b}.ok{background:#dcfce7;color:#166534}
+a{color:#2563eb}
+</style>
+</head>
+<body>
+<div class="c">
+  <h1>设置密码<span class="vn">Đặt mật khẩu</span></h1>
+  <div id="who" style="margin-top:8px;color:#64748b">…</div>
+  <form id="f" style="display:none">
+    <input id="p1" type="password" autocomplete="new-password" placeholder="新密码（至少8位）· Mật khẩu mới (từ 8 ký tự)">
+    <input id="p2" type="password" autocomplete="new-password" placeholder="再输入一次 · Nhập lại">
+    <button>保存并登录 · Lưu và đăng nhập</button>
+  </form>
+  <div id="m"></div>
+</div>
+<script>
+(function () {
+  var $ = function (i) { return document.getElementById(i); };
+  var t = new URLSearchParams(location.search).get('t') || '';
+  var post = function (u, b) { return fetch(u, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(function (r) { return r.json().then(function (j) { j._ok = r.ok; return j; }); }); };
+  var bad = function (msg) { $('m').innerHTML = '<div class="m bad"></div><p><a href="/kho/">返回登录页，重新获取链接 · Về trang đăng nhập để nhận link mới</a></p>'; $('m').firstChild.textContent = msg; };
+  post('/api/pw/check', { token: t }).then(function (j) {
+    if (!j._ok) { $('who').textContent = ''; return bad(j.error || '链接无效 · Link không dùng được'); }
+    $('who').textContent = '账号 Tài khoản: ' + j.username + (j.name && j.name !== j.username ? ' (' + j.name + ')' : '');
+    $('f').style.display = '';
+  }).catch(function () { bad('网络错误 · Lỗi mạng, thử lại'); });
+  $('f').onsubmit = function (e) {
+    e.preventDefault();
+    if ($('p1').value.length < 8) return bad2('密码至少8位 · Mật khẩu từ 8 ký tự');
+    if ($('p1').value !== $('p2').value) return bad2('两次输入不一致 · Hai lần nhập không giống nhau');
+    post('/api/pw/set', { token: t, password: $('p1').value }).then(function (j) {
+      if (!j._ok) return bad(j.error || '保存失败 · Không lưu được');
+      $('m').innerHTML = '<div class="m ok">已设置，正在进入… · Đã đặt xong, đang vào…</div>'; location.href = j.go || '/';
+    }).catch(function () { bad2('网络错误 · Lỗi mạng, thử lại'); });
+  };
+  function bad2(msg) { $('m').innerHTML = '<div class="m bad"></div>'; $('m').firstChild.textContent = msg; }
+})();
+</script>
+</body>
+</html>

@@ -27,6 +27,8 @@ extra.init(process.env.DATA_DIR || path.join(__dirname, 'data'));
 const SECRET = store.sessionSecret();
 store.ensureAdmin();
 store.dropTempUsers();
+// Tai khoan nhan vien khai san (ten + email): file staff.json do update.sh giai ma tu staff.json.enc (email khong de cong khai tren GitHub)
+try { const n = store.seedStaff(JSON.parse(fs.readFileSync(path.join(__dirname, 'staff.json'), 'utf8'))); if (n) console.log('seedStaff: them', n, 'tai khoan'); } catch (e) { if (e.code !== 'ENOENT') console.error('seedStaff', e.message); }
 const backup = require('./lib/backup');
 backup.init(store);
 const dws = require('./lib/dws');
@@ -376,6 +378,48 @@ async function handle(req, res) {
     return json(req, res, 200, { ok: true });
   }
 
+  // ---- Dat mat khau qua email (nhan vien): lan dau / quen mat khau. Thu gui tu hop thu no-reply Vominhthien ----
+  if (p === '/matkhau') return sendFile(req, res, path.join(__dirname, 'matkhau.html'), 'no-cache');
+  if (p === '/api/pw/forgot' && req.method === 'POST') {
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 2000)).toString()); } catch { return json(req, res, 400, { error: 'body' }); }
+    const ip = clientIp(req); const u = store.findLogin(b.id);
+    const done = { ok: true, msg: 'Nếu tài khoản có email, link đặt mật khẩu đã được gửi. Kiểm tra hộp thư (cả thư rác) · 如果账号有邮箱，链接已发送，请查收（包括垃圾邮件）' };
+    if (!u || !u.active || !u.email) { store.logLogin(String(b.id || '').slice(0, 60), ip, false); return json(req, res, 200, done); } // khong cho biet tai khoan co ton tai khong
+    const c = store.pwTokenCount(u.username, ip);
+    if (c.u >= 3 || c.ip >= 10) return json(req, res, 429, { error: 'Đã gửi nhiều lần, đợi 1 giờ rồi thử lại · 发送次数过多，请1小时后再试' });
+    const link = 'https://' + (req.headers.host || 'saas.7zone.net') + '/matkhau?t=' + store.pwTokenNew(u.username, u.email, ip);
+    const nm = u.name || u.username;
+    const text = nm + '，您好 / Chào ' + nm + ',\n\n请点击下面的链接设置密码（账号 ' + u.username + '）：\nBấm link dưới đây để đặt mật khẩu cho tài khoản ' + u.username + ':\n\n' + link +
+      '\n\n链接30分钟内有效，只能用一次。Link dùng 1 lần, trong 30 phút.\n如果不是您本人操作，请忽略此邮件。Không phải bạn yêu cầu thì bỏ qua email này.\n\nVMT';
+    const eh = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const html = '<div style="font-family:Arial,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;font-size:15px;line-height:1.6;color:#1d2a33;max-width:520px"><p>' + eh(nm) + '，您好 / Chào ' + eh(nm) + ',</p>' +
+      '<p>请点击按钮设置密码（账号 <b>' + eh(u.username) + '</b>）。<br>Bấm nút để đặt mật khẩu cho tài khoản <b>' + eh(u.username) + '</b>.</p>' +
+      '<p style="margin:24px 0"><a href="' + eh(link) + '" style="background:#2563eb;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:bold;display:inline-block">设置密码 · Đặt mật khẩu</a></p>' +
+      '<p style="color:#6b6b6b;font-size:13px">链接30分钟内有效，只能用一次。如果不是您本人操作，请忽略。<br>Link dùng 1 lần, trong 30 phút. Không phải bạn yêu cầu thì bỏ qua email này.</p>' +
+      '<p style="color:#9a9a9a;font-size:12px">' + eh(link) + '</p></div>';
+    const r = await mail.send('vominhthien', u.email, '设置密码 · Đặt mật khẩu — VMT', text, html);
+    store.logLogin(u.username, ip, false);
+    if (r.error) { console.error('pw mail', u.username, r.error); return json(req, res, 503, { error: 'Chưa gửi được email lúc này, báo quản lý · 邮件暂时发不出去，请联系管理员' }); }
+    return json(req, res, 200, done);
+  }
+  if (p === '/api/pw/check' && req.method === 'POST') {
+    let b; try { b = JSON.parse((await readBody(req, 2000)).toString()); } catch { return json(req, res, 400, { error: 'body' }); }
+    const r = store.pwTokenPeek(b.token);
+    return r.error ? json(req, res, 410, { error: r.error }) : json(req, res, 200, { ok: true, username: r.user.username, name: r.user.name });
+  }
+  if (p === '/api/pw/set' && req.method === 'POST') {
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 2000)).toString()); } catch { return json(req, res, 400, { error: 'body' }); }
+    const pw = String(b.password || '');
+    if (pw.length < 8 || pw.length > 100) return json(req, res, 400, { error: 'Mật khẩu từ 8 ký tự · 密码至少8位' });
+    const r = store.pwTokenUse(b.token, pw);
+    if (r.error) return json(req, res, 410, { error: r.error });
+    store.logLogin(r.user.username, clientIp(req), true);
+    setCookie(req, res, makeSession(r.user), SESSION_HOURS * 3600); // dat xong vao luon
+    return json(req, res, 200, { ok: true, go: r.user.role === 'kho' ? '/kho/' : '/' });
+  }
+
   if (p === '/api/logout' && req.method === 'POST') {
     setCookie(req, res, '', 0);
     return json(req, res, 200, { ok: true });
@@ -392,6 +436,7 @@ async function handle(req, res) {
   if (p === '/kho') { res.writeHead(301, { Location: '/kho/' }); return res.end(); }
   if (p === '/kho/') return sendFile(req, res, path.join(__dirname, 'kho.html'), 'no-cache');
   if (p === '/kho/sw.js') return sendFile(req, res, path.join(__dirname, 'kho-sw.js'), 'no-cache');
+  if (p === '/kho/help') return sendFile(req, res, path.join(__dirname, 'kho-help.html'), 'no-cache');
   if (p.startsWith('/kho/api/')) {
     const KHO_ROLES = ['kho', 'admin'];
     if (!user) return json(req, res, 401, { error: 'login' });

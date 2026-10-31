@@ -26,7 +26,12 @@ function init() {
     CREATE TABLE IF NOT EXISTS ingest_log (ts TEXT DEFAULT (datetime('now')), ok INTEGER, bytes INTEGER, note TEXT);
     CREATE TABLE IF NOT EXISTS login_log (ts TEXT DEFAULT (datetime('now')), username TEXT, ip TEXT, ok INTEGER);
     CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+    CREATE TABLE IF NOT EXISTS pw_tokens (h TEXT PRIMARY KEY, username TEXT NOT NULL, email TEXT, ip TEXT, exp INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT (datetime('now')));
+    CREATE INDEX IF NOT EXISTS pw_tokens_u ON pw_tokens (username, created_at);
   `);
+  // 31/10: nhan vien dang nhap bang ten hoac email; dat mat khau qua link gui email (DB cu chua co cot email -> them)
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'email'").get()) db.exec('ALTER TABLE users ADD COLUMN email TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users (email) WHERE email IS NOT NULL');
 }
 
 function sessionSecret() {
@@ -63,8 +68,15 @@ function getUser(username) {
   const u = db.prepare('SELECT * FROM users WHERE username = ?').get(String(username || '').toLowerCase());
   return u ? Object.assign({}, u, { active: !!u.active }) : null;
 }
+// Ten dang nhap hoac email -> tai khoan
+function findLogin(id) {
+  id = String(id || '').trim().toLowerCase();
+  if (!id.includes('@')) return getUser(id);
+  const r = db.prepare('SELECT username FROM users WHERE email = ?').get(id);
+  return r ? getUser(r.username) : null;
+}
 function checkPassword(username, pw) {
-  const u = getUser(username);
+  const u = findLogin(username);
   if (!u || !u.active) { verify(pw, 'scrypt$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='); return null; }
   return verify(pw, u.pass) ? u : null;
 }
@@ -84,13 +96,58 @@ function resetPassword(username) {
   db.prepare('UPDATE users SET pass = ?, pv = pv + 1, active = 1 WHERE username = ?').run(hash(pw), u.username);
   return pw;
 }
+// Tai khoan nhan vien khai san (ten + email, chua co mat khau: pass '!' khong dang nhap duoc) — nhan vien tu dat mat khau qua email.
+// Chi them tai khoan chua co / dien email con trong; khong doi vai tro, mat khau, trang thai cua tai khoan da co.
+function seedStaff(list) {
+  let n = 0;
+  for (const x of Array.isArray(list) ? list : []) {
+    const u = String(x && x.username || '').trim().toLowerCase(), email = String(x && x.email || '').trim().toLowerCase();
+    if (!/^[a-z0-9._-]{3,32}$/.test(u) || !ROLES.includes(x.role) || (email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/.test(email))) continue;
+    const cur = getUser(u);
+    if (!cur) { db.prepare("INSERT INTO users (username, name, role, pass, email) VALUES (?, ?, ?, '!', ?)").run(u, String(x.name || u).slice(0, 60), x.role, email || null); n++; }
+    else if (email && !cur.email && !db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) db.prepare('UPDATE users SET email = ? WHERE username = ?').run(email, u);
+  }
+  return n;
+}
+// Link dat mat khau: 30 phut, dung 1 lan, chi link moi nhat con dung; luu ma bam, khong luu link; tu xoa sau 30 ngay
+const sha = (t) => crypto.createHash('sha256').update(String(t || '')).digest('hex');
+function pwTokenNew(username, email, ip) {
+  const tok = crypto.randomBytes(24).toString('base64url');
+  db.prepare('UPDATE pw_tokens SET used = 1 WHERE username = ? AND used = 0').run(username);
+  db.prepare('INSERT INTO pw_tokens (h, username, email, ip, exp) VALUES (?, ?, ?, ?, ?)').run(sha(tok), username, email, ip || null, Date.now() + 30 * 60e3);
+  db.prepare("DELETE FROM pw_tokens WHERE created_at < datetime('now', '-30 days')").run();
+  return tok;
+}
+function pwTokenCount(username, ip) {
+  const since = "datetime('now', '-1 hour')";
+  return { u: db.prepare('SELECT COUNT(*) n FROM pw_tokens WHERE username = ? AND created_at > ' + since).get(username).n, ip: db.prepare('SELECT COUNT(*) n FROM pw_tokens WHERE ip = ? AND created_at > ' + since).get(ip || '').n };
+}
+function pwTokenPeek(tok) {
+  const r = db.prepare('SELECT * FROM pw_tokens WHERE h = ?').get(sha(tok));
+  if (!r) return { error: 'Link không đúng · 链接无效' };
+  if (r.used) return { error: 'Link đã dùng hoặc đã có link mới hơn · 链接已使用' };
+  if (r.exp < Date.now()) return { error: 'Link đã hết hạn (30 phút) · 链接已过期' };
+  const u = getUser(r.username);
+  if (!u || !u.active) return { error: 'Tài khoản đã khoá · 账号已停用' };
+  return { h: r.h, user: u };
+}
+function pwTokenUse(tok, pw) {
+  const r = pwTokenPeek(tok); if (r.error) return r;
+  db.exec('BEGIN');
+  try {
+    if (db.prepare('UPDATE pw_tokens SET used = 1 WHERE h = ? AND used = 0').run(r.h).changes !== 1) { db.exec('ROLLBACK'); return { error: 'Link đã dùng · 链接已使用' }; }
+    db.prepare('UPDATE users SET pass = ?, pv = pv + 1 WHERE username = ?').run(hash(pw), r.user.username);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  return { ok: true, user: getUser(r.user.username) };
+}
 function setActive(username, on) {
   const r = db.prepare('UPDATE users SET active = ?, pv = pv + 1 WHERE username = ?').run(on ? 1 : 0, String(username).toLowerCase());
   if (!r.changes) throw new Error('Không có tài khoản ' + username);
 }
 // Don tai khoan tam 'claude-ui' (da tat 30/10, go han 31/10)
 function dropTempUsers() { db.prepare("DELETE FROM users WHERE username = 'claude-ui' AND role = 'ui'").run(); }
-function listUsers() { return db.prepare('SELECT username, name, role, active, created_at FROM users ORDER BY role, username').all(); }
+function listUsers() { return db.prepare("SELECT username, name, role, email, active, pass = '!' AS no_pass, created_at FROM users ORDER BY role, username").all(); }
 
 // Lan dau chay: tao tai khoan admin, mat khau ghi vao /data/admin-password.txt de anh doc 1 lan
 function ensureAdmin() {
@@ -124,4 +181,4 @@ function recentLogins() { return db.prepare('SELECT * FROM login_log ORDER BY ro
 
 function kvGet(k) { const r = db.prepare('SELECT v FROM kv WHERE k = ?').get(k); return r ? r.v : null; }
 function kvSet(k, v) { db.prepare('INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v').run(k, v); }
-module.exports = { kvGet, kvSet, dropTempUsers, init, sessionSecret, ensureAdmin, getUser, checkPassword, addUser, resetPassword, setActive, listUsers, saveSnapshot, seenTs, latestSnapshot, latestMeta, logIngest, logLogin, recentIngest, recentLogins, ROLES };
+module.exports = { findLogin, seedStaff, pwTokenNew, pwTokenCount, pwTokenPeek, pwTokenUse, kvGet, kvSet, dropTempUsers, init, sessionSecret, ensureAdmin, getUser, checkPassword, addUser, resetPassword, setActive, listUsers, saveSnapshot, seenTs, latestSnapshot, latestMeta, logIngest, logLogin, recentIngest, recentLogins, ROLES };

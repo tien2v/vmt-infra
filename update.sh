@@ -25,6 +25,11 @@ if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in app.new/ui.tar.gz.enc 
   exit 1
 fi
 rm -f app.new/ui.tar.gz.enc
+# Danh sach tai khoan nhan vien khai san (ten + email) cung ma hoa bang .uikey; loi thi bo qua, khong chan cap nhat
+if [ -f app.new/staff.json.enc ]; then
+  openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in app.new/staff.json.enc -pass file:.uikey -out app.new/staff.json 2>/dev/null || { rm -f app.new/staff.json; echo "Khong giai ma duoc staff.json.enc (bo qua)"; }
+  rm -f app.new/staff.json.enc
+fi
 # Ghi phien ban de /healthz bao (Claude kiem tra da cap nhat chua)
 printf '%s' "${VMT_SHA:-$(curl -fsS --max-time 20 -H 'Accept: application/vnd.github.sha' https://api.github.com/repos/tien2v/vmt-infra/commits/main || echo unknown)}" > app.new/VERSION
 rm -rf app && mv app.new app
