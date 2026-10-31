@@ -37,6 +37,8 @@ const mail = require('./lib/mail');
 mail.init(store);
 const gemini = require('./lib/gemini');
 gemini.init(store);
+const ksadmin = require('./lib/ksadmin');
+ksadmin.init(store);
 const speedtest = require('./lib/speedtest');
 speedtest.init();
 setInterval(() => { try { const n = cn.autoDeliver(); if (n) console.log('autoDeliver', n); } catch (e) { console.error(e); } }, 30 * 60e3);
@@ -491,6 +493,28 @@ async function handle(req, res) {
       return json(req, res, 200, { ok: true, view: gemini.view() });
     }
     if (p === '/api/gemini/test') { await gemini.test(); return json(req, res, 200, { ok: true, view: gemini.view() }); }
+  }
+
+  // ---- Ky gui ve VN (he thong moi) + kho Trung Quoc ----
+  if (p === '/ky-gui' || p.startsWith('/api/ks')) {
+    if (!user) { if (p === '/ky-gui') { res.writeHead(302, { Location: '/login' }); return res.end(); } return json(req, res, 401, { error: 'login' }); }
+    if (p === '/ky-gui') return fs.readFile(path.join(__dirname, 'ks.html'), (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8' }));
+    if (p === '/api/ks' && req.method === 'GET') {
+      const items = ksadmin.list(url.searchParams.get('q'), url.searchParams.get('status'), 1000);
+      if (user.role === 'kho') items.forEach((o) => { o.items = o.items.map((i) => ({ name: i.name, nameZh: i.nameZh, qty: i.qty })); delete o.value; });
+      return json(req, res, 200, { items, role: user.role, labels: ksadmin.LABEL });
+    }
+    const ml = p.match(/^\/api\/ks\/(84\d{10})\/log$/);
+    if (ml) return json(req, res, 200, { items: ksadmin.log(ml[1]) });
+    if (p === '/api/ks/warehouses' && req.method === 'GET') return json(req, res, 200, { items: ksadmin.warehouses(), log: user.role === 'admin' ? ksadmin.warehousesLog().slice(0, 20) : [], canEdit: user.role === 'admin' });
+    if (p === '/api/ks/warehouses' && req.method === 'POST') {
+      if (user.role !== 'admin') return json(req, res, 403, { error: 'Chỉ quản trị được sửa kho' });
+      if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+      let b; try { b = JSON.parse((await readBody(req, 50000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+      const r = ksadmin.setWarehouses(b.items, user.username);
+      return json(req, res, r.error ? 400 : 200, r.error ? r : Object.assign(r, { log: ksadmin.warehousesLog().slice(0, 20) }));
+    }
+    return json(req, res, 404, { error: 'not found' });
   }
 
   // ---------- Ban Ship to China (don SCN tu trang khach) ----------

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ký gửi về VN · VMT</title>
+<style>
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f5f7;color:#1f2937}
+main{max-width:1100px;margin:0 auto;padding:20px 14px 60px}
+h1{font-size:22px;margin:0 0 4px}p.sub{color:#6b7280;margin:0 0 16px}
+.tabs{display:flex;gap:8px;margin-bottom:14px}.tabs button{border:0;border-radius:10px;padding:9px 14px;font-weight:600;cursor:pointer;background:#e5e7eb;color:#374151}.tabs button.on{background:#4f46e5;color:#fff}
+.card{background:#fff;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}.bar input,.bar select{padding:9px 11px;border:1px solid #d1d5db;border-radius:10px;font-size:14px}.bar input{flex:1;min-width:200px}
+table{width:100%;border-collapse:collapse;font-size:13px}th{text-align:left;color:#6b7280;font-weight:600;padding:8px 6px;border-bottom:1px solid #e5e7eb;white-space:nowrap}td{padding:9px 6px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+tr.row{cursor:pointer}tr.row:hover{background:#f9fafb}td b{font-family:ui-monospace,monospace}
+.st{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#eef2ff;color:#4338ca}.st.CANCELLED{background:#fee2e2;color:#b91c1c}.st.MERCHANT_DELIVERING{background:#f3f4f6;color:#374151}
+.muted{color:#6b7280}.test{font-size:11px;background:#fef3c7;color:#92400e;border-radius:6px;padding:1px 5px;margin-left:4px}
+.det{background:#f9fafb;border-radius:10px;padding:12px;margin:4px 0 8px}.det .row2{display:flex;gap:16px;flex-wrap:wrap}.det dl{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;margin:0;font-size:13px}.det dt{color:#6b7280}
+label{display:block;margin:10px 0 4px;font-size:13px;color:#374151;font-weight:500}
+input.f,textarea.f,select.f{width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;font-family:inherit}
+.wh{border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-bottom:10px}.wh .g{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0 12px}
+button.p{border:0;border-radius:10px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;background:#4f46e5;color:#fff}button.s{border:0;border-radius:10px;padding:9px 14px;font-size:14px;font-weight:600;cursor:pointer;background:#eef2ff;color:#4338ca}
+.err{color:#b91c1c;margin-top:8px;white-space:pre-wrap}.ok{color:#15803d;margin-top:8px}
+a{color:#4f46e5}
+@media (max-width:700px){.hide-m{display:none}}
+</style></head><body><main>
+<p><a href="/">← Về trang quản trị</a></p>
+<h1>Ký gửi về VN</h1>
+<p class="sub">Đơn khách tạo trên hệ thống mới (mã 84…), mỗi đơn 1 mã vận đơn. Chưa có trên Gobiz.</p>
+<div class="tabs"><button class="on" data-t="don">Đơn ký gửi</button><button data-t="kho">Kho Trung Quốc</button></div>
+
+<section id="tDon">
+  <div class="card">
+    <div class="bar"><input id="q" placeholder="Tìm mã đơn, vận đơn, khách, tên gợi nhớ, shop"><select id="st"><option value="">Tất cả trạng thái</option></select></div>
+    <div id="cnt" class="muted" style="font-size:13px;margin-bottom:6px"></div>
+    <div style="overflow:auto"><table><thead><tr><th>Vận đơn / Mã đơn</th><th>Khách</th><th class="hide-m">Hình thức</th><th class="hide-m">Kho TQ → VN</th><th>Trạng thái</th><th class="hide-m">Tạo lúc</th></tr></thead><tbody id="rows"></tbody></table></div>
+  </div>
+</section>
+
+<section id="tKho" hidden>
+  <div class="card">
+    <p class="muted" style="margin:0 0 10px;font-size:13px">Địa chỉ hiện cho khách ở form ký gửi và trong đơn. Ghi <b>{MA}</b> ở chỗ cần chèn mã khách (vd tên người nhận <code>VMT-{MA}</code>), hệ thống tự thay bằng mã của từng khách.<br>Chính ngạch: hệ thống tự chia theo cân ước tính — từ 100kg đi kho mã bắt đầu <b>B1</b>, dưới 100kg đi kho <b>T3</b>.</p>
+    <div id="whs"></div>
+    <div id="whAct" style="display:flex;gap:10px;flex-wrap:wrap"><button class="s" id="whAdd" type="button">+ Thêm kho</button><button class="p" id="whSave" type="button">Lưu</button></div>
+    <div id="whMsg"></div>
+  </div>
+  <div class="card" id="whLogBox" hidden><h3 style="margin:0 0 8px;font-size:15px">Lịch sử sửa kho</h3><div id="whLog"></div></div>
+</section>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const dtt = (s) => s ? new Date(s).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+async function api(u, o) { const r = await fetch(u, Object.assign({ headers: { 'Content-Type': 'application/json' }, cache: 'no-store' }, o || {})); if (r.status === 401) location.href = '/login'; return Object.assign({ _s: r.status }, await r.json().catch(() => ({}))); }
+const LINE = { TC: 'Tiêu chuẩn', TK: 'Tiết kiệm', UT: 'Ưu tiên', CN: 'Chính ngạch' };
+const SVC = { insurance: 'Bảo hiểm', wood_brace: 'Đóng gỗ', counting: 'Kiểm đếm', paper_brace: 'Nẹp giấy', bubble_wrapping: 'Cuốn bọt khí' };
+let DATA = [], ROLE = '', OPEN = null;
+document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => { document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b)); $('#tDon').hidden = b.dataset.t !== 'don'; $('#tKho').hidden = b.dataset.t !== 'kho'; if (b.dataset.t === 'kho') loadWh(); });
+
+async function load() {
+  const j = await api('/api/ks?q=' + encodeURIComponent($('#q').value) + '&status=' + encodeURIComponent($('#st').value));
+  DATA = j.items || []; ROLE = j.role;
+  if ($('#st').options.length === 1) for (const [k, v] of Object.entries(j.labels || {})) $('#st').insertAdjacentHTML('beforeend', '<option value="' + k + '">' + esc(v) + '</option>');
+  render();
+}
+function render() {
+  $('#cnt').textContent = DATA.length + ' đơn';
+  $('#rows').innerHTML = DATA.length ? DATA.map((o) => '<tr class="row" data-c="' + o.code + '"><td><b>' + esc(o.wb) + '</b><br><span class="muted">' + o.code + '</span>' + (o.lot ? '<br><span class="muted">' + esc(o.lot) + '</span>' : '') + '</td><td>' + esc(o.gobiz || o.username) + (o.test ? '<span class="test">test</span>' : '') + '</td><td class="hide-m">' + (o.mode === 'chinh' ? 'Chính ngạch' : 'Tiểu ngạch · ' + (LINE[o.line] || o.line)) + '</td><td class="hide-m">' + esc(o.whCnName || '—') + ' → ' + (o.wh === 'HCM' ? 'HCM' : 'HN') + '</td><td><span class="st ' + o.status + '">' + esc(o.label) + '</span></td><td class="hide-m muted">' + dtt(o.created) + '</td></tr>' + (OPEN === o.code ? '<tr><td colspan="6"><div class="det" id="det"></div></td></tr>' : '')).join('') : '<tr><td colspan="6" class="muted" style="padding:20px">Chưa có đơn ký gửi nào trên hệ thống mới.</td></tr>';
+  if (OPEN) detail(DATA.find((o) => o.code === OPEN));
+}
+async function detail(o) {
+  if (!o) return;
+  const el = $('#det');
+  const items = o.items.length ? o.items.map((i) => esc(i.name) + (i.nameZh ? ' <span class="muted">· ' + esc(i.nameZh) + '</span>' : '') + ' — SL ' + i.qty + (i.price != null && ROLE !== 'kho' ? ' × ¥' + i.price : '')).join('<br>') : '<span class="muted">Không khai hàng</span>';
+  el.innerHTML = '<div class="row2"><dl style="flex:1;min-width:260px"><dt>Vận đơn</dt><dd><b>' + esc(o.wb) + '</b></dd><dt>Shop</dt><dd>' + esc(o.shop || '—') + '</dd><dt>Hàng</dt><dd>' + items + '</dd><dt>Dịch vụ</dt><dd>' + ([...o.svcs.map((s) => SVC[s] || s), o.svcOther].filter(Boolean).map(esc).join(', ') || '—') + '</dd>' + (o.estW ? '<dt>Cân ước tính</dt><dd>' + o.estW + ' kg</dd>' : '') + (o.note ? '<dt>Ghi chú</dt><dd>' + esc(o.note) + '</dd>' : '') + '</dl><div style="flex:1;min-width:260px"><strong style="font-size:13px">Lịch sử thao tác</strong><div id="lg" class="muted" style="font-size:13px">Đang tải…</div></div></div>';
+  const j = await api('/api/ks/' + o.code + '/log');
+  const lg = $('#lg'); if (lg) lg.innerHTML = (j.items || []).map((l) => '<div style="padding:4px 0;border-bottom:1px solid #eee">' + dtt(l.ts) + ' · <b style="font-family:inherit">' + esc(l.by) + '</b> · ' + esc(l.action) + (l.ip ? ' <span class="muted">(IP ' + esc(l.ip) + ')</span>' : '') + (l.changes || []).map((c) => '<br>&nbsp;&nbsp;' + esc(c[0]) + ': ' + esc(c[1]) + ' → ' + esc(c[2])).join('') + '</div>').join('') || 'Chưa có';
+}
+$('#rows').addEventListener('click', (e) => { const r = e.target.closest('tr.row'); if (!r) return; OPEN = OPEN === r.dataset.c ? null : r.dataset.c; render(); });
+let qt; $('#q').addEventListener('input', () => { clearTimeout(qt); qt = setTimeout(load, 300); }); $('#st').onchange = load;
+
+// ---- Kho TQ ----
+let WH = [], CAN = false;
+function whCard(w, i) {
+  const dis = CAN ? '' : ' disabled';
+  return '<div class="wh" data-i="' + i + '"><div class="g"><div><label>Mã kho</label><input class="f" data-k="id" value="' + esc(w.id) + '"' + dis + '></div><div><label>Tên</label><input class="f" data-k="name" value="' + esc(w.name) + '"' + dis + '></div><div><label>Loại</label><select class="f" data-k="type"' + dis + '><option value="tieu"' + (w.type === 'tieu' ? ' selected' : '') + '>Tiểu ngạch</option><option value="chinh"' + (w.type === 'chinh' ? ' selected' : '') + '>Chính ngạch</option></select></div><div><label>Ký hiệu tuyến</label><input class="f" data-k="short" value="' + esc(w.short || '') + '" placeholder="QC / BT"' + dis + '></div><div><label>Người nhận (收货人)</label><input class="f" data-k="recv" value="' + esc(w.recv) + '" placeholder="VD: VMT-{MA}"' + dis + '></div><div><label>SĐT kho</label><input class="f" data-k="phone" value="' + esc(w.phone) + '"' + dis + '></div></div><label>Địa chỉ tiếng Trung</label><textarea class="f" data-k="addr" rows="2" placeholder="广东省广州市… (ghi {MA} chỗ cần mã khách)"' + dis + '>' + esc(w.addr) + '</textarea><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-k="active"' + (w.active !== false ? ' checked' : '') + dis + '> Đang nhận hàng</label></div>';
+}
+function whRead() { return [...document.querySelectorAll('.wh')].map((c) => { const o = {}; c.querySelectorAll('[data-k]').forEach((f) => { o[f.dataset.k] = f.type === 'checkbox' ? f.checked : f.value; }); return o; }); }
+function whRender(log) {
+  $('#whs').innerHTML = WH.map(whCard).join(''); $('#whAct').hidden = !CAN;
+  $('#whLogBox').hidden = !(log && log.length);
+  if (log) $('#whLog').innerHTML = log.map((h) => '<div style="font-size:13px;padding:6px 0;border-bottom:1px solid #eee">' + dtt(h.at) + ' · <b>' + esc(h.by) + '</b>' + h.changes.map((c) => '<br>&nbsp;&nbsp;' + esc(c[0]) + ': ' + esc(c[1] || '(trống)') + ' → ' + esc(c[2] || '(trống)')).join('') + '</div>').join('');
+}
+async function loadWh() { const j = await api('/api/ks/warehouses'); WH = j.items || []; CAN = !!j.canEdit; whRender(j.log); }
+$('#whAdd').onclick = () => { WH = whRead(); WH.push({ id: '', name: '', type: 'tieu', short: '', addr: '', recv: '', phone: '', active: true }); whRender(); };
+$('#whSave').onclick = async () => {
+  $('#whMsg').innerHTML = ''; const j = await api('/api/ks/warehouses', { method: 'POST', body: JSON.stringify({ items: whRead() }) });
+  if (j.error) { $('#whMsg').innerHTML = '<div class="err">' + esc(j.error) + '</div>'; return; }
+  WH = j.items; whRender(j.log); $('#whMsg').innerHTML = '<div class="ok">Đã lưu. Khách thấy địa chỉ mới ngay khi tải lại trang.</div>';
+};
+load();
+</script>
+</main></body></html>

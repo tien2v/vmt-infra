@@ -87,4 +87,33 @@ async function toZh(names) {
   return { ok: true, zh };
 }
 
-module.exports = { init, ready, cnFill, toZh, _cleanCn: cleanCn };
+// ---- Ky gui ve VN: doc tin shop / anh don Taobao, 1688 -> ma van don + hang ----
+const KS_PROMPT = `Bạn là nhân viên nhận đơn ký gửi hàng từ Trung Quốc về Việt Nam. Khách tự mua hàng ở Taobao / 1688 / shop TQ, shop gửi về kho của mình ở Trung Quốc.
+Đọc tin nhắn / ảnh khách gửi (tin shop báo mã vận đơn, ảnh chụp đơn hàng Taobao / 1688, danh sách hàng...) và trích thông tin.
+Trả về DUY NHẤT 1 object JSON đúng mẫu:
+{"wbs": [""], "shop": "", "lot": "", "items": [{"name": "", "nameZh": "", "qty": 1, "price": null}], "warnings": []}
+Quy tắc:
+- KHÔNG bịa. Thiếu thì để "" / [] / null.
+- wbs: TẤT CẢ mã vận đơn chuyển phát nội địa Trung Quốc tìm thấy (运单号 / 快递单号, thường 10–20 ký tự chữ + số, vd SF1234567890123, YT..., JT..., 7xxxxxxxxxxx, ZTO...). KHÔNG lấy mã đơn hàng Taobao / 1688 (订单号 / 订单编号, thường 18–19 chữ số), số điện thoại, mã sản phẩm.
+- shop: tên shop / người bán nếu có.
+- lot: tên gợi nhớ ngắn tiếng Việt (tối đa 60 ký tự) tóm tắt hàng.
+- items: mỗi loại hàng 1 dòng. name = tên tiếng Việt ngắn gọn (dịch nếu gốc tiếng Trung). nameZh = tên tiếng Trung giản thể ngắn gọn. qty = số lượng. price = đơn giá MỖI cái bằng TỆ (¥, số, có thể lẻ) nếu thấy; không thấy thì null.
+- warnings: cảnh báo ngắn tiếng Việt nếu có: hàng cấm / hạn chế (pin rời, chất lỏng dễ cháy, thuốc, chất bột, vũ khí...), mã vận đơn mờ / không chắc.`;
+function cleanKs(d) {
+  d = d && typeof d === 'object' ? d : {};
+  const wbs = [...new Set((Array.isArray(d.wbs) ? d.wbs : []).map((w) => s(w, 60).toUpperCase().replace(/\s/g, '')).filter((w) => /^[A-Z0-9-]{4,40}$/.test(w) && !/^\d{17,}$/.test(w)))].slice(0, 50);
+  const items = (Array.isArray(d.items) ? d.items : []).slice(0, 50).map((i) => {
+    i = i || {}; const qty = Math.floor(Number(i.qty)); const price = i.price == null || i.price === '' ? null : Math.round(Number(i.price) * 100) / 100;
+    return { name: s(i.name, 120), nameZh: s(i.nameZh, 120), qty: qty >= 1 && qty <= 1e6 ? qty : 1, price: price != null && price >= 0 && price <= 1e9 ? price : null };
+  }).filter((i) => i.name || i.nameZh);
+  for (const i of items) if (!i.name) i.name = i.nameZh;
+  return { wbs, shop: s(d.shop, 120), lot: s(d.lot, 80), items, warnings: (Array.isArray(d.warnings) ? d.warnings : []).map((w) => s(w, 200)).filter(Boolean).slice(0, 8) };
+}
+async function ksFill(text, images) {
+  const t = s(text, 8000);
+  const r = await askJson(KS_PROMPT + (t ? '\n\nTIN NHẮN KHÁCH:\n"""\n' + t + '\n"""' : '\n\n(Không có tin nhắn, chỉ đọc ảnh.)'), images, 60000);
+  if (r.error) return r;
+  return { ok: true, data: cleanKs(r.data) };
+}
+
+module.exports = { init, ready, cnFill, ksFill, toZh, _cleanCn: cleanCn, _cleanKs: cleanKs };

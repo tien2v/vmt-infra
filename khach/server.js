@@ -131,6 +131,8 @@ pwaPurge(); setInterval(pwaPurge, 24 * 3600e3).unref();
 // ---- AI (Gemini): dien form tu tin nhan / anh + dich ten hang sang tieng Trung ----
 const ai = require('./lib/ai');
 ai.init(store.adminKv);
+const ks = require('./lib/ks');
+ks.init(store.rawDb(), store.adminKv);
 store.rawDb().exec("CREATE TABLE IF NOT EXISTS ai_log (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, kind TEXT, ok INTEGER, ms INTEGER, imgs INTEGER, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))");
 const aiLog = (u, kind, ok, ms, imgs) => { try { store.rawDb().prepare('INSERT INTO ai_log (username, kind, ok, ms, imgs) VALUES (?, ?, ?, ?, ?)').run(u, kind, ok ? 1 : 0, ms, imgs || 0); } catch {} };
 const aiPurge = () => { try { store.rawDb().prepare("DELETE FROM ai_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-90 days')").run(); } catch {} };
@@ -184,8 +186,11 @@ function payload(user) {
   me.appInstalled = !!store.rawDb().prepare("SELECT 1 FROM pwa_log WHERE username = ? AND event IN ('standalone','installed') LIMIT 1").get(user.username);
   if (me.walletOn) { me.wallet = ledger.walletView(store.rawDb(), owner(user)); me.hasPin = ledger.hasPin(store.rawDb(), owner(user)); }
   const cn = store.cnList(user.username, user.gobiz).map((o) => Object.assign(o, { mine: true }));
+  // Ky gui he thong moi (ma 84…) gop vao danh sach ky gui cung don Gobiz; dia chi kho TQ kem ma khach
+  const ksNew = ks.list(user.username, user.gobiz, me.code);
+  me.whCn = ks.warehouses().filter((w) => w.active !== false).map((w) => Object.assign(ks.whView(w, me.code), { type: w.type }));
   const companies = store.coList(user.username);
-  const data = { companies, orders: s ? s.orders : [], shipments: s ? s.shipments : [], peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
+  const data = { companies, orders: s ? s.orders : [], shipments: ksNew.concat(s ? s.shipments : []), peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
   return 'window.ME=' + JSON.stringify(me) + ';window.DATA=' + JSON.stringify(data) + ';';
 }
 
@@ -325,6 +330,47 @@ async function handle(req, res) {
     if (cr.error) return json(req, res, 400, { error: cr.error });
     const o = cr.order;
     return json(req, res, 200, { ok: true, order: Object.assign(o, { mine: true }), companies: saved ? store.coList(user.username) : undefined });
+  }
+  // ---- Ky gui ve VN (he thong moi) ----
+  if (p === '/api/ks' && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 100000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const v = ks.validate(b);
+    if (v.error) return json(req, res, 400, { error: v.error });
+    if (ks.countRecent(user.username) + v.wbs.length > 200) return json(req, res, 429, { error: 'Tạo quá nhiều đơn trong 1 giờ, vui lòng thử lại sau' });
+    const code = ledger.codeOf(store.rawDb(), owner(user), gobizNames());
+    const r = ks.create(user.username, user.gobiz, String(user.note || '').startsWith('tai khoan test'), v, clientIp(req), code);
+    if (r.error) return json(req, res, 409, r);
+    return json(req, res, 200, { ok: true, orders: r.orders });
+  }
+  if (p === '/api/ks/check' && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    let b; try { b = JSON.parse((await readBody(req, 20000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const { wbs } = ks.parseWbs(b.wbs);
+    return json(req, res, 200, { dup: ks.existing(user.username, wbs.slice(0, 200)) });
+  }
+  const mks = p.match(/^\/api\/ks\/(84\d{10})\/cancel$/);
+  if (mks && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    const r = ks.cancel(user.username, user.gobiz, mks[1], clientIp(req), ledger.codeOf(store.rawDb(), owner(user), gobizNames()));
+    if (r.error) return json(req, res, r.code, { error: r.error });
+    return json(req, res, 200, { ok: true, order: r.order });
+  }
+  if (p === '/api/ai/ks' && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req) || !/application\/json/.test(req.headers['content-type'] || '')) return json(req, res, 403, { error: 'origin' });
+    if (!ai.ready()) return json(req, res, 503, { error: 'Tính năng điền nhanh đang tạm dừng, anh/chị nhập tay giúp em nhé' });
+    if (aiCount(user.username) >= 30) return json(req, res, 429, { error: 'Dùng điền nhanh quá nhiều trong 1 giờ, thử lại sau' });
+    let b; try { b = JSON.parse((await readBody(req, 4 * 1024 * 1024)).toString()); } catch { return json(req, res, 413, { error: 'Ảnh quá lớn hoặc dữ liệu không hợp lệ' }); }
+    const text = String(b.text || '').slice(0, 8000);
+    const imgs = (Array.isArray(b.images) ? b.images : []).slice(0, 4).map((x) => String(x || '')).filter((x) => /^[A-Za-z0-9+/=]{200,}$/.test(x)).map((data) => ({ mime: 'image/jpeg', data }));
+    if (!text.trim() && !imgs.length) return json(req, res, 400, { error: 'Dán tin nhắn hoặc thêm ảnh trước' });
+    const t0 = Date.now(); const r = await ai.ksFill(text, imgs);
+    aiLog(user.username, 'ks', !r.error, Date.now() - t0, imgs.length);
+    if (r.error) return json(req, res, 502, { error: 'Chưa đọc được (' + r.error + '). Anh/chị thử lại hoặc nhập tay.' });
+    return json(req, res, 200, r);
   }
   // Dien nhanh form Ship to China: { text, images: [base64 JPEG] } -> du lieu goi y (khach xem lai roi moi gui)
   if (p === '/api/ai/cn' && req.method === 'POST') {
