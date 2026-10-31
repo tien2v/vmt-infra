@@ -178,6 +178,9 @@ function svcTags(r) { return (r.sv || []).map(function (k) { var s = B.svc[k] ||
 function stTag(r) {
   var m = r.my || {};
   if (m.st === 'HOLD') return '<span class="st hold">问题·Giữ lại</span>';
+  if (m.st === 'SUPPLEMENT') return '<span class="st hold">等补发·Chờ hàng bù</span>';
+  if (m.st === 'RETURN') return '<span class="st hold">退回商家·Hoàn shop</span>';
+  if (m.st === 'CANCEL') return '<span class="st hold">取消·Huỷ, không gửi</span>';
   if (m.st === 'COUNTED') return '<span class="st cnt">已点数·Đã kiểm</span>';
   if (m.in) return '<span class="st in">已入库·Đã nhận</span>';
   var k = KST[r.st] || [r.st, ''];
@@ -272,8 +275,8 @@ function card(r, fresh) {
   $('#bh').onclick = function () {
     $('#hist').innerHTML = '<p class="mut">…</p>';
     api('/kho/api/hist?code=' + encodeURIComponent(r.c)).then(function (x) { return x.json(); }).then(function (d) {
-      var T = { in: '入库 Nhận', photo: '拍照 Ảnh', count: '点数 Kiểm', issue: '问题 Lỗi', svc: '服务 Dịch vụ', note: '备注 Ghi chú', resolve: '处理 Xử lý' };
-      $('#hist').innerHTML = '<div class="card">' + ((d.items || []).map(function (e) { return '<div class="lrow"><b>' + esc(T[e.type] || e.type) + '</b> · ' + esc(e.who) + '<div class="mut">' + esc(e.at || e.ts) + '</div></div>'; }).join('') || '<p class="mut">暂无 · Chưa có</p>') + '</div>';
+      var T = { in: '入库 Nhận', photo: '拍照 Ảnh', count: '点数 Kiểm', issue: '问题 Lỗi', svc: '服务 Dịch vụ', note: '备注 Ghi chú', claim: '受理 Nhận xử lý', resolve: '处理结果 Kết quả xử lý' };
+      $('#hist').innerHTML = '<div class="card">' + ((d.items || []).map(function (e) { return '<div class="lrow"><b>' + esc(T[e.type] || e.type) + '</b> · ' + esc(e.who) + '<div class="mut">' + esc(e.at || e.ts) + '</div>' + (e.data && e.data.result ? '<div><b>' + esc({ go: '继续发货 Đi tiếp', supplement: '补发 Bổ sung', return: '退回商家 Hoàn shop', cancel: '取消 Huỷ' }[e.data.result] || e.data.result) + '</b></div>' : '') + (e.data && e.data.note ? '<div class="mut" style="white-space:pre-wrap">' + esc(e.data.note) + '</div>' : '') + '</div>'; }).join('') || '<p class="mut">暂无 · Chưa có</p>') + '</div>';
     }).catch(function () { $('#hist').innerHTML = '<p class="mut">离线 · Đang mất mạng</p>'; });
   };
 }

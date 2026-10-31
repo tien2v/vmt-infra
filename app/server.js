@@ -300,15 +300,15 @@ function vmtJs() {
 }
 function appHtml() {
   try {
-    const f = path.join(PUBLIC, 'app.html'), sec = path.join(__dirname, 'ext', 'cn-section.html'), ksec = path.join(__dirname, 'ext', 'kh-section.html');
-    const key = fs.statSync(f).mtimeMs + ':' + fs.statSync(sec).mtimeMs + ':' + fs.statSync(ksec).mtimeMs;
+    const f = path.join(PUBLIC, 'app.html'), sec = path.join(__dirname, 'ext', 'cn-section.html'), ksec = path.join(__dirname, 'ext', 'kh-section.html'), lsec = path.join(__dirname, 'ext', 'loi-section.html');
+    const key = fs.statSync(f).mtimeMs + ':' + fs.statSync(sec).mtimeMs + ':' + fs.statSync(ksec).mtimeMs + ':' + fs.statSync(lsec).mtimeMs;
     const c = cachedBody('app.html', key, () => {
       let h = fs.readFileSync(f, 'utf8');
       const a = "load('/assets/vmt.js')";
       const m = '      </main>\n\n      <!-- ============ DRAWER';
       if (!h.includes(a) || !h.includes(m)) { console.error('cn-admin: khong tim thay cho chen trong app.html'); return Buffer.alloc(0); }
-      h = h.replace(a, "load('/assets/vmt.js').then(function () { return load('/ext/cn-admin.js'); }).then(function () { return load('/ext/kh-admin.js'); })");
-      h = h.replace(m, fs.readFileSync(sec, 'utf8') + fs.readFileSync(ksec, 'utf8') + m);
+      h = h.replace(a, "load('/assets/vmt.js').then(function () { return load('/ext/cn-admin.js'); }).then(function () { return load('/ext/kh-admin.js'); }).then(function () { return load('/ext/loi-admin.js'); })");
+      h = h.replace(m, fs.readFileSync(sec, 'utf8') + fs.readFileSync(ksec, 'utf8') + fs.readFileSync(lsec, 'utf8') + m);
       return Buffer.from(noDebt(h));
     });
     return c.raw.length ? c : null;
@@ -443,13 +443,23 @@ async function handle(req, res) {
     const KHO_ROLES = ['kho', 'admin'];
     if (!user) return json(req, res, 401, { error: 'login' });
     const sub = p.slice(9);
-    if (sub === 'resolve' && req.method === 'POST') { // bo phan xu ly loi (order / CSKH / admin) bao ket qua
-      if (!['admin', 'order', 'sale'].includes(user.role) || !sameOrigin(req)) return json(req, res, 403, { error: 'forbidden' });
+    // Bo phan xu ly loi kho: admin xem het; order = loi nha ban; sale (Sale / CSKH) = loi khach; kho xem het (chi xem)
+    const FIX_DEPT = { admin: '', order: 'order', sale: 'cskh', kho: '' };
+    if (sub === 'issues' || sub === 'issues/summary' || sub === 'claim' || sub === 'resolve' || /^photo\/[A-Za-z0-9_-]{8,40}$/.test(sub) || sub === 'hist') {
+      if (!(user.role in FIX_DEPT)) return json(req, res, 403, { error: 'forbidden' });
+      const dept = user.role === 'admin' && url.searchParams.get('dept') ? url.searchParams.get('dept') : FIX_DEPT[user.role];
+      if (sub === 'issues') { let items = kho.issues(url.searchParams.get('status') || 'open', dept); if (user.role === 'kho') items = items.map((x) => Object.assign({}, x, { pkg: undefined })); return json(req, res, 200, { items, role: user.role, me: user.username, dept }); } // dien thoai kho: bo thong tin kien cho nhe
+      if (sub === 'issues/summary') return json(req, res, 200, kho.issueSummary(dept));
+      if (sub === 'hist') return json(req, res, 200, { items: kho.history(url.searchParams.get('code')) });
+      const mp = sub.match(/^photo\/([A-Za-z0-9_-]{8,40})$/);
+      // Anh doc thang tu dia (khong dua vao bo nho dem file tinh -> khong phinh RAM); khong doi noi dung nen cho giu 30 ngay
+      if (mp) { const f = kho.photoFile(mp[1]); if (!f) return send(res, 404, ''); return fs.readFile(f, (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=2592000, immutable' })); }
+      if (req.method !== 'POST' || user.role === 'kho' || !sameOrigin(req)) return json(req, res, 403, { error: 'forbidden' });
       let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'body' }); }
-      const r = kho.resolveIssue(b.id, b.result, b.note, user.username);
+      const own = user.role === 'admin' ? '' : FIX_DEPT[user.role]; // admin xu ly duoc moi bo phan
+      const r = sub === 'claim' ? kho.claimIssue(b.id, user.username, own) : kho.resolveIssue(b.id, b.result, b.note, user.username, own);
       return json(req, res, r.error ? 400 : 200, r);
     }
-    if (sub === 'issues') return json(req, res, 200, { items: kho.issues(url.searchParams.get('status') || 'open') });
     if (!KHO_ROLES.includes(user.role)) return json(req, res, 403, { error: 'Tài khoản không thuộc kho · 非仓库账号' });
     if (sub === 'boot') return json(req, res, 200, { me: { u: user.username, name: user.name, role: user.role }, svc: kho.SVC, issue: kho.ISSUE, dept: kho.DEPT, wh: ksadmin.warehouses().map((w) => ({ id: w.id, name: w.name, active: w.active })) });
     if (sub === 'list') {
@@ -460,7 +470,6 @@ async function handle(req, res) {
       if (gz) h['Content-Encoding'] = 'gzip';
       res.writeHead(200, h); return res.end(gz ? ix.gz : ix.raw);
     }
-    if (sub === 'hist') return json(req, res, 200, { items: kho.history(url.searchParams.get('code')) });
     if (sub === 'sync' && req.method === 'POST') {
       if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
       let b; try { b = JSON.parse((await readBody(req, 500000)).toString()); } catch { return json(req, res, 400, { error: 'body' }); }
@@ -472,9 +481,6 @@ async function handle(req, res) {
       const r = kho.savePhoto(url.searchParams.get('id'), url.searchParams.get('code'), buf, user.username);
       return json(req, res, r.error ? 400 : 200, r);
     }
-    const mp = sub.match(/^photo\/([A-Za-z0-9_-]{8,40})$/);
-    // Anh doc thang tu dia (khong dua vao bo nho dem file tinh -> khong phinh RAM); khong doi noi dung nen cho giu 30 ngay
-    if (mp) { const f = kho.photoFile(mp[1]); if (!f) return send(res, 404, ''); return fs.readFile(f, (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=2592000, immutable' })); }
     return json(req, res, 404, { error: 'not found' });
   }
   if (p === '/api/me') return user ? json(req, res, 200, { username: user.username, name: user.name, role: user.role }) : json(req, res, 401, { error: 'login' });
@@ -844,6 +850,10 @@ async function handle(req, res) {
   if (p === '/ext/kh-admin.js') {
     if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });
     return sendFile(req, res, path.join(__dirname, 'ext', 'kh-admin.js'), 'private, no-cache');
+  }
+  if (p === '/ext/loi-admin.js') {
+    if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });
+    return sendFile(req, res, path.join(__dirname, 'ext', 'loi-admin.js'), 'private, no-cache');
   }
   if (p === '/ext/cn-admin.js') {
     if (!user) return send(res, 401, '', { 'Content-Type': 'text/javascript' });

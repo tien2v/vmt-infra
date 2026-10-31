@@ -57,6 +57,8 @@ function init(opts) {
     CREATE TABLE IF NOT EXISTS kho_issue (id INTEGER PRIMARY KEY AUTOINCREMENT, ev TEXT UNIQUE, code TEXT NOT NULL, kind TEXT NOT NULL, dept TEXT NOT NULL, note TEXT, photos TEXT,
       status TEXT NOT NULL DEFAULT 'open', by TEXT, ts TEXT DEFAULT (datetime('now', '+7 hours')), due TEXT, result TEXT, done_by TEXT, done_at TEXT);
     CREATE TABLE IF NOT EXISTS kho_photo (id TEXT PRIMARY KEY, code TEXT, by TEXT, size INTEGER, file TEXT, used INTEGER NOT NULL DEFAULT 0, ts TEXT DEFAULT (datetime('now', '+7 hours')));`);
+  // 31/10: ai dang nhan xu ly loi (DB cu chua co cot -> them)
+  for (const c of ['taken_by', 'taken_at']) if (!db.prepare("SELECT 1 FROM pragma_table_info('kho_issue') WHERE name = ?").get(c)) db.exec('ALTER TABLE kho_issue ADD COLUMN ' + c + ' TEXT');
   setInterval(prune, 6 * 3600e3).unref();
   setTimeout(prune, 90e3).unref();
 }
@@ -185,16 +187,42 @@ function savePhoto(id, code, buf, who) {
 function photoFile(id) { const r = db.prepare('SELECT file FROM kho_photo WHERE id = ?').get(S(id, 40)); return r ? path.join(PHOTO_DIR, r.file) : null; }
 
 function history(code) {
-  return db.prepare('SELECT id, type, who, at, ts, data FROM kho_ev WHERE code = ? ORDER BY ts, at').all(S(code, 60).toUpperCase()).map((r) => Object.assign(r, { data: J(r.data, {}) }));
+  return db.prepare('SELECT id, type, who, at, ts, data FROM kho_ev WHERE code = ? ORDER BY COALESCE(at, ts), ts').all(S(code, 60).toUpperCase()).map((r) => Object.assign(r, { data: J(r.data, {}) }));
 }
-function issues(status) {
-  return db.prepare('SELECT * FROM kho_issue WHERE (? = \'\' OR status = ?) ORDER BY id DESC LIMIT 300').all(status || '', status || '')
-    .map((r) => Object.assign(r, { photos: J(r.photos, []), late: r.status === 'open' && r.due < nowVN() }));
+// Danh sach loi cho bo phan xu ly (admin: tat ca; order: loi nha ban; sale = CSKH: loi khach) + thong tin kien de khoi mo noi khac.
+// status: open | done (7 ngay gan nhat) ; dept: '' = tat ca
+function issues(status, dept) {
+  const st = status === 'done' ? 'done' : 'open';
+  const rows = db.prepare("SELECT * FROM kho_issue WHERE status = ? AND (? = '' OR dept = ?)" + (st === 'done' ? " AND done_at > datetime('now', '+7 hours', '-7 days')" : '') + ' ORDER BY id DESC LIMIT 300').all(st, dept || '', dept || '');
+  let byCode = null;
+  const info = (code) => {
+    if (!byCode) { byCode = {}; try { for (const r of J(list().raw.toString(), { rows: [] }).rows) byCode[r.c] = r; } catch (e) {} }
+    const r = byCode[code]; if (!r) return null;
+    return { k: r.k, cc: r.cc, cu: r.cu, dw: r.dw, wb: r.wb, sv: r.sv, it: r.it, shop: r.shop || '', my: r.my ? { cnt: r.my.cnt || null, in: r.my.in || null } : null };
+  };
+  const now = nowVN();
+  return rows.map((r) => Object.assign(r, { photos: J(r.photos, []), late: st === 'open' && r.due < now, pkg: info(r.code) }));
 }
-// Bo phan xu ly xong -> kho thay ket qua, kien het Giu lai (neu khong con loi mo)
-function resolveIssue(id, result, note, who) {
+function issueSummary(dept) {
+  const now = nowVN();
+  const r = db.prepare("SELECT COUNT(*) n, SUM(CASE WHEN due < ? THEN 1 ELSE 0 END) late, MAX(id) last FROM kho_issue WHERE status = 'open' AND (? = '' OR dept = ?)").get(now, dept || '', dept || '');
+  return { open: r.n || 0, late: r.late || 0, last: r.last || 0 };
+}
+function claimIssue(id, who, dept) {
   const r = db.prepare("SELECT * FROM kho_issue WHERE id = ? AND status = 'open'").get(Number(id));
   if (!r) return { error: 'Không có lỗi đang mở này' };
+  if (dept && r.dept !== dept) return { error: 'Lỗi này thuộc bộ phận khác' };
+  if (r.taken_by && r.taken_by !== who) return { error: r.taken_by + ' đã nhận xử lý lỗi này' };
+  db.prepare('UPDATE kho_issue SET taken_by = ?, taken_at = ? WHERE id = ?').run(who, nowVN(), r.id);
+  db.prepare('INSERT INTO kho_ev (id, code, type, who, at, data) VALUES (?, ?, ?, ?, ?, ?)').run('c' + crypto.randomBytes(9).toString('base64url'), r.code, 'claim', who, nowVN(), JSON.stringify({ issue: r.id }));
+  return { ok: true };
+}
+// Bo phan xu ly xong -> kho thay ket qua, kien het Giu lai (neu khong con loi mo)
+function resolveIssue(id, result, note, who, dept) {
+  const r = db.prepare("SELECT * FROM kho_issue WHERE id = ? AND status = 'open'").get(Number(id));
+  if (!r) return { error: 'Không có lỗi đang mở này' };
+  if (dept && r.dept !== dept) return { error: 'Lỗi này thuộc bộ phận khác' };
+  if (result !== 'go' && !String(note || '').trim()) return { error: 'Cần ghi chú cho kho biết phải làm gì' };
   const RES = ['go', 'return', 'supplement', 'cancel'];
   if (!RES.includes(result)) return { error: 'Kết quả không hợp lệ' };
   db.prepare("UPDATE kho_issue SET status = 'done', result = ?, done_by = ?, done_at = ?, note = COALESCE(note, '') || ? WHERE id = ?")
@@ -208,4 +236,4 @@ function resolveIssue(id, result, note, who) {
   return { ok: true };
 }
 
-module.exports = { init, list, sync, savePhoto, photoFile, history, issues, resolveIssue, SVC, ISSUE, DEPT };
+module.exports = { init, list, sync, savePhoto, photoFile, history, issues, issueSummary, claimIssue, resolveIssue, SVC, ISSUE, DEPT };

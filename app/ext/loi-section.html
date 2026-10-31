@@ -1,0 +1,87 @@
+
+        <style>
+          .lk-c{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.07);padding:14px 16px;margin-bottom:12px}.dark .lk-c{background:#26334d}
+          .lk-c.late{box-shadow:0 0 0 2px #ef4444}
+          .lk-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.lk-tabs button{border:0;border-radius:99px;padding:6px 14px;font-weight:600;font-size:13px;background:#e9eef5;color:#334155}.lk-tabs button.on{background:#4f46e5;color:#fff}
+          .lk-chip{display:inline-block;border-radius:99px;padding:1px 9px;font-size:12px;font-weight:600;background:#eef2ff;color:#4338ca;margin-right:4px}
+          .lk-red{background:#fee2e2;color:#b91c1c}.lk-grn{background:#dcfce7;color:#166534}.lk-amb{background:#fef3c7;color:#92400e}
+          .lk-ph{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.lk-ph img{width:84px;height:84px;object-fit:cover;border-radius:8px;cursor:zoom-in}
+          .lk-it{display:flex;gap:8px;align-items:center;font-size:13px;padding:4px 0}.lk-it img{width:40px;height:40px;object-fit:cover;border-radius:6px}
+          .lk-act{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.lk-act button{border:0;border-radius:9px;padding:8px 12px;font-weight:600;font-size:13px;background:#e2e8f0;color:#0f172a;cursor:pointer}
+          .lk-act button.go{background:#16a34a;color:#fff}.lk-act button.cl{background:#4f46e5;color:#fff}.lk-act button:disabled{opacity:.5}
+          .lk-note{width:100%;border:1px solid #cbd5e1;border-radius:9px;padding:8px 10px;font:inherit;font-size:13px;margin-top:8px;background:transparent}
+          .lk-mut{color:#64748b;font-size:12px}.lk-pre{white-space:pre-wrap;font-size:13px;background:#f8fafc;border-radius:8px;padding:8px 10px;margin-top:6px}.dark .lk-pre{background:#1e293b}
+        </style>
+        <!-- ===== LOI KHO TQ (ban Order + Sale/CSKH) ===== -->
+        <section x-show="page==='loikho'" style="display:none">
+          <div class="flex flex-wrap items-end justify-between gap-3 py-5 lg:py-6">
+            <div class="min-w-0">
+              <h2 class="text-xl font-medium text-slate-800 dark:text-navy-50 lg:text-2xl">Lỗi kho Trung Quốc</h2>
+              <p class="mt-1 text-xs-plus text-slate-400 dark:text-navy-300">Kho TQ mở kiện thấy vấn đề thì báo ở đây (kiện đang bị giữ, chưa đóng bao). Bấm <b>Nhận xử lý</b> → liên hệ shop / khách → bấm kết quả, kho tự thấy. Hạn 2 ngày.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <select x-show="role==='admin'" x-model="lk.dept" @change="lkLoad()" class="form-select rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-navy-450 dark:bg-navy-700">
+                <option value="">Tất cả bộ phận</option><option value="order">NV order (lỗi shop)</option><option value="cskh">CSKH (lỗi khách)</option><option value="admin">Quản lý (kho làm hỏng)</option>
+              </select>
+              <button @click="lkLoad()" class="btn rounded-full border border-slate-300 px-4 py-2 font-medium dark:border-navy-450"><i class="fa-solid fa-rotate"></i></button>
+            </div>
+          </div>
+          <div class="lk-tabs">
+            <button :class="lk.tab==='open' && 'on'" @click="lkTab('open')">Đang chờ xử lý <span x-text="lk.tab!=='done' ? lk.items.length : lk.sum.open"></span></button>
+            <button :class="lk.tab==='late' && 'on'" @click="lkTab('late')">Quá hạn 2 ngày <span x-text="lk.sum.late"></span></button>
+            <button :class="lk.tab==='done' && 'on'" @click="lkTab('done')">Đã xử lý (7 ngày)</button>
+          </div>
+          <p x-show="lk.err" class="text-error" x-text="lk.err"></p>
+          <p x-show="lk.loaded && !lkRows().length" class="lk-mut" style="padding:20px 0">Không có lỗi nào ở mục này.</p>
+          <template x-for="x in lkRows()" :key="x.id">
+            <div class="lk-c" :class="x.late && 'late'">
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div style="font-family:ui-monospace,monospace;font-weight:700;font-size:16px" x-text="x.code"></div>
+                  <div style="margin-top:3px">
+                    <span class="lk-chip lk-red" x-text="lkKind(x.kind)[0] + ' · ' + lkKind(x.kind)[1]"></span>
+                    <span class="lk-chip" x-text="'→ ' + lkDept(x.dept)"></span>
+                    <template x-if="x.status==='open'"><span class="lk-chip" :class="x.late ? 'lk-red' : 'lk-amb'" x-text="lkAge(x)"></span></template>
+                    <template x-if="x.status==='done'"><span class="lk-chip lk-grn" x-text="lkResN(x.result) + ' · ' + x.done_by + ' · ' + x.done_at"></span></template>
+                  </div>
+                </div>
+                <div class="lk-mut" style="text-align:right">Kho báo: <b x-text="x.by"></b><br><span x-text="x.ts"></span>
+                  <template x-if="x.taken_by"><div style="margin-top:3px"><span class="lk-chip lk-grn" x-text="'Đang xử lý: ' + x.taken_by"></span></div></template>
+                </div>
+              </div>
+              <template x-if="x.pkg">
+                <div class="lk-mut" style="margin-top:8px">
+                  <span x-text="lkKindK(x.pkg.k)"></span> · Khách <b x-text="(x.pkg.cc || '') + ' ' + (x.pkg.cu || '')"></b>
+                  <span x-show="x.pkg.dw" x-text="' · Kho đích ' + x.pkg.dw"></span>
+                  <span x-show="(x.pkg.wb||[]).length" x-text="' · Vận đơn ' + (x.pkg.wb||[]).join(', ')"></span>
+                  <span x-show="x.pkg.shop" x-text="' · Shop ' + x.pkg.shop"></span>
+                </div>
+              </template>
+              <template x-if="!x.pkg"><div class="lk-mut" style="margin-top:8px">Kiện không có trong dữ liệu đơn (vô chủ hoặc đơn đã xuất kho).</div></template>
+              <div x-show="x.note" class="lk-pre" x-text="x.note"></div>
+              <template x-if="lkBad(x).length">
+                <div style="margin-top:6px"><div class="lk-mut">Kết quả kiểm đếm (dòng có vấn đề):</div>
+                  <template x-for="b in lkBad(x)"><div class="lk-it"><span class="lk-chip lk-red" x-text="lkCst(b.st)"></span><span x-text="b.n"></span><span class="lk-mut" x-text="'đặt ' + (b.want ?? '?') + ' · thực ' + (b.got ?? '?')"></span></div></template>
+                </div>
+              </template>
+              <div class="lk-ph" x-show="(x.photos||[]).length">
+                <template x-for="ph in x.photos"><a :href="'/kho/api/photo/' + ph" target="_blank"><img loading="lazy" :src="'/kho/api/photo/' + ph" alt=""></a></template>
+              </div>
+              <template x-if="x.status==='open' && role!=='kho'">
+                <div>
+                  <div class="lk-act" x-show="!x.taken_by"><button class="cl" :disabled="lk.busy===x.id" @click="lkClaim(x)">Nhận xử lý</button></div>
+                  <div x-show="x.taken_by">
+                    <textarea class="lk-note" rows="2" x-model="lk.note[x.id]" placeholder="Ghi chú cho kho (bắt buộc khi Bổ sung / Hoàn shop / Huỷ): shop gửi bù khi nào, hoàn về đâu…"></textarea>
+                    <div class="lk-act">
+                      <template x-for="r in lkRes"><button :class="r[0]==='go' && 'go'" :title="r[2]" :disabled="lk.busy===x.id" @click="lkResolve(x, r[0])" x-text="r[1]"></button></template>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div class="lk-act"><button @click="lkHist(x)" x-text="lk.hist[x.id] ? 'Ẩn lịch sử' : 'Lịch sử kiện'"></button></div>
+              <template x-if="lk.hist[x.id]">
+                <div class="lk-pre"><template x-for="e in lk.hist[x.id]"><div><b x-text="lkEv(e.type)"></b> · <span x-text="e.who"></span> · <span class="lk-mut" x-text="e.at || e.ts"></span></div></template></div>
+              </template>
+            </div>
+          </template>
+        </section>
