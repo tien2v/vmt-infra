@@ -11,6 +11,7 @@ const crypto = require('node:crypto');
 const store = require('./lib/store');
 const { buildIndex, brandOf, busiest } = require('./lib/map');
 const ledger = require('./lib/ledger');
+const webpush = require('./lib/webpush');
 const price = require('./lib/price');
 
 const PORT = Number(process.env.PORT || 3001);
@@ -117,6 +118,12 @@ function pwaInit() {
   store.rawDb().exec("CREATE TABLE IF NOT EXISTS pwa_log (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, event TEXT NOT NULL, platform TEXT, ua TEXT, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))");
 }
 pwaInit();
+webpush.init(store.rawDb());
+// Day thong bao chuong len dien thoai (quet bang notif 20 giay/lan; admin cung ghi vao bang nay)
+const PUSH_TITLE = { order: 'Đơn hàng', money: 'Tài chính', support: 'Hỗ trợ', system: 'Thông báo' };
+setInterval(() => webpush.pump(
+  (code) => (code && /^SCN\d+$/.test(code) ? '/#don/cn/' + code : '/#tong-quan'),
+  (n) => PUSH_TITLE[notifKind(n).kind] || 'Thông báo'), 20000).unref();
 // Thong ke cai app chi giu 180 ngay
 const pwaPurge = () => { try { store.rawDb().prepare("DELETE FROM pwa_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-180 days')").run(); } catch {} };
 pwaPurge(); setInterval(pwaPurge, 24 * 3600e3).unref();
@@ -375,6 +382,21 @@ async function handle(req, res) {
     if (mco[2] === 'delete') { const r = store.coDelete(user.username, mco[1], clientIp(req)); if (r.error) return json(req, res, r.code, { error: r.error }); }
     else { const co = store.coGet(user.username, mco[1]); if (!co) return json(req, res, 404, { error: 'Không tìm thấy công ty' }); store.coSave(user.username, Object.assign(co, { isDefault: true }), clientIp(req)); }
     return json(req, res, 200, { ok: true, items: store.coList(user.username) });
+  }
+  if (p.startsWith('/api/push/')) {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (p === '/api/push/key') return json(req, res, 200, { key: webpush.publicKey(), has: webpush.hasSub(user.username) });
+    if (req.method !== 'POST' || !sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 4000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    if (p === '/api/push/sub') {
+      const r = webpush.subscribe(user.username, b.sub, req.headers.host, req.headers['user-agent']);
+      if (r.error) return json(req, res, 400, r);
+      if (!b.test) return json(req, res, 200, { ok: true });
+      const t = await webpush.send(user.username, { title: 'Đã bật thông báo', body: 'Từ giờ anh/chị sẽ nhận báo ngay khi có tin nhắn, hàng về hoặc cần thanh toán.', url: '/#tong-quan', tag: 'bat-thong-bao' });
+      return json(req, res, 200, { ok: true, sent: t.sent, codes: t.codes });
+    }
+    if (p === '/api/push/unsub') { webpush.unsubscribe(user.username, b.endpoint); return json(req, res, 200, { ok: true }); }
+    return json(req, res, 404, { error: 'not found' });
   }
   if (p === '/api/pwa' && req.method === 'POST') {
     if (!user) return json(req, res, 401, { error: 'login' });
