@@ -250,4 +250,33 @@ async function handle(req, res, p, url, user) {
   }
   return json(req, res, 404, { error: 'not found' });
 }
-module.exports = { init, handle, ROLES };
+// Icon FontAwesome cho trang /chat: trich tu app.css cua Lineone (380KB, kem ca bo Tailwind lam nang dien thoai)
+// chi lay phan FontAwesome + dung icon trang chat dung (~10KB). Nho theo thoi gian sua 2 file.
+const fs = require('node:fs');
+let faCache = { key: '', css: '' };
+function faCss(appCssPath, chatHtmlPath) {
+  let key; try { key = fs.statSync(appCssPath).mtimeMs + ':' + fs.statSync(chatHtmlPath).mtimeMs; } catch { return ''; }
+  if (faCache.key === key) return faCache.css;
+  const css = fs.readFileSync(appCssPath, 'utf8');
+  const used = new Set((fs.readFileSync(chatHtmlPath, 'utf8').match(/fa-[a-z0-9-]+/g) || []));
+  const out = [];
+  const end = (k) => { let d = 0; for (; k < css.length; k++) { if (css[k] === '{') d++; else if (css[k] === '}' && --d === 0) return k; } return css.length - 1; };
+  const walk = (a, b) => {
+    let p = a;
+    while (p < b) {
+      const ob = css.indexOf('{', p); if (ob < 0 || ob >= b) break;
+      const semi = css.lastIndexOf(';', ob); const sel = css.slice(semi >= p ? semi + 1 : p, ob).trim(); const cb = end(ob); const inner = css.slice(ob + 1, cb);
+      if (/^@(layer|media|supports)/.test(sel) && inner.includes('{')) walk(ob + 1, cb);
+      else if (sel.startsWith('@font-face')) { if (/Font Awesome 6 Free|Font Awesome\\ 6 Free/.test(inner)) out.push(sel + '{' + inner + '}'); }
+      else if (!sel.startsWith('@') && /(^|,)\s*\.fa[\w-]*/.test(sel)) {
+        if (/:before|::before/.test(sel)) { const keep = sel.split(',').filter((x) => { const m = x.match(/\.(fa-[\w-]+):{1,2}before/); return m && used.has(m[1]); }); if (keep.length) out.push(keep.join(',') + '{' + inner + '}'); }
+        else if (!/fa-(beat|bounce|fade|flip|shake|spin|pulse|rotate-by|stack|ul|li|border|pull|inverse|sr-only)/.test(sel)) out.push(sel + '{' + inner + '}');
+      }
+      p = cb + 1;
+    }
+  };
+  walk(0, css.length);
+  faCache = { key, css: out.join('\n').replace(/url\(\.\.\/fonts\//g, 'url(/assets/fonts/') };
+  return faCache.css;
+}
+module.exports = { init, handle, faCss, ROLES };

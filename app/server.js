@@ -458,6 +458,7 @@ async function handle(req, res) {
   if (p.startsWith('/assets/')) return serveFile(req, res, p.slice(1));
 
   // Cai app "Tin nhan khach" cho nhan vien + nhan thong bao day (khong co du lieu rieng tu)
+  if (p === '/chat-fa.css') { const c = chats.faCss(path.join(PUBLIC, 'assets', 'css', 'app.css'), path.join(__dirname, 'chat.html')); return sendBody(req, res, cachedBody('chat-fa.css', String(c.length) + c.slice(-40), () => Buffer.from(c)), 'text/css; charset=utf-8', 'public, max-age=3600'); }
   if (p === '/chat-sw.js') return sendFile(req, res, path.join(__dirname, 'chat-sw.js'), 'no-cache');
   if (p === '/chat.webmanifest') return send(res, 200, JSON.stringify({ id: '/chat', name: 'Tin nhắn khách', short_name: 'Tin nhắn', lang: 'vi', start_url: '/chat', scope: '/', display: 'standalone', background_color: '#f4f5f7', theme_color: '#ffffff', icons: [{ src: '/chat-icon-192.png', sizes: '192x192', type: 'image/png' }, { src: '/chat-icon-512.png', sizes: '512x512', type: 'image/png' }] }), { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
   const mci = p.match(/^\/chat-icon-(180|192|512)\.png$/);
