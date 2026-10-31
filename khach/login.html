@@ -32,6 +32,7 @@ button[disabled]{opacity:.6;cursor:wait}
 .alt{background:none;border:0;color:#6c665b;font-weight:700;margin-top:10px;padding:8px}
 .who{font-size:13px;color:#7a7365;text-align:center;margin-top:8px}
 .ask{text-align:center}.ask .ic{width:64px;height:64px;margin:0 auto 12px;border-radius:18px;background:var(--soft);display:grid;place-items:center;color:var(--a3)}.ask .ic svg{width:36px;height:36px}
+.note{font-size:14px;color:#5f5a4f;background:var(--soft);border-radius:14px;padding:12px 14px;margin:0 0 4px}
 .ask h2{font-size:19px;margin:0 0 6px}.ask p{color:#7a7365;font-size:14px;margin:0}
 </style>
 </head>
@@ -43,14 +44,23 @@ button[disabled]{opacity:.6;cursor:wait}
   <div id="fidBox" hidden><button type="button" class="fid" id="fidBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9v1.5M15 9v1.5M12 9v4h-1M9.5 16c1.5 1 3.5 1 5 0"/></svg><span>Đăng nhập bằng Face ID / vân tay</span></button><div class="who" id="fidWho"></div><button type="button" class="alt" id="usePw">Dùng mật khẩu</button><div class="err" id="fe" role="alert"></div></div>
   <div id="askBox" class="ask" hidden><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9v1.5M15 9v1.5M12 9v4h-1M9.5 16c1.5 1 3.5 1 5 0"/></svg></div><h2>Lần sau đăng nhập bằng Face ID?</h2><p>Không cần gõ mật khẩu, chỉ cần nhìn máy hoặc chạm vân tay. Khuôn mặt / vân tay không gửi lên máy chủ.</p><button type="button" id="askYes">Bật Face ID / vân tay</button><button type="button" class="alt" id="askNo">Để sau</button><div class="err" id="ae" role="alert"></div></div>
   <form id="f" autocomplete="on">
-    <label for="u">Tên đăng nhập</label>
+    <label for="u">Tên đăng nhập hoặc email</label>
     <input id="u" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
     <label for="p">Mật khẩu</label>
     <input id="p" name="password" type="password" autocomplete="current-password" required>
     <button id="b" type="submit">Đăng nhập</button>
     <div class="err" id="e" role="alert"></div>
   </form>
-  <div class="foot">Quên mật khẩu? Nhắn nhân viên chăm sóc để được hỗ trợ.</div>
+  <button type="button" class="alt" id="toNew">Lần đầu vào hệ thống mới / quên mật khẩu?<br><u>Tạo mật khẩu qua email</u></button>
+  <form id="nf" hidden>
+    <p class="note">Đây là hệ thống mới nên anh/chị cần tạo mật khẩu mới. Nhập tên đăng nhập hoặc email đang dùng để đặt hàng, bên em gửi link tạo mật khẩu vào email đó.</p>
+    <label for="nu">Tên đăng nhập hoặc email</label>
+    <input id="nu" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+    <button id="nb" type="submit">Gửi link qua email</button>
+    <div class="err" id="ne" role="alert"></div>
+    <button type="button" class="alt" id="backPw">Đã có mật khẩu, quay lại đăng nhập</button>
+  </form>
+  <div id="sent" class="ask" hidden><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></div><h2>Anh/chị kiểm tra email nhé</h2><p>Link tạo mật khẩu đã gửi tới <b id="sentTo"></b>. Mở email và bấm <b>Tạo mật khẩu</b> (link dùng trong 30 phút).</p><p style="margin-top:10px;font-size:13px">Không thấy thư thì xem thêm mục Spam / Quảng cáo.</p><button type="button" class="alt" id="again">Gửi lại</button></div>
 </main>
 <script>
 var Y='<svg viewBox="0 0 470 300" aria-hidden="true"><g fill="#FFCB31"><polygon points="4,2 113,2 270,149 113,297 4,297 67,149"/><polygon points="221,2 303,2 403,149 303,297 221,297 274,149"/><polygon points="383,2 407,2 465,149 407,297 383,297 410,149"/></g></svg>';
@@ -87,9 +97,17 @@ async function offer(username,password){
    LS.s('vmt_fid_user',username);location.href='/';return;
   }catch(x){e.textContent=x.message;}bt.disabled=false;};
  return true;}
+var $=function(i){return document.getElementById(i)};
+function showNew(v){$('f').hidden=true;$('fidBox').hidden=true;$('toNew').hidden=true;$('sent').hidden=true;$('nf').hidden=false;document.querySelector('h1').textContent='Tạo mật khẩu';document.querySelector('p.sub').hidden=true;if(v)$('nu').value=v;$('nu').focus();}
+$('toNew').onclick=function(){showNew($('u').value.trim())};
+$('backPw').onclick=function(){$('nf').hidden=true;$('f').hidden=false;$('toNew').hidden=false;document.querySelector('h1').textContent='Đăng nhập';document.querySelector('p.sub').hidden=false;};
+$('again').onclick=function(){showNew()};
+$('nf').addEventListener('submit',async function(ev){ev.preventDefault();var b=$('nb'),e=$('ne');b.disabled=true;e.textContent='';
+ try{var j=await post('/api/pw/request',{id:$('nu').value});if(j._ok){$('nf').hidden=true;$('sentTo').textContent=j.to;$('sent').hidden=false;}else e.textContent=j.error||'Không gửi được, thử lại sau';}
+ catch(x){e.textContent='Mất kết nối, thử lại'}b.disabled=false;});
 document.getElementById('f').addEventListener('submit',async function(ev){ev.preventDefault();var b=document.getElementById('b'),e=document.getElementById('e');b.disabled=true;e.textContent='';
  try{var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});
-  var j=await r.json().catch(function(){return {}});if(r.ok){var un=document.getElementById('u').value.trim().toLowerCase();if(await offer(un,document.getElementById('p').value))return;location.href='/';return}e.textContent=j.error||'Không đăng nhập được, thử lại sau';}
+  var j=await r.json().catch(function(){return {}});if(r.ok){var un=j.username||document.getElementById('u').value.trim().toLowerCase();if(await offer(un,document.getElementById('p').value))return;location.href='/';return}e.textContent=j.error||'Không đăng nhập được, thử lại sau';if(j.first)showNew(document.getElementById('u').value.trim());}
  catch(x){e.textContent='Mất kết nối, thử lại'}b.disabled=false;});
 </script>
 </body>

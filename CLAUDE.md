@@ -8,7 +8,7 @@ Trước khi sửa, tự trả lời và xử lý luôn (không chắc thì hỏ
 - Admin (`app/`) và trang khách (`khach/`) có cùng chỗ cần sửa theo không?
 - Tiền, ví, sổ cái, trạng thái đơn, thông báo, log lịch sử đơn có bị ảnh hưởng không?
 - Phân quyền (kho không thấy tiền), sao lưu, test có cần cập nhật không?
-- Các file `lib/` đang có 2 bản ở `app/lib` và `khach/lib` (ledger, tth, price, cnshared, vietqr): sửa một bản thì phải sửa bản kia y hệt.
+- Các file `lib/` đang có 2 bản ở `app/lib` và `khach/lib` (ledger, tth, price, cnshared, vietqr, mail): sửa một bản thì phải sửa bản kia y hệt.
 
 ## Gọn gàng, không rác, không nặng máy chủ
 Sau mỗi lần làm, rà và xoá:

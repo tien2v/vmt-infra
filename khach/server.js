@@ -25,10 +25,10 @@ store.init();
 const SECRET = store.sessionSecret();
 let TEST = null;
 try { TEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'test-user.json'), 'utf8')); } catch {}
-// Khach that cho xem thu (khach-thu.json): dang nhap xem don Gobiz cua chinh ho; don tao tren web moi danh dau test; vi moi khoa.
-// Xoa khoi file -> tai khoan bi khoa o lan khoi dong sau.
-let TRIAL = [];
-try { TRIAL = JSON.parse(fs.readFileSync(path.join(__dirname, 'khach-thu.json'), 'utf8')).filter((x) => x && x.username && x.gobiz && x.hash); } catch {}
+// Khach that cho xem thu (khach-thu.json = danh sach username Gobiz): tu tao mat khau qua email Gobiz, xem don cua chinh ho,
+// nhan thong bao khi don doi trang thai; don tao tren web moi danh dau test; vi moi khoa. Xoa khoi file -> tai khoan bi khoa.
+let TRIAL = new Set();
+try { TRIAL = new Set(JSON.parse(fs.readFileSync(path.join(__dirname, 'khach-thu.json'), 'utf8')).map((x) => String((x && x.username) || '').trim().toLowerCase()).filter(Boolean)); } catch {}
 store.syncTrial(TRIAL);
 const isTestAcc = (u) => /^(tai khoan test|khach thu)/.test(String((u && u.note) || '')); // don tao ra la don thu
 const walletAcc = (u) => String((u && u.note) || '').startsWith('tai khoan test'); // vi moi: chi tai khoan test noi bo
@@ -81,9 +81,18 @@ function index() {
     if (!s) return idx.index;
     idx = { id, index: buildIndex(JSON.parse(s.data)) };
     resolveTest();
+    kindOf = new Map();
+    for (const v of idx.index.byUser.values()) { for (const x of v.orders) kindOf.set(x.code, 'order'); for (const x of v.shipments) kindOf.set(x.code, 'ship'); for (const x of v.peer) kindOf.set(x.code, 'peer'); }
+    try { gzwatch.run(store, idx.index.byUser, store.watchUsers(), store.shipWb); } catch (e) { console.error('gzwatch', e.message); }
   }
   return idx.index;
 }
+// Ma don -> loai (de link thong bao mo dung trang chi tiet)
+let kindOf = new Map();
+const gzwatch = require('./lib/gzwatch');
+// Snapshot Gobiz moi ~15 phut: kiem tra moi phut de bao khach som (khong can ai mo web)
+setInterval(() => { try { index(); } catch (e) { console.error('index', e.message); } }, 60e3).unref();
+setInterval(() => { try { store.watchPurge(); } catch {} }, 24 * 3600e3).unref();
 function resolveTest() {
   if (!TEST || !TEST.username || !TEST.hash) return;
   const cur = store.getUser(TEST.username);
@@ -130,7 +139,7 @@ store.rawDb().exec(`CREATE TABLE IF NOT EXISTS login_creds (cred_id TEXT PRIMARY
 // Day thong bao chuong len dien thoai (quet bang notif 20 giay/lan; admin cung ghi vao bang nay)
 const PUSH_TITLE = { order: 'Đơn hàng', money: 'Tài chính', support: 'Hỗ trợ', system: 'Thông báo' };
 setInterval(() => webpush.pump(
-  (code) => (code && /^SCN\d+$/.test(code) ? '/#don/cn/' + code : '/#tong-quan'),
+  (code) => (code && /^SCN\d+$/.test(code) ? '/#don/cn/' + code : code && kindOf.has(code) ? '/#don/' + kindOf.get(code) + '/' + encodeURIComponent(code) : '/#tong-quan'),
   (n) => PUSH_TITLE[notifKind(n).kind] || 'Thông báo'), 20000).unref();
 // Thong ke cai app chi giu 180 ngay
 const pwaPurge = () => { try { store.rawDb().prepare("DELETE FROM pwa_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-180 days')").run(); } catch {} };
@@ -199,7 +208,9 @@ function payload(user) {
   const ksNew = ks.list(user.username, user.gobiz, { group: me.grp });
   me.whCn = ks.warehouses().filter((w) => w.active !== false).map((w) => Object.assign(ks.whView(w, null, me.grp), { type: w.type }));
   const companies = store.coList(user.username);
-  const data = { companies, orders: s ? s.orders : [], shipments: ksNew.concat(s ? s.shipments : []), peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
+  // Ma van don don ky gui Gobiz (luong n8n bo sung -> bang gz_ship_x cua admin)
+  const gship = s ? s.shipments.map((x) => { const w = store.shipWb(x.code); return w.length ? Object.assign({}, x, { wb: w[0], wbs: w }) : x; }) : [];
+  const data = { companies, orders: s ? s.orders : [], shipments: ksNew.concat(gship), peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
   return 'window.ME=' + JSON.stringify(me) + ';window.DATA=' + JSON.stringify(data) + ';';
 }
 
@@ -215,12 +226,36 @@ function serveFile(req, res, rel, cacheable) {
     res.writeHead(200, h); res.end(buf);
   });
 }
-function loginPage(req, res) {
-  fs.readFile(path.join(__dirname, 'login.html'), 'utf8', (err, html) => {
+function loginPage(req, res, file) {
+  fs.readFile(path.join(__dirname, file || 'login.html'), 'utf8', (err, html) => {
     if (err) return send(res, 500, 'Server error');
     const b = hostBrand(req);
     send(res, 200, html.replaceAll('{{BRAND}}', b).replaceAll('{{NAME}}', BRAND[b].name).replaceAll('{{TAG}}', BRAND[b].tag), { 'Content-Type': 'text/html; charset=utf-8' });
   });
+}
+
+// Email tao mat khau. Link chi ve dung ten mien cua minh (khong tin Host tu trinh duyet)
+const mail = require('./lib/mail');
+mail.init({ kvGet: store.adminKv, kvSet: () => {} }); // cau hinh SMTP nhap o admin /ket-noi; trang khach chi doc
+const HOSTS = ['app.vominhthien.com', 'app.vmtglobal.com'];
+function linkHost(req) {
+  const h = String(req.headers.host || '').toLowerCase();
+  if (HOSTS.includes(h)) return 'https://' + h;
+  if (process.env.NODE_ENV !== 'production' && /^localhost:\d+$/.test(h)) return 'http://' + h;
+  return 'https://' + HOSTS[0];
+}
+const maskEmail = (e) => { const [a, d] = String(e).split('@'); return (a.length <= 2 ? a[0] + '*' : a.slice(0, 2) + '***') + '@' + d; };
+const escH = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function pwMailText(g, bn, link) {
+  return 'Chào ' + (g.fn || g.u) + ',\n\n' + bn + ' vừa chuyển sang hệ thống mới. Anh/chị bấm link dưới đây để tạo mật khẩu cho tài khoản ' + g.u + ':\n\n' + link +
+    '\n\nLink dùng được 1 lần, trong 30 phút. Tạo xong là đăng nhập được ngay, đơn hàng cũ vẫn đầy đủ.\n\nNếu anh/chị không yêu cầu thì cứ bỏ qua email này, tài khoản vẫn an toàn.\n\n' + bn;
+}
+function pwMailHtml(g, bn, link) {
+  return '<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6;color:#1d2a33;max-width:520px">' +
+    '<p>Chào ' + escH(g.fn || g.u) + ',</p><p>' + escH(bn) + ' vừa chuyển sang hệ thống mới. Anh/chị bấm nút dưới đây để tạo mật khẩu cho tài khoản <b>' + escH(g.u) + '</b>:</p>' +
+    '<p style="margin:24px 0"><a href="' + escH(link) + '" style="background:#379e1a;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:bold;display:inline-block">Tạo mật khẩu</a></p>' +
+    '<p style="color:#6b6b6b;font-size:13px">Link dùng được 1 lần, trong 30 phút. Tạo xong là đăng nhập được ngay, đơn hàng cũ vẫn đầy đủ.<br>Nếu anh/chị không yêu cầu thì cứ bỏ qua email này, tài khoản vẫn an toàn.</p>' +
+    '<p style="color:#9a9a9a;font-size:12px">Nút không bấm được thì copy link này: ' + escH(link) + '</p></div>';
 }
 
 // Kiem tra don + anh: dung chung voi trang admin (lib/cnshared.js, 2 ban giong het nhau)
@@ -234,15 +269,63 @@ async function handle(req, res) {
   if (p === '/api/login' && req.method === 'POST') {
     if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
     let b; try { b = JSON.parse((await readBody(req, 10000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
-    const username = String(b.username || '').trim().toLowerCase();
+    let username = String(b.username || '').trim().toLowerCase();
     const ip = clientIp(req);
     if (tooMany('ip:' + ip) || tooMany('u:' + username)) return json(req, res, 429, { error: 'Sai quá nhiều lần, thử lại sau 15 phút' });
     index(); // dam bao tai khoan test da gan khach
+    if (username.includes('@')) { const g = store.gobizFind(username); if (g && g.u) username = g.u; } // dang nhap bang email Gobiz
+    const known = store.getUser(username);
     const u = store.checkPassword(username, String(b.password || ''));
     store.logLogin(username, ip, !!u);
-    if (!u) { addFail('ip:' + ip); addFail('u:' + username); return json(req, res, 401, { error: 'Sai tên đăng nhập hoặc mật khẩu' }); }
+    if (!u) {
+      addFail('ip:' + ip); addFail('u:' + username);
+      if ((!known || !known.pass) && TRIAL.has(username)) return json(req, res, 401, { error: 'Lần đầu vào hệ thống mới, anh/chị bấm "Tạo mật khẩu qua email" bên dưới nhé', first: true });
+      return json(req, res, 401, { error: 'Sai tên đăng nhập hoặc mật khẩu' });
+    }
     setCookie(res, makeSession(u), SESSION_HOURS * 3600);
-    return json(req, res, 200, { ok: true });
+    return json(req, res, 200, { ok: true, username: u.username });
+  }
+  // ---------- Lan dau vao he thong moi / quen mat khau: gui link tao mat khau toi email Gobiz ----------
+  if (p === '/api/pw/request' && req.method === 'POST') {
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 4000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const q = String(b.id || '').trim().toLowerCase(); const ip = clientIp(req);
+    if (!q) return json(req, res, 400, { error: 'Nhập tên đăng nhập hoặc email' });
+    if (tooMany('pw:' + ip)) return json(req, res, 429, { error: 'Thử quá nhiều lần, đợi 15 phút rồi thử lại' });
+    const g = store.gobizFind(q);
+    if (!g) { addFail('pw:' + ip); return json(req, res, 404, { error: 'Không thấy tài khoản này. Anh/chị nhập đúng tên đăng nhập hoặc email đang dùng để đặt hàng' }); }
+    if (g.many) return json(req, res, 400, { error: 'Email này đang gắn với nhiều tài khoản, anh/chị nhập tên đăng nhập giúp em' });
+    if (!TRIAL.has(g.u)) return json(req, res, 403, { error: 'Hệ thống mới đang chạy thử với một số khách. Anh/chị vẫn đặt hàng ở trang cũ như bình thường nhé' });
+    const cur = store.getUser(g.u);
+    if (cur && !String(cur.note || '').startsWith('khach thu')) return json(req, res, 403, { error: 'Tài khoản này không đổi mật khẩu qua email được, nhắn nhân viên chăm sóc giúp em' });
+    if (!/^[^\s@<>"]+@[^\s@<>"]+\.[a-z]{2,}$/i.test(g.em)) return json(req, res, 400, { error: 'Tài khoản chưa có email. Anh/chị nhắn nhân viên chăm sóc để cập nhật email nhé' });
+    const c = store.pwTokenCount(g.u, ip);
+    if (c.u >= 3 || c.ip >= 10) return json(req, res, 429, { error: 'Đã gửi email mấy lần rồi, anh/chị kiểm tra hộp thư (cả mục Spam / Quảng cáo) hoặc đợi 1 tiếng rồi thử lại' });
+    const tok = store.pwTokenNew(g.u, g.em, ip);
+    const link = linkHost(req) + '/dat-mat-khau#' + tok;
+    const brand = mail.brandOfGroup(g.grp); const bn = BRAND[brand === 'vmtglobal' ? 'yellow' : 'green'].name;
+    const r = await mail.send(brand, g.em, 'Tạo mật khẩu vào hệ thống mới ' + bn, pwMailText(g, bn, link), pwMailHtml(g, bn, link));
+    if (r.error) { console.error('pw mail', g.u, r.error); return json(req, res, 503, { error: 'Chưa gửi được email lúc này, anh/chị thử lại sau ít phút hoặc nhắn nhân viên chăm sóc' }); }
+    return json(req, res, 200, { ok: true, to: maskEmail(g.em) });
+  }
+  if (p === '/api/pw/check' && req.method === 'POST') {
+    let b; try { b = JSON.parse((await readBody(req, 2000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const r = store.pwTokenPeek(b.token);
+    return r ? json(req, res, 200, { ok: true, username: r.username }) : json(req, res, 410, { error: 'Link đã hết hạn hoặc đã dùng rồi. Anh/chị quay lại trang đăng nhập, bấm "Tạo mật khẩu qua email" để nhận link mới' });
+  }
+  if (p === '/api/pw/set' && req.method === 'POST') {
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 4000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const pw = String(b.password || '');
+    if (pw.length < 8 || pw.length > 100) return json(req, res, 400, { error: 'Mật khẩu cần ít nhất 8 ký tự' });
+    if (/^\d+$/.test(pw) || new Set(pw).size < 4) return json(req, res, 400, { error: 'Mật khẩu dễ đoán quá, anh/chị thêm chữ hoặc ký tự khác nhé' });
+    const r = store.pwTokenPeek(b.token);
+    if (r && pw.toLowerCase().includes(r.username)) return json(req, res, 400, { error: 'Mật khẩu không nên chứa tên đăng nhập' });
+    const u = store.pwTokenUse(b.token, store.hash(pw));
+    if (!u) return json(req, res, 410, { error: 'Link đã hết hạn hoặc đã dùng rồi. Anh/chị quay lại trang đăng nhập để nhận link mới' });
+    store.logLogin(u.username, clientIp(req) + ' email', true);
+    setCookie(res, makeSession(u), SESSION_HOURS * 3600);
+    return json(req, res, 200, { ok: true, username: u.username });
   }
   // ---------- Dang nhap bang Face ID / van tay (passkey) ----------
   // Tach rieng voi Face ID thanh toan (vi): dang nhap chi mo phien xem; tra tien van can PIN / Face ID cua vi.
@@ -305,6 +388,7 @@ async function handle(req, res) {
   }
   if (p === '/api/logout') { setCookie(res, '', 0); res.writeHead(302, { Location: '/login' }); return res.end(); }
   if (p === '/login') return loginPage(req, res);
+  if (p === '/dat-mat-khau') return loginPage(req, res, 'matkhau.html');
   if (p === '/manifest.webmanifest') return send(res, 200, manifest(hostBrand(req)), { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
   if (p === '/sw.js') return fs.readFile(path.join(__dirname, 'sw.js'), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'text/javascript; charset=utf-8', 'Service-Worker-Allowed': '/' }));
   if (p === '/offline.html') return fs.readFile(path.join(__dirname, 'offline.html'), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=86400' }));

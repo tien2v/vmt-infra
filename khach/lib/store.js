@@ -28,6 +28,9 @@ function init() {
       status TEXT NOT NULL DEFAULT 'PENDING', data TEXT NOT NULL, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), updated_at TEXT
     );
     CREATE TABLE IF NOT EXISTS notif (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, code TEXT, text TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+    CREATE TABLE IF NOT EXISTS pw_tokens (h TEXT PRIMARY KEY, username TEXT NOT NULL, email TEXT, ip TEXT, exp INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+    CREATE INDEX IF NOT EXISTS pw_tokens_u ON pw_tokens(username, created_at);
+    CREATE TABLE IF NOT EXISTS gz_seen (username TEXT NOT NULL, code TEXT NOT NULL, st TEXT, ts TEXT, PRIMARY KEY (username, code));
     CREATE TABLE IF NOT EXISTS companies (
       id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, name TEXT NOT NULL, tax_id TEXT NOT NULL, addr TEXT NOT NULL, email TEXT NOT NULL,
       is_default INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0,
@@ -82,17 +85,73 @@ function upsertTest(username, gobiz, passHash, note) {
   else if (r.pass !== passHash || r.gobiz !== gobiz) db.prepare('UPDATE users SET gobiz = ?, pass = ?, pv = pv + 1, note = ? WHERE username = ?').run(gobiz, passHash, note || null, username);
   else if (r.note !== (note || null)) db.prepare('UPDATE users SET note = ? WHERE username = ?').run(note || null, username);
 }
-// Khach xem thu: dong bo theo khach-thu.json (them / doi mat khau / khoa khi bi xoa khoi file)
-function syncTrial(list) {
-  const keep = new Set();
-  for (const t of list) {
-    const u = String(t.username).toLowerCase(); keep.add(u);
-    const r = getUser(u);
-    if (r && !String(r.note || '').startsWith('khach thu')) continue; // khong de len tai khoan khac
-    if (!r) db.prepare("INSERT INTO users (username, gobiz, pass, note) VALUES (?, ?, ?, 'khach thu')").run(u, String(t.gobiz).toLowerCase(), t.hash);
-    else if (r.pass !== t.hash || r.gobiz !== String(t.gobiz).toLowerCase() || !r.active) db.prepare('UPDATE users SET gobiz = ?, pass = ?, active = 1, pv = pv + 1 WHERE username = ?').run(String(t.gobiz).toLowerCase(), t.hash, u);
+// Khach xem thu: chi khach trong khach-thu.json moi tu lay mat khau qua email (note 'khach thu email').
+// Bi xoa khoi file -> khoa. Ban dau (31/10) co cap mat khau san (note 'khach thu') -> xoa mat khau, khach tu tao qua email.
+function syncTrial(allowed) {
+  for (const r of db.prepare("SELECT username, note FROM users WHERE note LIKE 'khach thu%' AND active = 1").all()) {
+    if (!allowed.has(r.username)) db.prepare('UPDATE users SET active = 0, pv = pv + 1 WHERE username = ?').run(r.username);
+    else if (r.note === 'khach thu') db.prepare("UPDATE users SET pass = NULL, note = 'khach thu email', pv = pv + 1 WHERE username = ?").run(r.username);
   }
-  for (const r of db.prepare("SELECT username FROM users WHERE note LIKE 'khach thu%' AND active = 1").all()) if (!keep.has(r.username)) db.prepare('UPDATE users SET active = 0, pv = pv + 1 WHERE username = ?').run(r.username);
+}
+// Tim khach Gobiz (bang gz_cust cua admin, chi doc) theo username hoac email. Tra { u, em, fn, grp } | { many: true } | null
+function gobizFind(q) {
+  const a = adminDb(); if (!a) return null;
+  q = String(q || '').trim().toLowerCase(); if (!q || q.length > 120) return null;
+  let rows;
+  try { rows = q.includes('@') ? a.prepare("SELECT u, d FROM gz_cust WHERE lower(json_extract(d, '$.em')) = ? LIMIT 2").all(q) : a.prepare('SELECT u, d FROM gz_cust WHERE u = ?').all(q); } catch (e) { return null; }
+  if (rows.length > 1) return { many: true };
+  if (!rows.length) return null;
+  let d = {}; try { d = JSON.parse(rows[0].d) || {}; } catch {}
+  return { u: rows[0].u, em: String(d.em || '').trim(), fn: d.fn || '', grp: d.grp || '' };
+}
+// Ma tao mat khau qua email: chi luu ma bam, 30 phut, dung 1 lan
+function pwTokenNew(username, email, ip) {
+  const tok = crypto.randomBytes(32).toString('base64url');
+  db.prepare('UPDATE pw_tokens SET used = 1 WHERE username = ? AND used = 0').run(username); // chi link moi nhat con dung
+  db.prepare("INSERT INTO pw_tokens (h, username, email, ip, exp) VALUES (?, ?, ?, ?, ?)").run(crypto.createHash('sha256').update(tok).digest('hex'), username, email, ip || null, Date.now() + 30 * 60e3);
+  db.prepare("DELETE FROM pw_tokens WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')").run();
+  return tok;
+}
+function pwTokenCount(username, ip) {
+  const since = "strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hour')";
+  return { u: db.prepare('SELECT COUNT(*) n FROM pw_tokens WHERE username = ? AND created_at > ' + since).get(username).n, ip: db.prepare('SELECT COUNT(*) n FROM pw_tokens WHERE ip = ? AND created_at > ' + since).get(ip || '').n };
+}
+function pwTokenPeek(tok) {
+  const r = db.prepare('SELECT * FROM pw_tokens WHERE h = ?').get(crypto.createHash('sha256').update(String(tok || '')).digest('hex'));
+  return r && !r.used && r.exp > Date.now() ? r : null;
+}
+// Dat mat khau bang ma: dung ma + ghi mat khau trong 1 lenh (chong bam 2 lan)
+function pwTokenUse(tok, passHash) {
+  const r = pwTokenPeek(tok); if (!r) return null;
+  db.exec('BEGIN');
+  try {
+    if (db.prepare('UPDATE pw_tokens SET used = 1 WHERE h = ? AND used = 0').run(r.h).changes !== 1) { db.exec('ROLLBACK'); return null; }
+    const u = getUser(r.username);
+    if (u && !String(u.note || '').startsWith('khach thu')) { db.exec('ROLLBACK'); return null; } // khong dung email de chiem tai khoan noi bo
+    if (!u) db.prepare("INSERT INTO users (username, gobiz, pass, note) VALUES (?, ?, ?, 'khach thu email')").run(r.username, r.username, passHash);
+    else db.prepare("UPDATE users SET pass = ?, active = 1, note = 'khach thu email', pv = pv + 1 WHERE username = ?").run(passHash, r.username);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  return getUser(r.username);
+}
+// Theo doi trang thai don Gobiz da bao khach (de bao thay doi)
+function seenOf(username) { const m = new Map(); for (const r of db.prepare('SELECT code, st FROM gz_seen WHERE username = ?').all(username)) m.set(r.code, r.st); return m; }
+function seenSave(username, rows) {
+  const up = db.prepare("INSERT INTO gz_seen (username, code, st, ts) VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now')) ON CONFLICT(username, code) DO UPDATE SET st = excluded.st, ts = excluded.ts");
+  db.exec('BEGIN'); try { for (const [c, st] of rows) up.run(username, c, st); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+// Tai khoan dang dung web moi can bao don Gobiz doi trang thai
+function watchUsers() { return db.prepare("SELECT username, gobiz FROM users WHERE active = 1 AND gobiz <> 'auto' AND (note LIKE 'khach thu%' OR note LIKE 'tai khoan test%')").all(); }
+// Ma van don don ky gui Gobiz (admin: gz_ship_x, chi doc)
+let wbStmt = null;
+function shipWb(code) {
+  const a = adminDb(); if (!a) return [];
+  try { if (!wbStmt) wbStmt = a.prepare('SELECT wb FROM gz_ship_x WHERE code = ?'); const r = wbStmt.get(String(code)); const w = r ? JSON.parse(r.wb || '[]') : []; return Array.isArray(w) ? w.filter(Boolean) : []; } catch (e) { wbStmt = null; return []; }
+}
+function notifAdd(username, code, text) { db.prepare("INSERT INTO notif (username, code, text, kind) VALUES (?, ?, ?, 'order')").run(username, code, text); }
+function watchPurge() {
+  db.prepare("DELETE FROM gz_seen WHERE ts < strftime('%Y-%m-%dT%H:%M:%fZ','now','-90 days')").run();
+  db.prepare("DELETE FROM notif WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-180 days')").run();
 }
 function logLogin(u, ip, ok) {
   db.prepare('INSERT INTO login_log (username, ip, ok) VALUES (?, ?, ?)').run(String(u || '').slice(0, 64), ip, ok ? 1 : 0);
@@ -207,4 +266,4 @@ function cnSetZh(code, map, ok) {
 // Tai khoan nhan nap tien do admin cai (doc tu DB admin, chi doc)
 function adminKv(k) { const a = adminDb(); if (!a) return null; try { const r = a.prepare('SELECT v FROM kv WHERE k = ?').get(k); return r ? r.v : null; } catch (e) { return null; } }
 function depositAccounts() { const a = adminDb(); if (!a) return []; try { const r = a.prepare("SELECT v FROM kv WHERE k = 'deposit_accounts'").get(); return r ? JSON.parse(r.v).filter((x) => x.active) : []; } catch (e) { return []; } }
-module.exports = { cnMissingZh, cnSetZh, adminKv, depositAccounts, rawDb, uploadSave, uploadCanSee, uploadPath, coList, coGet, coSave, coDelete, notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, syncTrial, logLogin, hash };
+module.exports = { cnMissingZh, cnSetZh, adminKv, depositAccounts, rawDb, uploadSave, uploadCanSee, uploadPath, coList, coGet, coSave, coDelete, notifList, notifRead, cnCreate, cnList, cnCountRecent, cnCancel, init, latestSnapshotId, snapshot, sessionSecret, getUser, checkPassword, upsertTest, syncTrial, gobizFind, pwTokenNew, pwTokenCount, pwTokenPeek, pwTokenUse, seenOf, seenSave, notifAdd, watchUsers, shipWb, watchPurge, logLogin, hash };

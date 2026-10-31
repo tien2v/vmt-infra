@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="vi" data-brand="{{BRAND}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="apple-mobile-web-app-title" content="{{NAME}}"><meta name="theme-color" content="#eee9df">
+<title>Tạo mật khẩu · {{NAME}}</title>
+<style>
+@font-face{font-family:Manrope;src:url(/assets/manrope.woff2) format("woff2");font-weight:200 800;font-display:swap}
+:root{--ink:#0f1922;--a1:#9fe07f;--a2:#4db531;--a3:#379e1a;--soft:#e3f5da;--bg:#e2e9df;--mark:#0f1922}
+[data-brand=yellow]{--ink:#172530;--a1:#ffda75;--a2:#f5bc34;--a3:#e8a817;--soft:#fff0c8;--bg:#eee9df;--mark:#172530}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;font-family:Manrope,system-ui,sans-serif;color:var(--ink);background:radial-gradient(1200px 600px at 10% -10%,var(--soft),transparent 60%),var(--bg);display:grid;place-items:center;padding:24px}
+.card{width:100%;max-width:400px;background:#fffdf8;border:1px solid #fff;border-radius:28px;padding:32px 28px;box-shadow:0 30px 60px -30px rgba(40,35,20,.35)}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:26px}
+.mark{width:52px;height:46px;border-radius:14px;background:var(--mark);display:grid;place-items:center;flex:none}
+.mark svg{width:34px;height:26px}
+.name{font-weight:900;font-size:20px;line-height:1.05;text-transform:uppercase;letter-spacing:-.2px}
+.name small{display:block;font-size:11px;font-weight:700;letter-spacing:.16em;color:var(--a3);margin-top:3px}
+[data-brand=yellow] .name small{text-transform:none;letter-spacing:0;font-weight:500;color:#7b6a45;font-size:12px}
+h1{font-size:22px;margin:0 0 6px}
+p.sub{margin:0 0 22px;color:#7a7365;font-size:14px}
+label{display:block;font-size:13px;font-weight:700;margin:14px 0 6px}
+input{width:100%;font:inherit;font-size:16px;padding:13px 14px;border-radius:14px;border:1px solid #e3dccb;background:#fff;color:var(--ink);outline:none}
+input:focus{border-color:var(--a3);box-shadow:0 0 0 3px var(--soft)}
+button{width:100%;margin-top:22px;font:inherit;font-weight:800;font-size:15px;padding:14px;border-radius:14px;border:1px solid var(--a3);color:var(--ink);background:linear-gradient(120deg,var(--a1),var(--a2));cursor:pointer}
+button[disabled]{opacity:.6;cursor:wait}
+.err{min-height:20px;margin-top:12px;color:#b5310a;font-size:13px;font-weight:600}
+.foot{margin-top:18px;font-size:12px;color:#8b8170;text-align:center}
+.fid{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:4px}
+.fid svg{width:22px;height:22px}
+.alt{background:none;border:0;color:#6c665b;font-weight:700;margin-top:10px;padding:8px}
+.who{font-size:13px;color:#7a7365;text-align:center;margin-top:8px}
+.ask{text-align:center}.ask .ic{width:64px;height:64px;margin:0 auto 12px;border-radius:18px;background:var(--soft);display:grid;place-items:center;color:var(--a3)}.ask .ic svg{width:36px;height:36px}
+.note{font-size:14px;color:#5f5a4f;background:var(--soft);border-radius:14px;padding:12px 14px;margin:0 0 4px}
+.ask h2{font-size:19px;margin:0 0 6px}.ask p{color:#7a7365;font-size:14px;margin:0}
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="brand"><span class="mark" id="mark"></span><span class="name">{{NAME}}<small>{{TAG}}</small></span></div>
+  <h1>Tạo mật khẩu</h1>
+  <p class="sub" id="sub">Đang kiểm tra link…</p>
+  <form id="f" hidden autocomplete="on">
+    <input id="un" name="username" autocomplete="username" hidden>
+    <label for="p">Mật khẩu mới</label>
+    <input id="p" type="password" autocomplete="new-password" minlength="8" required>
+    <label for="p2">Nhập lại mật khẩu</label>
+    <input id="p2" type="password" autocomplete="new-password" minlength="8" required>
+    <label style="display:flex;gap:8px;align-items:center;font-weight:600;margin-top:12px"><input type="checkbox" id="show" style="width:auto"> Hiện mật khẩu</label>
+    <button id="b" type="submit">Lưu mật khẩu và vào hệ thống</button>
+    <div class="err" id="e" role="alert"></div>
+  </form>
+  <a id="back" class="alt" href="/login" hidden style="display:block;text-align:center;text-decoration:none">Về trang đăng nhập</a>
+</main>
+<script>
+var Y='<svg viewBox="0 0 470 300" aria-hidden="true"><g fill="#FFCB31"><polygon points="4,2 113,2 270,149 113,297 4,297 67,149"/><polygon points="221,2 303,2 403,149 303,297 221,297 274,149"/><polygon points="383,2 407,2 465,149 407,297 383,297 410,149"/></g></svg>';
+var G='<svg viewBox="0 0 51 33" aria-hidden="true"><path d="M44.3386 0H41.7581L45.1475 16.4497L32.6517 0H23.7895L30.4283 16.4954L11.6055 0H0L7.28055 16.5L0 33H11.6055L30.4283 16.5092L23.7895 33H32.6517L45.1475 16.5549L41.7581 33H44.3386L51 16.5L44.3386 0Z" fill="#379E1A"/></svg>';
+document.getElementById('mark').innerHTML=document.documentElement.dataset.brand==='yellow'?Y:G;
+var $=function(i){return document.getElementById(i)};
+var post=function(u,b){return fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){j._ok=r.ok;return j})})};
+var tok=location.hash.slice(1);
+// Xoa ma khoi thanh dia chi (khong luu vao lich su / chia se nham)
+try{history.replaceState(null,'',location.pathname)}catch(x){}
+function bad(m){$('sub').textContent=m;$('sub').style.color='#b5310a';$('f').hidden=true;$('back').hidden=false;}
+if(!tok)bad('Link không đúng. Anh/chị mở lại link trong email, hoặc về trang đăng nhập để nhận link mới.');
+else post('/api/pw/check',{token:tok}).then(function(j){if(!j._ok)return bad(j.error||'Link không dùng được');
+ $('sub').innerHTML='Tài khoản <b></b>. Đặt mật khẩu từ 8 ký tự, lần sau đăng nhập bằng tên này hoặc email.';$('sub').querySelector('b').textContent=j.username;$('un').value=j.username;$('f').hidden=false;$('p').focus();
+}).catch(function(){bad('Mất kết nối, tải lại trang thử nhé')});
+$('show').onchange=function(){$('p').type=$('p2').type=this.checked?'text':'password'};
+$('f').addEventListener('submit',async function(ev){ev.preventDefault();var b=$('b'),e=$('e');e.textContent='';
+ if($('p').value!==$('p2').value){e.textContent='Hai lần nhập chưa giống nhau';return;}
+ b.disabled=true;
+ try{var j=await post('/api/pw/set',{token:tok,password:$('p').value});if(j._ok){location.href='/';return;}e.textContent=j.error||'Không lưu được, thử lại';if(/hết hạn|đã dùng/.test(j.error||''))$('back').hidden=false;}
+ catch(x){e.textContent='Mất kết nối, thử lại'}b.disabled=false;});
+</script>
+</body>
+</html>
