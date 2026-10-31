@@ -7,6 +7,7 @@
     short: ['Thiếu hàng', '少货'], wrong: ['Sai mẫu / size', '发错货'], shop_damage: ['Hỏng do shop', '商家货损'], fake: ['Hàng giả / nhái', '假货'],
     ship_damage: ['Móp / ướt do ship nội địa', '国内快递破损'], cust_info: ['Khách khai sai / đặt sai', '客户信息错误'], banned: ['Hàng cấm / nhạy cảm', '违禁 / 敏感货'],
     no_info: ['Thiếu thông tin hàng', '缺少信息'], wh_damage: ['Kho làm hỏng', '仓库损坏'], other: ['Khác', '其他'],
+    cust_reject: ['Khách báo có vấn đề khi duyệt ảnh', '客户确认有问题'], no_reply: ['Khách chưa xác nhận ảnh sau 48 giờ', '客户48小时未确认'],
   };
   const DEPT = { order: 'NV order', cskh: 'CSKH', admin: 'Quản lý' };
   const RES = [['go', 'Đi tiếp', 'Hàng ổn / đã thống nhất, kho đóng bao gửi về'], ['supplement', 'Bổ sung', 'Shop gửi bù, kho chờ hàng bù rồi gửi'], ['return', 'Hoàn shop', 'Trả hàng lại cho shop'], ['cancel', 'Huỷ', 'Huỷ hàng / không gửi về']];
@@ -18,7 +19,7 @@
   function extend(o) {
     const origInit = o.init;
     Object.assign(o, {
-      lk: { tab: 'open', dept: '', items: [], loaded: false, err: '', busy: 0, open: null, note: {}, hist: {}, sum: { open: 0, late: 0, last: 0 }, lastSeen: null },
+      lk: { tab: 'open', dept: '', items: [], loaded: false, err: '', busy: 0, open: null, note: {}, hist: {}, sum: { open: 0, late: 0, last: 0 }, lastSeen: null, lateSeen: null },
       lkKind: (k) => KIND[k] || [k, k],
       lkDept: (d) => DEPT[d] || d,
       lkRes: RES, lkResN: (r) => RESN[r] || r, lkKindK: (k) => KINDK[k] || '', lkCst: (s) => CST[s] || s,
@@ -48,6 +49,12 @@
             if (this.page === 'loikho') this.lkLoad();
           }
           this.lk.lastSeen = j.last || 0;
+          // Qua han 2 ngay: bao anh (admin) + CSKH (anh 31/10 16h40: chua co truong bo phan)
+          if ((this.role === 'admin' || this.role === 'sale') && j.late && (this.lk.lateSeen === null || j.late > this.lk.lateSeen)) {
+            window.dispatchEvent(new CustomEvent('vmt-toast', { detail: j.late + ' lỗi kho TQ quá 2 ngày chưa xử lý' + (this.role === 'sale' ? ' — CSKH xử lý thay' : '') }));
+            try { if (window.Notification && Notification.permission === 'granted') new Notification('Lỗi kho TQ quá hạn', { body: j.late + ' lỗi quá 2 ngày chưa xử lý' }); } catch (e) {}
+          }
+          this.lk.lateSeen = j.late || 0;
         } catch (e) {}
       },
       async lkLoad() {
@@ -88,7 +95,7 @@
         if (this.lk.hist[x.id]) { this.lk.hist[x.id] = null; return; }
         try { const r = await fetch('/kho/api/hist?code=' + encodeURIComponent(x.code)); const j = await r.json(); this.lk.hist[x.id] = j.items || []; } catch (e) {}
       },
-      lkEv: (t) => ({ in: 'Nhận kiện', photo: 'Chụp ảnh', count: 'Kiểm đếm', issue: 'Báo lỗi', claim: 'Nhận xử lý', resolve: 'Báo kết quả', svc: 'Dịch vụ', note: 'Ghi chú' }[t] || t),
+      lkEv: (t) => ({ in: 'Nhận kiện', photo: 'Chụp ảnh', count: 'Kiểm đếm', issue: 'Báo lỗi', claim: 'Nhận xử lý', resolve: 'Báo kết quả', svc: 'Dịch vụ', note: 'Ghi chú', ask: 'Gửi khách duyệt ảnh', reply: 'Khách trả lời' }[t] || t),
     });
     return o;
   }

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Xác nhận kiểm hàng</title>
+<style>
+:root{--b:#379e1a;--bs:#eef6e8;--t:#1d2a33;--m:#6b7280;--ln:#e5e7eb}
+body.yellow{--b:#d99a00;--bs:#fff6dc}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--t);background:#f5f6f4;padding-bottom:calc(120px + env(safe-area-inset-bottom))}
+.top{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--ln);padding:12px 14px;display:flex;align-items:center;gap:10px;z-index:3}
+.top a{color:var(--t);text-decoration:none;font-size:22px;line-height:1}.top b{font-size:16px}
+main{max-width:640px;margin:0 auto;padding:12px}
+.card{background:#fff;border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.code{font-family:ui-monospace,monospace;font-weight:700;font-size:18px}.mut{color:var(--m);font-size:13px}
+.note{background:var(--bs);border-radius:12px;padding:10px 12px;margin-top:10px;white-space:pre-wrap}
+.ph{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}.ph img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;background:#eee;cursor:zoom-in}
+.li{display:flex;gap:10px;padding:10px 0;border-top:1px solid var(--ln)}.li:first-child{border-top:0}
+.li>img,.li>.ni{width:56px;height:56px;border-radius:10px;object-fit:cover;background:#eee;flex:none}
+.li .t{flex:1;min-width:0}.li .n{font-weight:600;word-break:break-word}
+.chip{display:inline-block;border-radius:99px;padding:1px 9px;font-size:12px;font-weight:700;margin-top:4px}
+.ok{background:#dcfce7;color:#166534}.bad{background:#fee2e2;color:#991b1b}.wait{background:#fef3c7;color:#92400e}
+.lp{display:flex;gap:4px;margin-top:6px}.lp img{width:44px;height:44px;border-radius:8px;object-fit:cover;cursor:zoom-in}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--ln);padding:10px 12px calc(10px + env(safe-area-inset-bottom));z-index:3}
+.bar .in{max-width:640px;margin:0 auto}
+button{font:inherit;font-weight:700;border:0;border-radius:14px;padding:13px;width:100%;cursor:pointer}
+.go{background:var(--b);color:#fff}.no{background:#fff;color:#b91c1c;border:1.5px solid #fca5a5;margin-top:8px}
+textarea{width:100%;border:1px solid #d1d5db;border-radius:12px;padding:10px;font:inherit;min-height:80px;margin-bottom:8px}
+.msg{padding:10px 12px;border-radius:12px;font-weight:600;margin:8px 0}
+#zoom{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:9}#zoom img{max-width:100%;max-height:100%}
+</style>
+</head>
+<body>
+<div class="top"><a href="/" aria-label="Quay lại">‹</a><b id="ttl">Xác nhận kiểm hàng</b></div>
+<main id="v"><p class="mut" style="padding:20px">Đang tải…</p></main>
+<div class="bar" id="bar" hidden><div class="in" id="barIn"></div></div>
+<div id="zoom"><img alt=""></div>
+<script>
+(function () {
+  'use strict';
+  var id = (location.pathname.match(/\/duyet\/(\d+)/) || [])[1];
+  var V = document.getElementById('v'), bar = document.getElementById('bar'), barIn = document.getElementById('barIn');
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var ST = { ok: ['Đủ', 'ok'], short: ['Thiếu', 'bad'], more: ['Thừa', 'wait'], wrong: ['Sai mẫu / size', 'bad'], bad: ['Hỏng', 'bad'] };
+  var pu = function (pid) { return '/api/duyet/' + id + '/photo/' + encodeURIComponent(pid); };
+  var thumb = function (u) { if (!u) return ''; u = String(u); if (u.indexOf('//') === 0) u = 'https:' + u; if (/alicdn\.com/.test(u) && /\.(jpe?g|png)$/i.test(u)) u += '_120x120.jpg'; return u; };
+  document.addEventListener('click', function (e) { var im = e.target.closest('[data-z]'); var z = document.getElementById('zoom'); if (im) { z.querySelector('img').src = im.getAttribute('data-z'); z.style.display = 'flex'; } else if (e.target.closest('#zoom')) z.style.display = 'none'; });
+
+  function load() {
+    fetch('/api/duyet/' + id, { cache: 'no-store', credentials: 'same-origin' }).then(function (r) {
+      if (r.status === 401) { location.href = '/login'; throw 0; }
+      return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'Không tải được'); return j; });
+    }).then(render).catch(function (e) { if (e) V.innerHTML = '<div class="card"><div class="msg bad">' + esc(e.message || 'Mất kết nối') + '</div><a href="/">Về trang chủ</a></div>'; });
+  }
+  function render(a) {
+    if (a.brand === 'yellow') document.body.classList.add('yellow');
+    var pack = a.kind === 'pack';
+    document.getElementById('ttl').textContent = pack ? 'Xác nhận cách đóng gói' : 'Xác nhận kiểm hàng';
+    var head = '<div class="card"><div class="mut">Kiện</div><div class="code">' + esc(a.code) + '</div><div class="mut">Kho Trung Quốc gửi lúc ' + esc(a.ts) + '</div>' +
+      '<p style="margin:10px 0 0">' + (pack ? 'Kho đã mở kiểm hàng của anh/chị và <b>đề xuất cách đóng gói</b> để hàng về an toàn. Anh/chị đồng ý thì kho làm theo và đơn được nhận bảo hiểm.' : 'Kho đã kiểm hàng, anh/chị xem ảnh và số lượng dưới đây rồi xác nhận để kho gửi hàng về.') + '</p>' +
+      (a.note ? '<div class="note"><b>Kho nhắn:</b> ' + esc(a.note) + '</div>' : '') +
+      (a.photos.length ? '<div class="ph">' + a.photos.map(function (p) { return '<img loading="lazy" src="' + pu(p) + '" data-z="' + pu(p) + '" alt="">'; }).join('') + '</div>' : '') + '</div>';
+    var lines = a.lines.length ? '<div class="card"><b>Hàng trong kiện</b>' + a.lines.map(function (l) {
+      var s = ST[l.st];
+      return '<div class="li">' + (l.img ? '<img loading="lazy" referrerpolicy="no-referrer" src="' + esc(thumb(l.img)) + '" alt="">' : '<div class="ni"></div>') +
+        '<div class="t"><div class="n">' + esc(l.n) + '</div>' + (l.attr ? '<div class="mut">' + esc(l.attr) + '</div>' : '') +
+        '<div class="mut">Đặt <b>' + esc(l.want == null ? '?' : l.want) + '</b>' + (l.got != null ? ' · Kho đếm được <b>' + esc(l.got) + '</b>' : '') + '</div>' +
+        (s ? '<span class="chip ' + s[1] + '">' + s[0] + '</span>' : '') +
+        ((l.pids || []).length ? '<div class="lp">' + l.pids.map(function (p) { return '<img loading="lazy" src="' + pu(p) + '" data-z="' + pu(p) + '" alt="">'; }).join('') + '</div>' : '') + '</div></div>';
+    }).join('') + '</div>' : '';
+    V.innerHTML = head + lines;
+    if (a.status === 'pending') {
+      bar.hidden = false;
+      barIn.innerHTML = '<div id="m"></div><button class="go" id="ok">' + (pack ? '✓ Đồng ý đóng gói như kho đề xuất' : '✓ Hàng đúng, gửi về giúp tôi') + '</button><button class="no" id="no">Có vấn đề</button>';
+      document.getElementById('ok').onclick = function () { send(true, ''); };
+      document.getElementById('no').onclick = function () {
+        barIn.innerHTML = '<div id="m"></div><textarea id="nt" placeholder="Anh/chị ghi rõ vấn đề: thiếu gì, sai màu / size, không đồng ý đóng gói…"></textarea><button class="no" style="margin:0" id="send">Gửi vấn đề cho CSKH</button><button style="background:#f3f4f6;margin-top:8px" id="back">Quay lại</button>';
+        document.getElementById('nt').focus();
+        document.getElementById('send').onclick = function () { var n = document.getElementById('nt').value.trim(); if (!n) { msg('Anh/chị ghi rõ vấn đề giúp', 'bad'); return; } send(false, n); };
+        document.getElementById('back').onclick = function () { render(a); };
+      };
+    } else {
+      bar.hidden = true;
+      var done = { ok: ['✓ Anh/chị đã đồng ý' + (a.reply_at ? ' lúc ' + a.reply_at : '') + '. Kho sẽ gửi hàng về.', 'ok'], problem: ['Anh/chị đã báo vấn đề' + (a.reply_at ? ' lúc ' + a.reply_at : '') + '. CSKH sẽ liên hệ.', 'bad'], replaced: ['Kho đã gửi ảnh mới hơn cho kiện này, anh/chị mở thông báo mới nhất.', 'wait'] }[a.status] || ['Yêu cầu này đã đóng.', 'wait'];
+      V.insertAdjacentHTML('afterbegin', '<div class="msg ' + done[1] + '">' + esc(done[0]) + (a.reply_note ? '<div style="font-weight:400">' + esc(a.reply_note) + '</div>' : '') + '</div>');
+    }
+  }
+  function msg(t, c) { var m = document.getElementById('m'); if (m) m.innerHTML = '<div class="msg ' + c + '">' + esc(t) + '</div>'; }
+  function send(ok, note) {
+    [].forEach.call(barIn.querySelectorAll('button'), function (b) { b.disabled = true; });
+    fetch('/api/duyet/' + id, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok: ok, note: note }) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'Không gửi được'); }); })
+      .then(function () { window.scrollTo(0, 0); load(); })
+      .catch(function (e) { msg(e.message || 'Mất kết nối, thử lại', 'bad'); [].forEach.call(barIn.querySelectorAll('button'), function (b) { b.disabled = false; }); });
+  }
+  if (id) load(); else V.innerHTML = '<div class="card">Link không đúng. <a href="/">Về trang chủ</a></div>';
+})();
+</script>
+</body>
+</html>

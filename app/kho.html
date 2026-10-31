@@ -122,6 +122,7 @@ function applyLocal(e) {
   if (e.type === 'count') { m.cnt = { lines: e.data.lines, done: e.data.done, at: e.at, by: B.me.u }; if (e.data.done && m.st !== 'HOLD') m.st = 'COUNTED'; }
   if (e.type === 'issue') { m.hold = 1; m.st = 'HOLD'; }
   if (e.type === 'photo') { m.ph = (m.ph || []).concat([[e.data.pid, e.data.kind, e.data.line]]); }
+  if (e.type === 'ask') { m.ap = { st: 'pending', at: e.at, by: B.me.u }; if (m.st !== 'HOLD') m.st = 'WAIT_CUST'; }
 }
 var busy = false, wait = 2000;
 function pump() {
@@ -178,6 +179,7 @@ function svcTags(r) { return (r.sv || []).map(function (k) { var s = B.svc[k] ||
 function stTag(r) {
   var m = r.my || {};
   if (m.st === 'HOLD') return '<span class="st hold">问题·Giữ lại</span>';
+  if (m.st === 'WAIT_CUST') return '<span class="st hold">等客户确认·Chờ khách duyệt</span>';
   if (m.st === 'SUPPLEMENT') return '<span class="st hold">等补发·Chờ hàng bù</span>';
   if (m.st === 'RETURN') return '<span class="st hold">退回商家·Hoàn shop</span>';
   if (m.st === 'CANCEL') return '<span class="st hold">取消·Huỷ, không gửi</span>';
@@ -259,24 +261,26 @@ function card(r, fresh) {
     ((r.sv || []).length ? '<div style="margin-top:6px">' + svcTags(r) + '</div>' : '<div class="mut" style="margin-top:6px">无增值服务 · Không có dịch vụ thêm</div>') +
     (m.in ? '<div class="mut" style="margin-top:6px">入库 Nhận: ' + esc(m.in.by + ' ' + m.in.at) + '</div>' : '') +
     (m.cnt ? '<div class="mut">点数 Kiểm: ' + esc(m.cnt.by + ' ' + m.cnt.at) + (m.cnt.done ? ' ✓' : ' (未完成 chưa xong)') + '</div>' : '') +
+    (m.ap ? '<div style="margin-top:4px">' + ({ pending: '<span class="st hold">⏳ 等客户确认 · Chờ khách duyệt</span>', ok: '<span class="st in">✓ 客户已确认 · Khách đồng ý</span>', problem: '<span class="st hold">✗ 客户有问题 · Khách báo vấn đề</span>' }[m.ap.st] || '') + (m.ap.note ? '<div class="mut">' + esc(m.ap.note) + '</div>' : '') + '</div>' : '') +
     '</div>' +
     '<div class="grid">' +
     '<button class="g" id="bin"' + (m.in ? ' disabled' : '') + '>' + (m.in ? '已入库' : '入库') + '<span class="vn" style="color:#dcfce7">' + (m.in ? 'Đã nhận' : 'Nhận kiện') + '</span></button>' +
     '<button class="k" id="bph">📷 拍照<span class="vn" style="color:#cbd5e1">Chụp ảnh kiện</span></button>' +
     '<button class="p" id="bcnt"' + ((r.it || []).length ? '' : ' disabled') + '>点数' + (needCount(r) ? ' ★' : '') + '<span class="vn" style="color:#dbeafe">Kiểm đếm (' + (r.it || []).length + ' dòng)</span></button>' +
     '<button class="r" id="biss">报问题<span class="vn" style="color:#fee2e2">Báo lỗi</span></button>' +
-    '</div><div class="thumbs" id="pth"></div>' +
+    '</div><button class="p" style="width:100%;margin-top:8px;background:#7c3aed" id="bask">📤 发给客户确认<span class="vn" style="color:#ede9fe">Gửi khách duyệt ảnh / đề xuất đóng gói</span></button><div class="thumbs" id="pth"></div>' +
     '<div class="row" style="margin-top:10px"><button id="bh">历史<span class="vn">Lịch sử</span></button><button id="bn">下一个<span class="vn">Quét tiếp</span></button></div><div id="hist"></div>';
   $('#bin').onclick = function () { act(r.c, 'in', { k: r.k }); beep(true); card(r); };
   $('#bph').onclick = function () { shoot(r.c, 'pkg', null, function (id, pv) { $('#pth').insertAdjacentHTML('beforeend', '<img src="' + pv + '">'); }); };
   $('#bcnt').onclick = function () { countView(r); };
   $('#biss').onclick = function () { issueForm(r); };
+  $('#bask').onclick = function () { askForm(r); };
   $('#bn').onclick = function () { CUR = null; scanView(); };
   $('#bh').onclick = function () {
     $('#hist').innerHTML = '<p class="mut">…</p>';
     api('/kho/api/hist?code=' + encodeURIComponent(r.c)).then(function (x) { return x.json(); }).then(function (d) {
-      var T = { in: '入库 Nhận', photo: '拍照 Ảnh', count: '点数 Kiểm', issue: '问题 Lỗi', svc: '服务 Dịch vụ', note: '备注 Ghi chú', claim: '受理 Nhận xử lý', resolve: '处理结果 Kết quả xử lý' };
-      $('#hist').innerHTML = '<div class="card">' + ((d.items || []).map(function (e) { return '<div class="lrow"><b>' + esc(T[e.type] || e.type) + '</b> · ' + esc(e.who) + '<div class="mut">' + esc(e.at || e.ts) + '</div>' + (e.data && e.data.result ? '<div><b>' + esc({ go: '继续发货 Đi tiếp', supplement: '补发 Bổ sung', return: '退回商家 Hoàn shop', cancel: '取消 Huỷ' }[e.data.result] || e.data.result) + '</b></div>' : '') + (e.data && e.data.note ? '<div class="mut" style="white-space:pre-wrap">' + esc(e.data.note) + '</div>' : '') + '</div>'; }).join('') || '<p class="mut">暂无 · Chưa có</p>') + '</div>';
+      var T = { in: '入库 Nhận', photo: '拍照 Ảnh', count: '点数 Kiểm', issue: '问题 Lỗi', svc: '服务 Dịch vụ', note: '备注 Ghi chú', claim: '受理 Nhận xử lý', resolve: '处理结果 Kết quả xử lý', ask: '发给客户确认 Gửi khách duyệt', reply: '客户回复 Khách trả lời' };
+      $('#hist').innerHTML = '<div class="card">' + ((d.items || []).map(function (e) { return '<div class="lrow"><b>' + esc(T[e.type] || e.type) + '</b> · ' + esc(e.who) + '<div class="mut">' + esc(e.at || e.ts) + '</div>' + (e.type === 'reply' ? '<div><b>' + (e.data.ok ? '✓ 同意 OK' : '✗ 有问题 Có vấn đề') + '</b></div>' : '') + (e.data && e.data.result ? '<div><b>' + esc({ go: '继续发货 Đi tiếp', supplement: '补发 Bổ sung', return: '退回商家 Hoàn shop', cancel: '取消 Huỷ' }[e.data.result] || e.data.result) + '</b></div>' : '') + (e.data && e.data.note ? '<div class="mut" style="white-space:pre-wrap">' + esc(e.data.note) + '</div>' : '') + '</div>'; }).join('') || '<p class="mut">暂无 · Chưa có</p>') + '</div>';
     }).catch(function () { $('#hist').innerHTML = '<p class="mut">离线 · Đang mất mạng</p>'; });
   };
 }
@@ -313,12 +317,32 @@ function countView(r) {
   $('#csave').onclick = function () { save(false); }; $('#cdone').onclick = function () { save(true); };
 }
 
+function askForm(r) {
+  var m = r.my || {}, pids = [], kind = (r.sv || []).indexOf('insurance') >= 0 && !(m.cnt && m.cnt.done) ? 'pack' : 'check';
+  var nPh = (m.ph || []).filter(function (x) { return x[1] === 'pkg'; }).length;
+  V.innerHTML = '<div class="card">' + hq('ask') + '<div class="mut">发给客户确认 · Gửi khách duyệt</div><div class="big">' + esc(r.c) + '</div>' +
+    '<p class="mut">客户会在网站/手机上看到照片和点数结果，点“OK”或“有问题”。结果会直接显示在这里。<br>Khách xem ảnh + kết quả kiểm trên web / điện thoại, bấm OK hoặc Có vấn đề; kết quả hiện ngay ở đây.</p>' +
+    '<div class="chips" id="akind"><span class="chip' + (kind === 'check' ? ' on' : '') + '" data-k="check">验货/点数结果 · Ảnh kiểm hàng</span><span class="chip' + (kind === 'pack' ? ' on' : '') + '" data-k="pack">保价·建议包装 · Đề xuất đóng gói</span></div>' +
+    '<textarea id="anote" style="margin-top:8px" placeholder="给客户的说明 · Lời nhắn cho khách (vd 玻璃易碎，建议打木架 / hàng thuỷ tinh dễ vỡ, đề xuất đóng gỗ)"></textarea>' +
+    '<div class="mut" style="margin-top:6px">已拍包裹照片 Ảnh kiện đã chụp: <b>' + nPh + '</b>' + (m.cnt ? ' · 点数照片会一起发送 · ảnh kiểm đếm gửi kèm' : '') + '</div><div class="thumbs" id="ath"></div>' +
+    '<div class="row" style="margin-top:8px"><button class="k" id="ash">📷 再拍 · Chụp thêm</button><button class="p" style="background:#7c3aed" id="asend">发送 · Gửi khách</button></div>' +
+    '<button style="width:100%;margin-top:8px" id="aback">返回<span class="vn">Quay lại</span></button><div id="amsg"></div></div>';
+  [].forEach.call(V.querySelectorAll('#akind .chip'), function (c) { c.onclick = function () { kind = c.getAttribute('data-k'); [].forEach.call(V.querySelectorAll('#akind .chip'), function (x) { x.classList.toggle('on', x === c); }); }; });
+  $('#ash').onclick = function () { shoot(r.c, null, null, function (id, pv) { pids.push(id); $('#ath').insertAdjacentHTML('beforeend', '<img src="' + pv + '">'); }); };
+  $('#asend').onclick = function () {
+    var cntPh = ((m.cnt && m.cnt.lines) || []).some(function (l) { return (l.pids || []).length; });
+    if (!pids.length && !nPh && !cntPh) { $('#amsg').innerHTML = '<div class="msg bad">请先拍照 · Chụp ít nhất 1 ảnh cho khách xem</div>'; return; }
+    if (kind === 'pack' && !$('#anote').value.trim()) { $('#amsg').innerHTML = '<div class="msg bad">请写建议的包装方式 · Ghi đề xuất đóng gói cho khách</div>'; return; }
+    act(r.c, 'ask', { k: r.k, kind: kind, note: $('#anote').value, pids: pids }); beep(true); card(r);
+  };
+  $('#aback').onclick = function () { card(r); };
+}
 function issueForm(r, badL) {
   var pick = badL && badL.length ? (badL.some(function (l) { return l.st === 'short'; }) ? 'short' : badL.some(function (l) { return l.st === 'bad'; }) ? 'shop_damage' : 'wrong') : '';
   var pids = []; (badL || []).forEach(function (l) { pids = pids.concat(l.pids || []); });
   var note = (badL || []).map(function (l) { var x = r.it[l.i] || []; return '#' + (l.i + 1) + ' ' + x[0] + ': 应' + l.want + ' 实' + l.got + ' (' + l.st + ')'; }).join('\n');
   V.innerHTML = '<div class="card">' + hq('issue') + '<div class="mut">报问题 · Báo lỗi</div><div class="big">' + esc(r.c) + '</div>' + (badL ? '<div class="msg info">点数有差异 · Kiểm đếm có chênh lệch, báo lỗi để bộ phận liên quan xử lý</div>' : '') +
-    '<div class="chips" id="kinds">' + Object.keys(B.issue).map(function (k) { var x = B.issue[k], d = B.dept[x[2]]; return '<span class="chip' + (k === pick ? ' on' : '') + '" data-k="' + k + '">' + esc(x[0]) + ' ' + esc(x[1]) + ' → ' + esc(d[0] + ' ' + d[1]) + '</span>'; }).join('') + '</div>' +
+    '<div class="chips" id="kinds">' + Object.keys(B.issue).filter(function (k) { return k !== 'cust_reject' && k !== 'no_reply'; }).map(function (k) { var x = B.issue[k], d = B.dept[x[2]]; return '<span class="chip' + (k === pick ? ' on' : '') + '" data-k="' + k + '">' + esc(x[0]) + ' ' + esc(x[1]) + ' → ' + esc(d[0] + ' ' + d[1]) + '</span>'; }).join('') + '</div>' +
     '<textarea id="inote" style="margin-top:8px" placeholder="说明 · Mô tả">' + esc(note) + '</textarea><div class="thumbs" id="ith"></div>' +
     '<div class="row" style="margin-top:8px"><button class="k" id="ish">📷 拍照<span class="vn" style="color:#cbd5e1">Chụp ảnh lỗi</span></button><button class="r" id="isend">提交 · 扣留<span class="vn" style="color:#fee2e2">Gửi + giữ kiện lại</span></button></div>' +
     '<button style="width:100%;margin-top:8px" id="iback">返回<span class="vn">Quay lại</span></button><div id="imsg"></div></div>';
@@ -333,7 +357,7 @@ function issueForm(r, badL) {
 
 function listView() {
   var f = listView.f || 'todo', q = listView.q || '';
-  var F = { todo: ['待入库', 'Chờ nhận', function (r) { return !(r.my && r.my.in); }], cnt: ['待点数', 'Cần kiểm', function (r) { return needCount(r) && !(r.my && r.my.cnt && r.my.cnt.done); }], in: ['已入库', 'Đã nhận', function (r) { return r.my && r.my.in; }], hold: ['问题', 'Giữ lại', function (r) { return r.my && r.my.st === 'HOLD'; }] };
+  var F = { todo: ['待入库', 'Chờ nhận', function (r) { return !(r.my && r.my.in); }], cnt: ['待点数', 'Cần kiểm', function (r) { return needCount(r) && !(r.my && r.my.cnt && r.my.cnt.done); }], in: ['已入库', 'Đã nhận', function (r) { return r.my && r.my.in; }], wait: ['待客户确认', 'Chờ khách', function (r) { return r.my && r.my.st === 'WAIT_CUST'; }], hold: ['问题', 'Giữ lại', function (r) { return r.my && r.my.st === 'HOLD'; }] };
   var nq = q.trim().toUpperCase();
   var rs = ROWS.filter(F[f][2]).filter(function (r) { return !nq || (r.c + ' ' + (r.wb || []).join(' ') + ' ' + r.cc + ' ' + r.cu).toUpperCase().indexOf(nq) >= 0; });
   V.innerHTML = '<div class="card">' + hq('list') + '<div class="chips">' + Object.keys(F).map(function (k) { return '<span class="chip' + (k === f ? ' on' : '') + '" data-f="' + k + '">' + F[k][0] + ' ' + F[k][1] + ' ' + ROWS.filter(F[k][2]).length + '</span>'; }).join('') + '</div>' +

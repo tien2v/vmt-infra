@@ -17,7 +17,7 @@
           <div class="flex flex-wrap items-end justify-between gap-3 py-5 lg:py-6">
             <div class="min-w-0">
               <h2 class="text-xl font-medium text-slate-800 dark:text-navy-50 lg:text-2xl">Lỗi kho Trung Quốc</h2>
-              <p class="mt-1 text-xs-plus text-slate-400 dark:text-navy-300">Kho TQ mở kiện thấy vấn đề thì báo ở đây (kiện đang bị giữ, chưa đóng bao). Bấm <b>Nhận xử lý</b> → liên hệ shop / khách → bấm kết quả, kho tự thấy. Hạn 2 ngày.</p>
+              <p class="mt-1 text-xs-plus text-slate-400 dark:text-navy-300">Kho TQ mở kiện thấy vấn đề thì báo ở đây (kiện đang bị giữ, chưa đóng bao). Bấm <b>Nhận xử lý</b> → liên hệ shop / khách → bấm kết quả, kho tự thấy. Hạn 2 ngày; quá hạn thì CSKH xử lý thay và báo anh.</p>
             </div>
             <div class="flex items-center gap-2">
               <select x-show="role==='admin'" x-model="lk.dept" @change="lkLoad()" class="form-select rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-navy-450 dark:bg-navy-700">
@@ -41,6 +41,7 @@
                   <div style="margin-top:3px">
                     <span class="lk-chip lk-red" x-text="lkKind(x.kind)[0] + ' · ' + lkKind(x.kind)[1]"></span>
                     <span class="lk-chip" x-text="'→ ' + lkDept(x.dept)"></span>
+                    <template x-if="x.over"><span class="lk-chip lk-red">Quá hạn — CSKH xử lý thay</span></template>
                     <template x-if="x.status==='open'"><span class="lk-chip" :class="x.late ? 'lk-red' : 'lk-amb'" x-text="lkAge(x)"></span></template>
                     <template x-if="x.status==='done'"><span class="lk-chip lk-grn" x-text="lkResN(x.result) + ' · ' + x.done_by + ' · ' + x.done_at"></span></template>
                   </div>

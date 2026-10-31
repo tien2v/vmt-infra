@@ -1,5 +1,5 @@
 // Ban Kho TQ: giu giao dien + bo quet tren dien thoai (mang TQ -> VN cham). API luon di mang.
-const C = 'kho-v3';
+const C = 'kho-v4';
 const SHELL = ['/kho/', '/kho/help', '/ext/vendor/html5-qrcode.min.js'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(C).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => {

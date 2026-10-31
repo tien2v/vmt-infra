@@ -454,6 +454,14 @@ async function handle(req, res) {
 
   const user = readSession(req);
 
+  // ---- Trang khach bao ket qua khach duyet anh kiem hang (goi noi bo trong mang docker, khong qua Caddy) ----
+  if (p === '/kho/internal/reply' && req.method === 'POST') {
+    const key = kho.internalKey();
+    if (req.headers['x-forwarded-for'] || !key || req.headers['x-kho-key'] !== key) return json(req, res, 403, { error: 'forbidden' });
+    let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'body' }); }
+    const r = kho.replyApproval(b.id, b.owner, !!b.ok, b.note, String(b.by || '').slice(0, 60));
+    return json(req, res, r.error ? 400 : 200, r);
+  }
   // ---- Ban Kho TQ: trang rieng nhe cho dien thoai (mang TQ cham) ----
   if (p === '/kho') { res.writeHead(301, { Location: '/kho/' }); return res.end(); }
   if (p === '/kho/') return sendFile(req, res, path.join(__dirname, 'kho.html'), 'no-cache');

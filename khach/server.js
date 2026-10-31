@@ -142,13 +142,16 @@ store.rawDb().exec(`CREATE TABLE IF NOT EXISTS login_creds (cred_id TEXT PRIMARY
 // Day thong bao chuong len dien thoai (quet bang notif 20 giay/lan; admin cung ghi vao bang nay)
 const PUSH_TITLE = { order: 'Đơn hàng', money: 'Tài chính', support: 'Hỗ trợ', system: 'Thông báo' };
 setInterval(() => webpush.pump(
-  (code) => (code && /^SCN\d+$/.test(code) ? '/#don/cn/' + code : code && kindOf.has(code) ? '/#don/' + kindOf.get(code) + '/' + encodeURIComponent(code) : '/#tong-quan'),
+  (code) => (code && /^DUYET-\d+$/.test(code) ? '/duyet/' + code.slice(6) : code && /^SCN\d+$/.test(code) ? '/#don/cn/' + code : code && kindOf.has(code) ? '/#don/' + kindOf.get(code) + '/' + encodeURIComponent(code) : '/#tong-quan'),
   (n) => PUSH_TITLE[notifKind(n).kind] || 'Thông báo'), 20000).unref();
 // Thong ke cai app chi giu 180 ngay
 const pwaPurge = () => { try { store.rawDb().prepare("DELETE FROM pwa_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-180 days')").run(); } catch {} };
 pwaPurge(); setInterval(pwaPurge, 24 * 3600e3).unref();
 // ---- AI (Gemini): dien form tu tin nhan / anh + dich ten hang sang tieng Trung ----
 const ai = require('./lib/ai');
+// Khach duyet anh kiem hang do kho TQ gui (doc DB admin, tra loi qua may chu admin)
+const duyet = require('./lib/duyet');
+duyet.init(store.adminKv);
 ai.init(store.adminKv);
 const ks = require('./lib/ks');
 ks.init(store.rawDb(), store.adminKv);
@@ -229,7 +232,8 @@ function payload(user) {
   const companies = store.coList(user.username);
   // Ma van don don ky gui Gobiz (luong n8n bo sung -> bang gz_ship_x cua admin)
   const gship = s ? s.shipments.map((x) => { const w = store.shipWb(x.code); return w.length ? Object.assign({}, x, { wb: w[0], wbs: w }) : x; }) : [];
-  const data = { companies, orders: s ? s.orders : [], shipments: ksNew.concat(gship), peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
+  const approvals = duyet.pending(owner(user)); // kho TQ gui anh can khach xac nhan
+  const data = { approvals, companies, orders: s ? s.orders : [], shipments: ksNew.concat(gship), peer: s ? s.peer : [], cn, pulledAt: ix ? ix.gen : null, from: ix ? ix.from : null };
   return 'window.ME=' + JSON.stringify(me) + ';window.DATA=' + JSON.stringify(data) + ';';
 }
 
@@ -712,10 +716,32 @@ async function handle(req, res) {
     db.prepare('INSERT INTO pwa_log (username, event, platform, ua) VALUES (?, ?, ?, ?)').run(user.username, ev, String(b.platform || '').slice(0, 20), String(req.headers['user-agent'] || '').slice(0, 300));
     return json(req, res, 200, { ok: true });
   }
+  // ---- Khach duyet anh kiem hang / de xuat dong goi (kho TQ gui) ----
+  const md = p.match(/^\/duyet\/(\d{1,10})$/);
+  if (md) { if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); } return fs.readFile(path.join(__dirname, 'duyet.html'), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8' })); }
+  const mda = p.match(/^\/api\/duyet\/(\d{1,10})$/);
+  if (mda) {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (req.method === 'POST') {
+      if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+      let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+      const r = await duyet.reply(Number(mda[1]), owner(user), !!b.ok, b.note, user.username);
+      return json(req, res, r.error ? 400 : 200, r);
+    }
+    const a = duyet.get(Number(mda[1]), owner(user));
+    return a ? json(req, res, 200, Object.assign(a, { brand: hostBrand(req) })) : json(req, res, 404, { error: 'Không tìm thấy yêu cầu xác nhận' });
+  }
+  const mdp = p.match(/^\/api\/duyet\/(\d{1,10})\/photo\/([A-Za-z0-9_-]{8,40})$/);
+  if (mdp) {
+    if (!user) return send(res, 401, '');
+    const f = duyet.photoFile(mdp[2], Number(mdp[1]), owner(user));
+    if (!f) return send(res, 404, 'Not found');
+    return fs.readFile(f, (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=2592000, immutable' }));
+  }
   if (p === '/api/notif') {
     if (!user) return json(req, res, 401, { error: 'login' });
     if (req.method === 'POST') { if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' }); store.notifRead(user.username); return json(req, res, 200, { ok: true }); }
-    return json(req, res, 200, { items: store.notifList(user.username).map((n) => Object.assign(n, notifKind(n))) });
+    return json(req, res, 200, { items: store.notifList(user.username).map((n) => Object.assign(n, notifKind(n), /^DUYET-\d+$/.test(n.code || '') ? { url: '/duyet/' + n.code.slice(6) } : {})) });
   }
   if (p === '/api/cn/quote' && req.method === 'POST') {
     if (!user) return json(req, res, 401, { error: 'login' });

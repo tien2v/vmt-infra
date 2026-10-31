@@ -27,7 +27,7 @@ table{width:100%;border-collapse:collapse;font-size:14px;background:#fff}th,td{b
 <div class="top"><b>📖 使用说明 · Hướng dẫn</b><a href="/kho/">← 返回 Quay lại</a></div>
 <main>
 <h1>仓库工作台 使用说明</h1>
-<p class="vn">Bàn Kho TQ — Tài liệu hướng dẫn sử dụng · 版本 Phiên bản 1 · 2026-10-31</p>
+<p class="vn">Bàn Kho TQ — Tài liệu hướng dẫn sử dụng · 版本 Phiên bản 2 · 2026-10-31</p>
 
 <div class="toc"><b>目录 · Mục lục</b><ol>
 <li><a href="#intro">简介 · Giới thiệu</a></li>
@@ -40,6 +40,7 @@ table{width:100%;border-collapse:collapse;font-size:14px;background:#fff}th,td{b
 <li><a href="#photo">拍照 · Chụp ảnh</a></li>
 <li><a href="#count">点数 · Kiểm đếm</a></li>
 <li><a href="#issue">报问题 · Báo lỗi</a></li>
+<li><a href="#ask">发给客户确认 · Gửi khách duyệt ảnh</a></li>
 <li><a href="#unknown">无主件 · Kiện vô chủ / không tìm thấy</a></li>
 <li><a href="#list">列表 · Danh sách</a></li>
 <li><a href="#issues">问题列表 · Danh sách lỗi</a></li>
@@ -148,14 +149,31 @@ table{width:100%;border-collapse:collapse;font-size:14px;background:#fff}th,td{b
 <tr><td>少货 Thiếu hàng · 发错货 Sai mẫu/size · 商家货损 Hỏng do shop · 假货 Hàng giả · 国内快递破损 Móp/ướt do ship nội địa</td><td>采购 NV order（联系商家 liên hệ shop）</td></tr>
 <tr><td>客户信息错误 Khách khai sai · 违禁/敏感货 Hàng cấm/nhạy cảm · 缺少信息 Thiếu thông tin · 其他 Khác</td><td>客服 CSKH（联系客户 liên hệ khách）</td></tr>
 <tr><td>仓库损坏 Kho làm hỏng</td><td>管理 Quản lý</td></tr></table>
-<p>处理期限2天，超过2天在问题列表里显示红色“超时”。相关部门处理后（继续发货 / 退回商家 / 补发 / 取消），结果记录在包裹的“历史”里，包裹自动解除扣留。</p>
-<p class="vn">Hạn xử lý 2 ngày, quá hạn hiện chữ đỏ “Quá hạn” trong danh sách lỗi. Bộ phận xử lý xong (đi tiếp / hoàn shop / bổ sung / huỷ) thì kết quả ghi vào “Lịch sử” của kiện và kiện tự hết bị giữ.</p>
+<p>客户回复“有问题”、或者48小时没回复，系统也会自动建一个问题给客服（不用仓库报）。处理期限2天，超过2天在问题列表里显示红色“超时”，并转给客服跟进、通知管理员。相关部门处理后（继续发货 / 退回商家 / 补发 / 取消），结果记录在包裹的“历史”里，包裹自动解除扣留。</p>
+<p class="vn">Khách báo “có vấn đề” hoặc 48 giờ không trả lời thì hệ thống tự tạo lỗi cho CSKH (kho không cần báo). Hạn xử lý 2 ngày, quá hạn hiện chữ đỏ “Quá hạn”, chuyển CSKH xử lý thay và báo quản lý. Bộ phận xử lý xong (đi tiếp / hoàn shop / bổ sung / huỷ) thì kết quả ghi vào “Lịch sử” của kiện và kiện tự hết bị giữ.</p>
 <table><tr><th>处理结果 · Kết quả</th><th>包裹显示 · Kiện hiện</th><th>仓库要做 · Kho cần làm</th></tr>
 <tr><td>继续发货 · Đi tiếp</td><td>已入库 / 已点数</td><td>正常打包装袋 · đóng gói, vào bao bình thường</td></tr>
 <tr><td>补发 · Bổ sung</td><td>等补发 · Chờ hàng bù</td><td>等商家补发的货到了再一起发 · chờ hàng bù về rồi gửi cùng</td></tr>
 <tr><td>退回商家 · Hoàn shop</td><td>退回商家 · Hoàn shop</td><td>按备注退回商家 · trả lại shop theo ghi chú</td></tr>
 <tr><td>取消 · Huỷ</td><td>取消 · Huỷ, không gửi</td><td>不发回越南，按备注处理 · không gửi về VN, làm theo ghi chú</td></tr></table>
 <p>处理部门写的备注可以在“历史”里看到。<span class="vn">Ghi chú của bộ phận xử lý xem trong “Lịch sử”.</span></p>
+
+<h2 id="ask">10b. 发给客户确认 · Gửi khách duyệt ảnh</h2>
+<p>有些客户要先看照片再决定发不发（点数/验货结果），保价的货要客户同意包装方式。不用再发微信给客服转给客户，直接在工作台发给客户。</p>
+<p class="vn">Có khách cần xem ảnh trước khi gửi về (kết quả kiểm đếm / kiểm hàng), hàng bảo hiểm cần khách đồng ý cách đóng gói. Không cần nhắn qua CSKH nữa, gửi thẳng cho khách từ bàn kho.</p>
+<ol>
+<li>先拍包裹照片，点数时每行也可以拍照。<span class="vn">Chụp ảnh kiện trước; lúc kiểm đếm chụp từng dòng cũng được.</span></li>
+<li>在包裹信息页点紫色 <span class="btn v">📤 发给客户确认</span>。<span class="vn">Ở màn thông tin kiện bấm nút tím “Gửi khách duyệt”.</span></li>
+<li>选类型：<b>验货/点数结果</b>（给客户看照片和数量）或 <b>保价·建议包装</b>（写清楚建议怎么包装，例如“玻璃易碎，建议打木架”）。<span class="vn">Chọn: Ảnh kiểm hàng, hoặc Đề xuất đóng gói (bắt buộc ghi đề xuất, vd “thuỷ tinh dễ vỡ, đề xuất đóng gỗ”).</span></li>
+<li>写给客户的说明，可以再拍几张，点 <span class="btn v">发送</span>。点数照片和包裹照片会一起发过去。<span class="vn">Ghi lời nhắn, chụp thêm nếu cần, bấm Gửi. Ảnh kiện + ảnh kiểm đếm gửi kèm.</span></li>
+</ol>
+<p>发送后包裹显示 <b>等客户确认 · Chờ khách duyệt</b>，<b>不能装袋</b>。客户回复后：</p>
+<p class="vn">Gửi xong kiện hiện “Chờ khách duyệt”, <b>chưa được vào bao</b>. Khách trả lời thì:</p>
+<table><tr><th>客户回复 · Khách trả lời</th><th>包裹显示 · Kiện hiện</th><th>仓库要做 · Kho làm</th></tr>
+<tr><td>同意 OK</td><td>✓ 客户已确认 · Khách đồng ý</td><td>按正常流程打包装袋（保价的按同意的方式包装）· làm tiếp bình thường</td></tr>
+<tr><td>有问题 Có vấn đề</td><td>✗ 客户有问题 + 问题·Giữ lại</td><td>等客服处理结果 · chờ CSKH xử lý (xem mục 10)</td></tr></table>
+<p>客户24小时没回复，系统自动提醒客户；48小时还没回复，自动转给客服联系客户。<span class="vn">Khách 24 giờ chưa trả lời thì hệ thống tự nhắc; 48 giờ chưa trả lời thì tự chuyển CSKH liên hệ khách.</span></p>
+<p>同一个包裹再发一次，以最新的一次为准。客户的回复在“历史”里可以看到。列表里有“待客户确认”筛选。<span class="vn">Gửi lại thì lấy lần mới nhất. Câu trả lời của khách xem trong Lịch sử. Danh sách có bộ lọc “Chờ khách”.</span></p>
 
 <h2 id="unknown">11. 无主件 / 找不到 · Kiện vô chủ, không tìm thấy</h2>
 <p>扫到“未找到”时，可能是：数据还没更新（订单刚建），或者真的没有客户认领（无主件）。</p>
@@ -170,7 +188,7 @@ table{width:100%;border-collapse:collapse;font-size:14px;background:#fff}th,td{b
 <ul>
 <li><b>待入库 Chờ nhận</b>：还没入库的包裹（快递在路上或刚到）。<span class="vn">Kiện chưa nhận.</span></li>
 <li><b>待点数 Cần kiểm</b>：要点数但还没完成的。<span class="vn">Kiện cần kiểm đếm chưa xong.</span></li>
-<li><b>已入库 Đã nhận</b>、<b>问题 Giữ lại</b>。</li>
+<li><b>已入库 Đã nhận</b>、<b>待客户确认 Chờ khách</b>（等客户回复 · đang chờ khách duyệt）、<b>问题 Giữ lại</b>。</li>
 <li>上面可以搜索单号、快递号、客户代码。点任一行打开包裹信息页。<span class="vn">Tìm theo mã, vận đơn, mã khách. Bấm 1 dòng để mở.</span></li>
 </ul>
 
@@ -206,7 +224,6 @@ table{width:100%;border-collapse:collapse;font-size:14px;background:#fff}th,td{b
 <h2 id="soon">17. 即将上线 · Sắp có</h2>
 <ul class="soon">
 <li>打印面单（9710 A6 / 小标签 100×75），手机点打印，仓库电脑旁边的打印机出标签。<span class="vn">In tem 9710 / tem nhỏ, bấm in trên điện thoại, máy in cạnh máy tính kho ra tem.</span></li>
-<li>客户在线看点数照片并确认（OK / 有问题），结果直接通知仓库。<span class="vn">Khách xem ảnh kiểm hàng và xác nhận ngay trên đơn, kết quả báo thẳng về kho.</span></li>
 <li>合并打木架（多个包裹打一个木架，生成新的木架单号）。<span class="vn">Đóng gỗ gộp nhiều kiện, tạo mã thùng gỗ mới.</span></li>
 <li>装袋、打印袋标签、按袋出库。<span class="vn">Vào bao, in tem bao, xuất kho theo bao.</span></li>
 <li>自动读取量方机（安检机）的重量、尺寸、照片。<span class="vn">Tự lấy cân, kích thước, ảnh từ máy đo.</span></li>
