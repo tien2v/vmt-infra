@@ -133,6 +133,21 @@ async function run(force) {
       store.kvSet('backup_imgs', JSON.stringify([...sent]));
       if (nImg) done.push(nImg + ' ảnh');
     }
+    // anh ban kho TQ (/data/kho_photos/YYYYMM/<id>.jpg): gui anh moi hon moc da gui (chi luu 1 moc thoi gian, khong luu danh sach)
+    const kdir = path.join(path.dirname(ADMIN_DB), 'kho_photos'); let nKho = 0;
+    if (fs.existsSync(kdir)) {
+      let mark = Number(store.kvGet('backup_kho_mark') || 0), top = mark;
+      for (const ym of fs.readdirSync(kdir).filter((x) => /^\d{6}$/.test(x)).sort()) {
+        for (const f of fs.readdirSync(path.join(kdir, ym))) {
+          if (!/^[A-Za-z0-9_-]{8,40}\.jpg$/.test(f)) continue;
+          const fp = path.join(kdir, ym, f), mt = fs.statSync(fp).mtimeMs;
+          if (mt <= mark) continue;
+          await put(c, 'kho/' + ym + '/' + f + '.vmt', seal(c.pub, fs.readFileSync(fp))); nKho++; if (mt > top) top = mt;
+        }
+      }
+      if (top > mark) store.kvSet('backup_kho_mark', String(top));
+      if (nKho) done.push(nKho + ' ảnh kho');
+    }
     // don ban cu (sau khi het khoa 7 ngay)
     if (st.pruned !== ymd) {
       const lim = { 'db/hourly/': 8, 'db/daily/': 120 };

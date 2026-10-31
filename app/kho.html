@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>仓库 · Kho TQ</title>
+<style>
+:root{--b:#2563eb;--ok:#15803d;--mid:#b45309;--bad:#b91c1c;--mut:#64748b;--ln:#e2e8f0;--bg:#f1f5f9}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;font:15px/1.4 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Roboto,sans-serif;color:#0f172a;background:var(--bg);padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+.top{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:8px 12px calc(8px);display:flex;align-items:center;gap:8px;font-size:13px}
+.top b{font-size:15px}.top .sp{flex:1}.dot{width:8px;height:8px;border-radius:9px;background:#22c55e;display:inline-block}.dot.off{background:#ef4444}
+.pill{background:#334155;border-radius:99px;padding:2px 8px}.pill.warn{background:#b45309}
+.wrap{padding:10px;max-width:720px;margin:0 auto}
+.card{background:#fff;border:1px solid var(--ln);border-radius:12px;padding:12px;margin-bottom:10px}
+.vn{display:block;font-size:11px;color:var(--mut);font-weight:400}
+h2{font-size:17px;margin:0 0 6px}
+input,select,textarea{width:100%;padding:11px;font-size:16px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;font-family:inherit}
+textarea{min-height:70px}
+button{font:inherit;border:0;border-radius:10px;padding:12px;font-weight:600;background:#e2e8f0;color:#0f172a;cursor:pointer}
+button.p{background:var(--b);color:#fff}button.k{background:#0f172a;color:#fff}button.g{background:var(--ok);color:#fff}button.r{background:var(--bad);color:#fff}
+button:disabled{opacity:.45}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.big{font-size:20px;font-weight:700;word-break:break-all}
+.mut{color:var(--mut);font-size:12px}
+.tag{display:inline-block;border-radius:8px;padding:4px 9px;margin:3px 4px 0 0;font-weight:700;font-size:16px;color:#fff;background:#7c3aed}
+.tag small{font-weight:400;font-size:11px;opacity:.9;margin-left:4px}
+.st{display:inline-block;border-radius:99px;padding:1px 8px;font-size:12px;font-weight:600;background:#e2e8f0}
+.st.in{background:#dcfce7;color:#166534}.st.hold{background:#fee2e2;color:#991b1b}.st.cnt{background:#dbeafe;color:#1e40af}
+.li{display:flex;gap:10px;padding:9px 0;border-top:1px solid var(--ln);align-items:flex-start}.li:first-child{border-top:0}
+.li img,.ph{width:64px;height:64px;border-radius:8px;object-fit:cover;background:#e2e8f0;flex:none}
+.li .t{flex:1;min-width:0}.li .n{font-weight:600;word-break:break-word}
+.qty{display:flex;gap:6px;align-items:center;margin-top:6px}.qty input{width:84px;padding:8px;text-align:center}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.chip{padding:7px 10px;border-radius:99px;background:#f1f5f9;border:1px solid #cbd5e1;font-size:13px;font-weight:600}
+.chip.on{background:#0f172a;color:#fff;border-color:#0f172a}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.thumbs img{width:56px;height:56px;object-fit:cover;border-radius:6px}
+.nav{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--ln);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:6}
+.nav button{flex:1;background:none;border-radius:0;padding:9px 2px 7px;font-size:14px;font-weight:600;color:var(--mut)}
+.nav button.on{color:var(--b)}.nav .vn{font-size:10px}
+.msg{padding:10px;border-radius:9px;margin:8px 0;font-weight:600}.msg.ok{background:#dcfce7;color:#166534}.msg.bad{background:#fee2e2;color:#991b1b}.msg.info{background:#e0f2fe;color:#075985}
+#cam{border-radius:10px;overflow:hidden;margin-top:8px}
+.hid{display:none!important}
+.lrow{padding:10px 0;border-top:1px solid var(--ln)}.lrow:first-child{border-top:0}
+</style>
+</head>
+<body>
+<div class="top"><b>仓库 Kho TQ</b><span class="sp"></span><span id="q" class="pill hid"></span><span id="dt" class="mut" style="color:#cbd5e1"></span><span id="net" class="dot"></span></div>
+<div class="wrap" id="v"></div>
+<div class="nav hid" id="nav">
+  <button data-t="scan" class="on">扫描<span class="vn">Quét</span></button>
+  <button data-t="list">列表<span class="vn">Danh sách</span></button>
+  <button data-t="iss">问题<span class="vn">Lỗi</span></button>
+  <button data-t="me">我的<span class="vn">Tôi</span></button>
+</div>
+<input type="file" id="file" accept="image/*" capture="environment" class="hid">
+<script>
+(function () {
+'use strict';
+var $ = function (s, el) { return (el || document).querySelector(s); };
+var V = $('#v');
+var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+var nowS = function () { var d = new Date(Date.now() + 7 * 3600e3); return d.toISOString().replace('T', ' ').slice(0, 19); }; // gio VN
+var rid = function () { var a = new Uint8Array(12); crypto.getRandomValues(a); return btoa(String.fromCharCode.apply(null, a)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+var B = null, ROWS = [], MAP = {}, TAB = 'scan', CUR = null;
+var KST = { MERCHANT_DELIVERING: ['待入库', 'Chờ nhập'], PUTAWAY: ['已到仓', 'Đã về kho TQ'], PURCHASED: ['已采购', 'Đã mua'], UNKNOWN: ['无主件', 'Vô chủ'] };
+var KIND = { g: ['集运', 'Ký gửi'], o: ['代购', 'Order'], n: ['集运·新', 'Ký gửi mới'], u: ['无主件', 'Vô chủ'] };
+var CST = [['ok', '正常', 'Đủ'], ['short', '少', 'Thiếu'], ['more', '多', 'Thừa'], ['wrong', '错', 'Sai'], ['bad', '坏', 'Hỏng']];
+
+// ---------- luu tren may: IndexedDB (danh sach + anh cho gui), localStorage (hang doi thao tac) ----------
+var idb = null;
+function db() { return idb || (idb = new Promise(function (ok, no) { var r = indexedDB.open('kho', 1); r.onupgradeneeded = function () { r.result.createObjectStore('kv'); r.result.createObjectStore('ph'); }; r.onsuccess = function () { ok(r.result); }; r.onerror = function () { no(r.error); }; })); }
+function idbDo(store, mode, fn) { return db().then(function (d) { return new Promise(function (ok, no) { var t = d.transaction(store, mode); var r = fn(t.objectStore(store)); t.oncomplete = function () { ok(r && r.result); }; t.onerror = function () { no(t.error); }; }); }); }
+var kvGet = function (k) { return idbDo('kv', 'readonly', function (s) { return s.get(k); }); };
+var kvSet = function (k, v) { return idbDo('kv', 'readwrite', function (s) { s.put(v, k); }); };
+var Q = []; try { Q = JSON.parse(localStorage.getItem('kho_q') || '[]'); } catch (e) {}
+var saveQ = function () { try { localStorage.setItem('kho_q', JSON.stringify(Q)); } catch (e) {} badge(); };
+var PH = 0; // so anh cho gui
+function badge() { var n = Q.length + PH; var el = $('#q'); el.textContent = '待上传 ' + n; el.className = 'pill warn' + (n ? '' : ' hid'); }
+
+// ---------- am thanh / doc to ----------
+var actx = null;
+function beep(ok) { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); var o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = ok ? 880 : 220; g.gain.value = 0.15; o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + (ok ? 0.12 : 0.4)); } catch (e) {} try { navigator.vibrate && navigator.vibrate(ok ? 60 : [80, 60, 80]); } catch (e) {} }
+function say(t) { try { if (!t || !window.speechSynthesis) return; speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance(t); u.lang = 'zh-CN'; u.rate = 1.05; speechSynthesis.speak(u); } catch (e) {} }
+
+// ---------- mang ----------
+function api(path, opt) { opt = opt || {}; opt.credentials = 'same-origin'; return fetch(path, opt).then(function (r) { if (r.status === 401) { showLogin(); throw new Error('login'); } return r; }); }
+function netDot() { $('#net').className = 'dot' + (navigator.onLine ? '' : ' off'); }
+addEventListener('online', function () { netDot(); pump(); }); addEventListener('offline', netDot);
+
+// ---------- danh sach kien (chi chu; ETag -> thuong 304) ----------
+function index(rows) {
+  ROWS = rows; MAP = {};
+  rows.forEach(function (r) {
+    var keys = [r.c].concat(r.wb || []).concat((r.pk || []).map(function (p) { return p[0]; }));
+    keys.forEach(function (k) { k = String(k || '').toUpperCase(); if (!k) return; (MAP[k] = MAP[k] || []).indexOf(r) < 0 && MAP[k].push(r); });
+  });
+  Q.forEach(applyLocal);
+}
+function dinfo() { var el = $('#dinfo'); if (el) el.textContent = '数据 Dữ liệu: ' + ROWS.length + ' 件 · ' + $('#dt').textContent; }
+function loadList(force) {
+  return api('/kho/api/list', { cache: force ? 'reload' : 'no-cache' }).then(function (r) { return r.json(); }).then(function (d) {
+    index(d.rows || []); $('#dt').textContent = String(d.at || '').slice(5, 16); kvSet('list', d); dinfo(); if (TAB === 'list') render();
+  }).catch(function () {});
+}
+
+// ---------- hang doi thao tac ----------
+function act(code, type, data) {
+  var e = { id: rid(), code: code, type: type, at: nowS(), data: data || {} };
+  Q.push(e); saveQ(); applyLocal(e); pump(); return e;
+}
+function applyLocal(e) {
+  var rs = MAP[e.code] || []; var r = rs[0];
+  if (!r && e.type === 'in' && e.data.unk) { r = { k: 'u', c: e.code, st: 'UNKNOWN', wb: [], sv: [], it: [] }; ROWS.push(r); MAP[e.code] = [r]; }
+  if (!r) return;
+  var m = r.my = r.my || {};
+  if (e.type === 'in') { m.in = m.in || { at: e.at, by: B.me.u }; if (m.st !== 'HOLD') m.st = 'IN'; }
+  if (e.type === 'count') { m.cnt = { lines: e.data.lines, done: e.data.done, at: e.at, by: B.me.u }; if (e.data.done && m.st !== 'HOLD') m.st = 'COUNTED'; }
+  if (e.type === 'issue') { m.hold = 1; m.st = 'HOLD'; }
+  if (e.type === 'photo') { m.ph = (m.ph || []).concat([[e.data.pid, e.data.kind, e.data.line]]); }
+}
+var busy = false, wait = 2000;
+function pump() {
+  if (busy || !navigator.onLine) return; busy = true;
+  sendPhotos().then(function (left) {
+    if (left) return; // anh gui truoc, thao tac sau (de may chu gan anh vao kien)
+    if (!Q.length) return;
+    var batch = Q.slice(0, 50);
+    return api('/kho/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ev: batch }) }).then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(function (d) {
+      var ok = {}; (d.ok || []).forEach(function (id) { ok[id] = 1; });
+      Q = Q.filter(function (e) { return !ok[e.id]; }); saveQ(); wait = 2000;
+    });
+  }).catch(function () { wait = Math.min(wait * 2, 60000); }).then(function () { busy = false; if (Q.length || PH) setTimeout(pump, wait); });
+}
+function sendPhotos() {
+  return idbDo('ph', 'readonly', function (s) { return s.getAll(); }).then(function (all) {
+    PH = all.length; badge();
+    var chain = Promise.resolve(0);
+    all.forEach(function (p) {
+      chain = chain.then(function () {
+        return api('/kho/api/photo?id=' + encodeURIComponent(p.id) + '&code=' + encodeURIComponent(p.code), { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: p.blob })
+          .then(function (r) { if (!r.ok) throw 0; return idbDo('ph', 'readwrite', function (s) { s.delete(p.id); }); }).then(function () { PH--; badge(); });
+      });
+    });
+    return chain.then(function () { return PH; });
+  });
+}
+
+// ---------- chup anh: nen tren may (canh dai 1280, ~150–250KB) ----------
+var shotCb = null;
+$('#file').onchange = function () {
+  var f = this.files && this.files[0]; this.value = ''; if (!f || !shotCb) return;
+  var cb = shotCb; shotCb = null;
+  var img = new Image(), url = URL.createObjectURL(f);
+  img.onload = function () {
+    var k = Math.min(1, 1280 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+    c.toBlob(function (blob) { cb(blob, URL.createObjectURL(blob)); }, 'image/jpeg', 0.72);
+  };
+  img.src = url;
+};
+function shoot(code, kind, line, done) {
+  shotCb = function (blob, preview) {
+    var id = rid();
+    idbDo('ph', 'readwrite', function (s) { s.put({ id: id, code: code, blob: blob }, id); }).then(function () { PH++; badge(); pump(); });
+    if (kind) act(code, 'photo', { pid: id, kind: kind, line: line });
+    done && done(id, preview);
+  };
+  $('#file').click();
+}
+
+// ---------- hien thi ----------
+function svcTags(r) { return (r.sv || []).map(function (k) { var s = B.svc[k] || [k, k]; return '<span class="tag">' + esc(s[0]) + '<small>' + esc(s[1]) + '</small></span>'; }).join(''); }
+function stTag(r) {
+  var m = r.my || {};
+  if (m.st === 'HOLD') return '<span class="st hold">问题·Giữ lại</span>';
+  if (m.st === 'COUNTED') return '<span class="st cnt">已点数·Đã kiểm</span>';
+  if (m.in) return '<span class="st in">已入库·Đã nhận</span>';
+  var k = KST[r.st] || [r.st, ''];
+  return '<span class="st">' + esc(k[0]) + '·' + esc(k[1]) + '</span>';
+}
+function thumb(u) { if (!u) return ''; u = String(u); if (u.indexOf('//') === 0) u = 'https:' + u; if (/alicdn\.com/.test(u) && /\.(jpe?g|png)$/i.test(u)) u += '_120x120.jpg'; return u; }
+function needCount(r) { return (r.sv || []).indexOf('inspection') >= 0 || (r.sv || []).indexOf('check') >= 0; }
+
+function render() {
+  [].forEach.call(document.querySelectorAll('.nav button'), function (b) { b.classList.toggle('on', b.getAttribute('data-t') === TAB); });
+  if (TAB === 'scan') return CUR ? card(CUR) : scanView();
+  if (TAB === 'list') return listView();
+  if (TAB === 'iss') return issView();
+  if (TAB === 'me') return meView();
+}
+function scanView(msg) {
+  V.innerHTML = '<div class="card"><h2>扫描或输入单号<span class="vn">Quét hoặc gõ mã vận đơn / mã kiện / mã đơn</span></h2>' +
+    '<form id="sf"><input id="code" autocomplete="off" autocapitalize="characters" placeholder="运单号 / 单号 · Mã vận đơn"></form>' +
+    '<div class="row" style="margin-top:8px"><button class="k" id="camb">📷 相机扫码<span class="vn" style="color:#cbd5e1">Quét bằng camera</span></button><button class="p" id="go">查找<span class="vn" style="color:#dbeafe">Tìm</span></button></div>' +
+    '<div id="cam"></div>' + (msg || '') + '</div>' +
+    '<div class="card mut" id="dinfo"></div>'; dinfo();
+  var go = function (e) { e && e.preventDefault(); find($('#code').value); };
+  $('#sf').onsubmit = go; $('#go').onclick = go; $('#camb').onclick = camToggle;
+  if (!('ontouchstart' in window)) $('#code').focus();
+}
+var cam = null, lastC = '', lastT = 0;
+function loadJs(src) { return new Promise(function (ok, no) { var s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); }); }
+function camToggle() {
+  if (cam) return camStop();
+  var b = $('#camb'); b.disabled = true;
+  (window.Html5Qrcode ? Promise.resolve() : loadJs('/ext/vendor/html5-qrcode.min.js')).then(function () {
+    var F = window.Html5QrcodeSupportedFormats || {};
+    var fm = ['QR_CODE', 'CODE_128', 'CODE_39', 'CODE_93', 'EAN_13', 'EAN_8', 'UPC_A', 'ITF', 'CODABAR', 'DATA_MATRIX'].map(function (k) { return F[k]; }).filter(function (x) { return x !== undefined; });
+    cam = new window.Html5Qrcode('cam', { formatsToSupport: fm, verbose: false });
+    return cam.start({ facingMode: 'environment' }, { fps: 12, qrbox: function (w, h) { return { width: Math.min(320, w * 0.9), height: Math.min(180, h * 0.6) }; } }, function (t) {
+      t = String(t || '').trim(); var n = Date.now(); if (!t || (t === lastC && n - lastT < 3000)) return; lastC = t; lastT = n; camStop(); find(t);
+    }, function () {});
+  }).then(function () { b.disabled = false; b.innerHTML = '关闭相机<span class="vn" style="color:#cbd5e1">Tắt camera</span>'; })
+    .catch(function (e) { b.disabled = false; cam = null; scanView('<div class="msg bad">无法打开相机 · Không mở được camera: ' + esc((e && e.message) || e) + '</div>'); });
+}
+function camStop() { var c = cam; cam = null; if (c) c.stop().then(function () { c.clear(); }).catch(function () {}); }
+
+function find(raw) {
+  var code = String(raw || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!code) return;
+  var rs = MAP[code] || [];
+  if (rs.length === 1) { beep(true); CUR = rs[0]; card(CUR, true); return; }
+  if (rs.length > 1) { beep(true); V.innerHTML = '<div class="card"><h2>' + esc(code) + ' 对应多个单<span class="vn">Mã này thuộc nhiều đơn, chọn 1</span></h2>' + rs.map(function (r, i) { return '<div class="lrow" data-i="' + i + '"><b>' + esc(r.c) + '</b> ' + stTag(r) + '<div class="mut">' + esc(KIND[r.k][0] + ' · ' + r.cc + ' ' + r.cu) + '</div></div>'; }).join('') + '</div>';
+    [].forEach.call(V.querySelectorAll('.lrow'), function (el) { el.onclick = function () { CUR = rs[+el.getAttribute('data-i')]; card(CUR, true); }; }); return; }
+  beep(false);
+  V.innerHTML = '<div class="card"><h2>未找到 ' + esc(code) + '<span class="vn">Không tìm thấy trong dữ liệu (cập nhật lúc ' + esc($('#dt').textContent) + ')</span></h2>' +
+    '<p class="mut">可能是无主件，或数据还没同步。Có thể là kiện vô chủ, hoặc dữ liệu chưa kịp cập nhật.</p>' +
+    '<input id="unote" placeholder="备注 · Ghi chú (tên hàng, mã khách trên kiện…)"><div class="row" style="margin-top:8px"><button class="k" id="ushot">📷 拍照<span class="vn" style="color:#cbd5e1">Chụp ảnh</span></button><button class="p" id="uin">无主件入库<span class="vn" style="color:#dbeafe">Nhận kiện vô chủ</span></button></div>' +
+    '<div class="thumbs" id="uth"></div><div class="row" style="margin-top:8px"><button id="ure">刷新数据<span class="vn">Tải lại dữ liệu</span></button><button id="uback">返回<span class="vn">Quay lại</span></button></div></div>';
+  var pids = [];
+  $('#ushot').onclick = function () { shoot(code, null, null, function (id, pv) { pids.push(id); $('#uth').insertAdjacentHTML('beforeend', '<img src="' + pv + '">'); }); };
+  $('#uin').onclick = function () {
+    act(code, 'in', { unk: 1, note: $('#unote').value });
+    pids.forEach(function (id) { act(code, 'photo', { pid: id, kind: 'pkg' }); });
+    beep(true); CUR = (MAP[code] || [])[0]; card(CUR);
+  };
+  $('#ure').onclick = function () { loadList(true).then(function () { find(code); }); };
+  $('#uback').onclick = function () { CUR = null; scanView(); };
+}
+
+function card(r, fresh) {
+  TAB = 'scan';
+  var m = r.my || {};
+  if (fresh && (r.sv || []).length) say((r.sv || []).map(function (k) { return (B.svc[k] || [k])[0]; }).join('，'));
+  var k = KIND[r.k] || ['', ''];
+  var pk = (r.pk || []).map(function (p) { return '<div class="mut">📦 ' + esc(p[0]) + (p[1] != null ? ' · ' + p[1] + 'kg' : '') + (p[2] ? ' · ' + p[2] + '×' + p[3] + '×' + p[4] : '') + '</div>'; }).join('');
+  V.innerHTML = '<div class="card"><div class="mut">' + esc(k[0] + ' · ' + k[1]) + (r.shop ? ' · ' + esc(r.shop) : '') + '</div>' +
+    '<div class="big">' + esc(r.c) + '</div>' + stTag(r) +
+    '<div style="margin-top:6px">客户 Khách: <b>' + esc(r.cc || '—') + '</b> ' + esc(r.cu || '') + (r.dw ? ' · 目的仓 Kho đích: <b>' + esc(r.dw) + '</b>' : '') + '</div>' +
+    ((r.wb || []).length ? '<div class="mut">运单 Vận đơn: ' + esc(r.wb.join(', ')) + '</div>' : '') + pk +
+    ((r.sv || []).length ? '<div style="margin-top:6px">' + svcTags(r) + '</div>' : '<div class="mut" style="margin-top:6px">无增值服务 · Không có dịch vụ thêm</div>') +
+    (m.in ? '<div class="mut" style="margin-top:6px">入库 Nhận: ' + esc(m.in.by + ' ' + m.in.at) + '</div>' : '') +
+    (m.cnt ? '<div class="mut">点数 Kiểm: ' + esc(m.cnt.by + ' ' + m.cnt.at) + (m.cnt.done ? ' ✓' : ' (未完成 chưa xong)') + '</div>' : '') +
+    '</div>' +
+    '<div class="grid">' +
+    '<button class="g" id="bin"' + (m.in ? ' disabled' : '') + '>' + (m.in ? '已入库' : '入库') + '<span class="vn" style="color:#dcfce7">' + (m.in ? 'Đã nhận' : 'Nhận kiện') + '</span></button>' +
+    '<button class="k" id="bph">📷 拍照<span class="vn" style="color:#cbd5e1">Chụp ảnh kiện</span></button>' +
+    '<button class="p" id="bcnt"' + ((r.it || []).length ? '' : ' disabled') + '>点数' + (needCount(r) ? ' ★' : '') + '<span class="vn" style="color:#dbeafe">Kiểm đếm (' + (r.it || []).length + ' dòng)</span></button>' +
+    '<button class="r" id="biss">报问题<span class="vn" style="color:#fee2e2">Báo lỗi</span></button>' +
+    '</div><div class="thumbs" id="pth"></div>' +
+    '<div class="row" style="margin-top:10px"><button id="bh">历史<span class="vn">Lịch sử</span></button><button id="bn">下一个<span class="vn">Quét tiếp</span></button></div><div id="hist"></div>';
+  $('#bin').onclick = function () { act(r.c, 'in', { k: r.k }); beep(true); card(r); };
+  $('#bph').onclick = function () { shoot(r.c, 'pkg', null, function (id, pv) { $('#pth').insertAdjacentHTML('beforeend', '<img src="' + pv + '">'); }); };
+  $('#bcnt').onclick = function () { countView(r); };
+  $('#biss').onclick = function () { issueForm(r); };
+  $('#bn').onclick = function () { CUR = null; scanView(); };
+  $('#bh').onclick = function () {
+    $('#hist').innerHTML = '<p class="mut">…</p>';
+    api('/kho/api/hist?code=' + encodeURIComponent(r.c)).then(function (x) { return x.json(); }).then(function (d) {
+      var T = { in: '入库 Nhận', photo: '拍照 Ảnh', count: '点数 Kiểm', issue: '问题 Lỗi', svc: '服务 Dịch vụ', note: '备注 Ghi chú', resolve: '处理 Xử lý' };
+      $('#hist').innerHTML = '<div class="card">' + ((d.items || []).map(function (e) { return '<div class="lrow"><b>' + esc(T[e.type] || e.type) + '</b> · ' + esc(e.who) + '<div class="mut">' + esc(e.at || e.ts) + '</div></div>'; }).join('') || '<p class="mut">暂无 · Chưa có</p>') + '</div>';
+    }).catch(function () { $('#hist').innerHTML = '<p class="mut">离线 · Đang mất mạng</p>'; });
+  };
+}
+
+function countView(r) {
+  var m = r.my || {}, prev = (m.cnt && m.cnt.lines) || [], t0 = Date.now();
+  var L = (r.it || []).map(function (x, i) { var p = prev.filter(function (l) { return l.i === i; })[0] || {}; return { i: i, want: x[2], got: p.got != null ? p.got : null, st: p.st || '', pids: p.pids || [] }; });
+  V.innerHTML = '<div class="card"><div class="mut">点数 · Kiểm đếm</div><div class="big">' + esc(r.c) + '</div>' + svcTags(r) + '</div><div class="card" id="lines">' +
+    (r.it || []).map(function (x, i) {
+      return '<div class="li" data-i="' + i + '">' + (x[1] ? '<img loading="lazy" referrerpolicy="no-referrer" src="' + esc(thumb(x[1])) + '">' : '<div class="ph"></div>') +
+        '<div class="t"><div class="n">' + esc(x[0]) + '</div>' + (x[3] ? '<div class="mut">' + esc(x[3]) + '</div>' : '') +
+        '<div class="qty"><span>应 Đặt <b>' + esc(x[2] == null ? '?' : x[2]) + '</b></span><input type="number" inputmode="numeric" min="0" placeholder="实 Thực" value="' + (L[i].got == null ? '' : L[i].got) + '"><button class="all" style="padding:8px 10px">=</button><button class="cam" style="padding:8px 10px">📷</button></div>' +
+        '<div class="chips">' + CST.map(function (c) { return '<span class="chip' + (L[i].st === c[0] ? ' on' : '') + '" data-s="' + c[0] + '">' + c[1] + ' ' + c[2] + '</span>'; }).join('') + '</div><div class="thumbs"></div></div></div>';
+    }).join('') + '</div>' +
+    '<div class="row"><button id="csave">保存<span class="vn">Lưu tạm</span></button><button class="g" id="cdone">完成点数<span class="vn" style="color:#dcfce7">Hoàn thành kiểm đếm</span></button></div><div id="cmsg"></div>';
+  [].forEach.call(V.querySelectorAll('.li'), function (el) {
+    var i = +el.getAttribute('data-i'), l = L[i], inp = $('input', el);
+    var auto = function () { if (l.got == null || l.want == null) return; var s = l.got === l.want ? 'ok' : l.got < l.want ? 'short' : 'more'; if (!l.st || l.st === 'ok' || l.st === 'short' || l.st === 'more') setSt(s); };
+    var setSt = function (s) { l.st = s; [].forEach.call(el.querySelectorAll('.chip'), function (c) { c.classList.toggle('on', c.getAttribute('data-s') === s); }); };
+    inp.oninput = function () { l.got = inp.value === '' ? null : Math.max(0, Math.floor(+inp.value)); auto(); };
+    $('.all', el).onclick = function () { if (l.want == null) return; inp.value = l.want; l.got = l.want; setSt('ok'); };
+    $('.cam', el).onclick = function () { shoot(r.c, null, i, function (id, pv) { l.pids.push(id); $('.thumbs', el).insertAdjacentHTML('beforeend', '<img src="' + pv + '">'); }); };
+    [].forEach.call(el.querySelectorAll('.chip'), function (c) { c.onclick = function () { setSt(c.getAttribute('data-s')); }; });
+  });
+  var save = function (done) {
+    var miss = L.filter(function (l) { return l.got == null || !l.st; });
+    if (done && miss.length) { $('#cmsg').innerHTML = '<div class="msg bad">还有 ' + miss.length + ' 行没填 · Còn ' + miss.length + ' dòng chưa nhập số / tình trạng</div>'; return; }
+    act(r.c, 'count', { k: r.k, lines: L, done: done, sec: Math.round((Date.now() - t0) / 1000) });
+    beep(true);
+    var badL = L.filter(function (l) { return l.st && l.st !== 'ok'; });
+    if (done && badL.length) { issueForm(r, badL); return; }
+    card(r);
+  };
+  $('#csave').onclick = function () { save(false); }; $('#cdone').onclick = function () { save(true); };
+}
+
+function issueForm(r, badL) {
+  var pick = badL && badL.length ? (badL.some(function (l) { return l.st === 'short'; }) ? 'short' : badL.some(function (l) { return l.st === 'bad'; }) ? 'shop_damage' : 'wrong') : '';
+  var pids = []; (badL || []).forEach(function (l) { pids = pids.concat(l.pids || []); });
+  var note = (badL || []).map(function (l) { var x = r.it[l.i] || []; return '#' + (l.i + 1) + ' ' + x[0] + ': 应' + l.want + ' 实' + l.got + ' (' + l.st + ')'; }).join('\n');
+  V.innerHTML = '<div class="card"><div class="mut">报问题 · Báo lỗi</div><div class="big">' + esc(r.c) + '</div>' + (badL ? '<div class="msg info">点数有差异 · Kiểm đếm có chênh lệch, báo lỗi để bộ phận liên quan xử lý</div>' : '') +
+    '<div class="chips" id="kinds">' + Object.keys(B.issue).map(function (k) { var x = B.issue[k], d = B.dept[x[2]]; return '<span class="chip' + (k === pick ? ' on' : '') + '" data-k="' + k + '">' + esc(x[0]) + ' ' + esc(x[1]) + ' → ' + esc(d[0] + ' ' + d[1]) + '</span>'; }).join('') + '</div>' +
+    '<textarea id="inote" style="margin-top:8px" placeholder="说明 · Mô tả">' + esc(note) + '</textarea><div class="thumbs" id="ith"></div>' +
+    '<div class="row" style="margin-top:8px"><button class="k" id="ish">📷 拍照<span class="vn" style="color:#cbd5e1">Chụp ảnh lỗi</span></button><button class="r" id="isend">提交 · 扣留<span class="vn" style="color:#fee2e2">Gửi + giữ kiện lại</span></button></div>' +
+    '<button style="width:100%;margin-top:8px" id="iback">返回<span class="vn">Quay lại</span></button><div id="imsg"></div></div>';
+  [].forEach.call(V.querySelectorAll('#kinds .chip'), function (c) { c.onclick = function () { pick = c.getAttribute('data-k'); [].forEach.call(V.querySelectorAll('#kinds .chip'), function (x) { x.classList.toggle('on', x === c); }); }; });
+  $('#ish').onclick = function () { shoot(r.c, null, null, function (id, pv) { pids.push(id); $('#ith').insertAdjacentHTML('beforeend', '<img src="' + pv + '">'); }); };
+  $('#isend').onclick = function () {
+    if (!pick) { $('#imsg').innerHTML = '<div class="msg bad">请选择问题类型 · Chọn loại lỗi</div>'; return; }
+    act(r.c, 'issue', { k: r.k, kind: pick, note: $('#inote').value, pids: pids }); beep(true); card(r);
+  };
+  $('#iback').onclick = function () { card(r); };
+}
+
+function listView() {
+  var f = listView.f || 'todo', q = listView.q || '';
+  var F = { todo: ['待入库', 'Chờ nhận', function (r) { return !(r.my && r.my.in); }], cnt: ['待点数', 'Cần kiểm', function (r) { return needCount(r) && !(r.my && r.my.cnt && r.my.cnt.done); }], in: ['已入库', 'Đã nhận', function (r) { return r.my && r.my.in; }], hold: ['问题', 'Giữ lại', function (r) { return r.my && r.my.st === 'HOLD'; }] };
+  var nq = q.trim().toUpperCase();
+  var rs = ROWS.filter(F[f][2]).filter(function (r) { return !nq || (r.c + ' ' + (r.wb || []).join(' ') + ' ' + r.cc + ' ' + r.cu).toUpperCase().indexOf(nq) >= 0; });
+  V.innerHTML = '<div class="card"><div class="chips">' + Object.keys(F).map(function (k) { return '<span class="chip' + (k === f ? ' on' : '') + '" data-f="' + k + '">' + F[k][0] + ' ' + F[k][1] + ' ' + ROWS.filter(F[k][2]).length + '</span>'; }).join('') + '</div>' +
+    '<input id="lq" style="margin-top:8px" placeholder="搜索 · Tìm mã / khách" value="' + esc(q) + '"></div><div class="card" id="lst">' +
+    (rs.slice(0, 100).map(function (r, i) { return '<div class="lrow" data-i="' + i + '"><b>' + esc(r.c) + '</b> ' + stTag(r) + '<div class="mut">' + esc(KIND[r.k][0] + ' · ' + (r.cc || '') + ' ' + (r.cu || '') + ((r.wb || []).length ? ' · ' + r.wb[0] : '')) + '</div>' + ((r.sv || []).length ? '<div>' + svcTags(r) + '</div>' : '') + '</div>'; }).join('') || '<p class="mut">无 · Không có</p>') +
+    (rs.length > 100 ? '<p class="mut">+' + (rs.length - 100) + '…</p>' : '') + '</div>';
+  [].forEach.call(V.querySelectorAll('[data-f]'), function (c) { c.onclick = function () { listView.f = c.getAttribute('data-f'); listView(); }; });
+  var lq = $('#lq'); lq.oninput = function () { listView.q = lq.value; clearTimeout(listView.t); listView.t = setTimeout(function () { listView(); var x = $('#lq'); x.focus(); x.setSelectionRange(x.value.length, x.value.length); }, 300); };
+  [].forEach.call(V.querySelectorAll('#lst .lrow'), function (el) { el.onclick = function () { CUR = rs[+el.getAttribute('data-i')]; card(CUR); }; });
+}
+function issView() {
+  V.innerHTML = '<div class="card"><h2>未处理问题<span class="vn">Lỗi đang chờ xử lý</span></h2><div id="il"><p class="mut">…</p></div></div>';
+  api('/kho/api/issues?status=open').then(function (r) { return r.json(); }).then(function (d) {
+    $('#il').innerHTML = (d.items || []).map(function (x) {
+      var k = B.issue[x.kind] || [x.kind, x.kind], dp = B.dept[x.dept] || [x.dept, x.dept];
+      return '<div class="lrow"><b>' + esc(x.code) + '</b> ' + (x.late ? '<span class="st hold">超时 Quá hạn</span>' : '') + '<div>' + esc(k[0] + ' ' + k[1]) + ' → ' + esc(dp[0] + ' ' + dp[1]) + '</div><div class="mut">' + esc(x.by + ' · ' + x.ts) + '</div>' + (x.note ? '<div class="mut" style="white-space:pre-wrap">' + esc(x.note) + '</div>' : '') + '</div>';
+    }).join('') || '<p class="mut">没有 · Không có lỗi nào đang mở</p>';
+  }).catch(function () { $('#il').innerHTML = '<p class="mut">离线 · Đang mất mạng</p>'; });
+}
+function meView() {
+  V.innerHTML = '<div class="card"><h2>' + esc(B.me.name || B.me.u) + '</h2><div class="mut">' + esc(B.me.u + ' · ' + B.me.role) + '</div></div>' +
+    '<div class="card"><div>待上传 Chờ gửi: <b>' + Q.length + '</b> 操作 thao tác · <b>' + PH + '</b> 照片 ảnh</div><div class="mut">数据 Dữ liệu: ' + ROWS.length + ' 件 · ' + esc($('#dt').textContent) + '</div>' +
+    '<div class="row" style="margin-top:8px"><button id="mre">刷新数据<span class="vn">Tải lại dữ liệu</span></button><button id="msy">立即上传<span class="vn">Gửi ngay</span></button></div></div>' +
+    '<button class="r" style="width:100%" id="mout">退出登录<span class="vn" style="color:#fee2e2">Đăng xuất</span></button>';
+  $('#mre').onclick = function () { loadList(true).then(meView); };
+  $('#msy').onclick = function () { wait = 2000; pump(); setTimeout(meView, 1500); };
+  $('#mout').onclick = function () {
+    if (Q.length || PH) { if (!confirm('还有未上传的数据，确定退出？\nCòn dữ liệu chưa gửi, vẫn đăng xuất?')) return; }
+    api('/api/logout', { method: 'POST' }).then(showLogin, showLogin);
+  };
+}
+function showLogin(err) {
+  $('#nav').classList.add('hid');
+  V.innerHTML = '<div class="card" style="margin-top:30px"><h2>仓库登录<span class="vn">Đăng nhập Kho TQ</span></h2><form id="lf"><input id="lu" autocomplete="username" autocapitalize="none" placeholder="账号 · Tài khoản" style="margin-bottom:8px"><input id="lp" type="password" autocomplete="current-password" placeholder="密码 · Mật khẩu" style="margin-bottom:8px"><button class="p" style="width:100%">登录 · Đăng nhập</button></form><div id="lm">' + (err && err.message && err.message !== 'login' ? '<div class="msg bad">' + esc(err.message) + '</div>' : '') + '</div></div>';
+  $('#lf').onsubmit = function (e) {
+    e.preventDefault();
+    fetch('/api/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: $('#lu').value, password: $('#lp').value }) })
+      .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || '登录失败'); }); }).then(start)
+      .catch(function (e) { $('#lm').innerHTML = '<div class="msg bad">' + esc(e.message) + '</div>'; });
+  };
+}
+[].forEach.call(document.querySelectorAll('.nav button'), function (b) { b.onclick = function () { camStop(); TAB = b.getAttribute('data-t'); if (TAB === 'scan') CUR = null; render(); }; });
+
+function start() {
+  return api('/kho/api/boot').then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error); return d; }); }).then(function (d) {
+    B = d; kvSet('boot', d); boot();
+  }).catch(function (e) {
+    if (e.message === 'login') return;
+    return kvGet('boot').then(function (d) { if (d && !navigator.onLine) { B = d; boot(); } else showLogin(e); });
+  });
+}
+function boot() {
+  $('#nav').classList.remove('hid'); netDot(); badge();
+  kvGet('list').then(function (d) { if (d && d.rows && !ROWS.length) { index(d.rows); $('#dt').textContent = String(d.at || '').slice(5, 16); } render(); loadList(); });
+  pump();
+  setInterval(function () { if (navigator.onLine && !busy) loadList(); }, 120000);
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/kho/sw.js').catch(function () {});
+start();
+})();
+</script>
+</body>
+</html>

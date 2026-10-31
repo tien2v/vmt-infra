@@ -39,6 +39,9 @@ const gemini = require('./lib/gemini');
 gemini.init(store);
 const ksadmin = require('./lib/ksadmin');
 ksadmin.init(store);
+// Ban Kho TQ (/kho/): doc danh sach kien tu cache snapshot (khong doc lai ca cuc), ghi bang kho_* rieng
+const kho = require('./lib/kho');
+kho.init({ base: () => { dataFor('admin'); return cache.base; }, ksadmin });
 const speedtest = require('./lib/speedtest');
 speedtest.init();
 setInterval(() => { try { const n = cn.autoDeliver(); if (n) console.log('autoDeliver', n); } catch (e) { console.error(e); } }, 30 * 60e3);
@@ -384,6 +387,49 @@ async function handle(req, res) {
   if (p.startsWith('/assets/')) return serveFile(req, res, p.slice(1));
 
   const user = readSession(req);
+
+  // ---- Ban Kho TQ: trang rieng nhe cho dien thoai (mang TQ cham) ----
+  if (p === '/kho') { res.writeHead(301, { Location: '/kho/' }); return res.end(); }
+  if (p === '/kho/') return sendFile(req, res, path.join(__dirname, 'kho.html'), 'no-cache');
+  if (p === '/kho/sw.js') return sendFile(req, res, path.join(__dirname, 'kho-sw.js'), 'no-cache');
+  if (p.startsWith('/kho/api/')) {
+    const KHO_ROLES = ['kho', 'admin'];
+    if (!user) return json(req, res, 401, { error: 'login' });
+    const sub = p.slice(9);
+    if (sub === 'resolve' && req.method === 'POST') { // bo phan xu ly loi (order / CSKH / admin) bao ket qua
+      if (!['admin', 'order', 'sale'].includes(user.role) || !sameOrigin(req)) return json(req, res, 403, { error: 'forbidden' });
+      let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'body' }); }
+      const r = kho.resolveIssue(b.id, b.result, b.note, user.username);
+      return json(req, res, r.error ? 400 : 200, r);
+    }
+    if (sub === 'issues') return json(req, res, 200, { items: kho.issues(url.searchParams.get('status') || 'open') });
+    if (!KHO_ROLES.includes(user.role)) return json(req, res, 403, { error: 'Tài khoản không thuộc kho · 非仓库账号' });
+    if (sub === 'boot') return json(req, res, 200, { me: { u: user.username, name: user.name, role: user.role }, svc: kho.SVC, issue: kho.ISSUE, dept: kho.DEPT, wh: ksadmin.warehouses().map((w) => ({ id: w.id, name: w.name, active: w.active })) });
+    if (sub === 'list') {
+      const ix = kho.list();
+      const gz = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+      const h = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-cache', ETag: ix.etag, Vary: 'Accept-Encoding' };
+      if (req.headers['if-none-match'] === ix.etag) { res.writeHead(304, h); return res.end(); }
+      if (gz) h['Content-Encoding'] = 'gzip';
+      res.writeHead(200, h); return res.end(gz ? ix.gz : ix.raw);
+    }
+    if (sub === 'hist') return json(req, res, 200, { items: kho.history(url.searchParams.get('code')) });
+    if (sub === 'sync' && req.method === 'POST') {
+      if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+      let b; try { b = JSON.parse((await readBody(req, 500000)).toString()); } catch { return json(req, res, 400, { error: 'body' }); }
+      return json(req, res, 200, { ok: kho.sync(b.ev, user.username) });
+    }
+    if (sub === 'photo' && req.method === 'POST') {
+      if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+      let buf; try { buf = await readBody(req, 1.6 * 1024 * 1024); } catch { return json(req, res, 413, { error: 'Ảnh quá lớn' }); }
+      const r = kho.savePhoto(url.searchParams.get('id'), url.searchParams.get('code'), buf, user.username);
+      return json(req, res, r.error ? 400 : 200, r);
+    }
+    const mp = sub.match(/^photo\/([A-Za-z0-9_-]{8,40})$/);
+    // Anh doc thang tu dia (khong dua vao bo nho dem file tinh -> khong phinh RAM); khong doi noi dung nen cho giu 30 ngay
+    if (mp) { const f = kho.photoFile(mp[1]); if (!f) return send(res, 404, ''); return fs.readFile(f, (err, buf) => err ? send(res, 404, '') : send(res, 200, buf, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=2592000, immutable' })); }
+    return json(req, res, 404, { error: 'not found' });
+  }
   if (p === '/api/me') return user ? json(req, res, 200, { username: user.username, name: user.name, role: user.role }) : json(req, res, 401, { error: 'login' });
   if (p === '/api/data') {
     if (!user) return json(req, res, 401, { error: 'login' });
