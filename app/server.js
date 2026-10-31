@@ -41,6 +41,8 @@ const gemini = require('./lib/gemini');
 gemini.init(store);
 const ksadmin = require('./lib/ksadmin');
 ksadmin.init(store);
+const ai = require('./lib/ai');
+ai.init((k) => store.kvGet(k));
 // Ban Kho TQ (/kho/): doc danh sach kien tu cache snapshot (khong doc lai ca cuc), ghi bang kho_* rieng
 const kho = require('./lib/kho');
 kho.init({ base: () => { dataFor('admin'); return cache.base; }, ksadmin });
@@ -594,6 +596,19 @@ async function handle(req, res) {
       const items = ksadmin.list(url.searchParams.get('q'), url.searchParams.get('status'), 1000);
       if (user.role === 'kho') items.forEach((o) => { o.items = o.items.map((i) => ({ name: i.name, nameZh: i.nameZh, qty: i.qty })); delete o.value; });
       return json(req, res, 200, { items, role: user.role, labels: ksadmin.LABEL });
+    }
+    if ((p === '/api/ks/create' || p === '/api/ks/ai') && req.method === 'POST') { // sale / CSKH tao don giup khach
+      if (!['admin', 'sale'].includes(user.role)) return json(req, res, 403, { error: 'Chỉ sale / CSKH / admin tạo đơn giúp khách' });
+      if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+      let b; try { b = JSON.parse((await readBody(req, 4 * 1024 * 1024)).toString()); } catch { return json(req, res, 413, { error: 'Dữ liệu quá lớn hoặc không hợp lệ' }); }
+      if (p === '/api/ks/ai') {
+        if (!ai.ready()) return json(req, res, 503, { error: 'Chưa cài khoá Gemini' });
+        const imgs = (Array.isArray(b.images) ? b.images : []).slice(0, 4).map((x) => String(x || '')).filter((x) => /^[A-Za-z0-9+/=]{200,}$/.test(x)).map((data) => ({ mime: 'image/jpeg', data }));
+        const r = await ai.ksFill(String(b.text || '').slice(0, 8000), imgs);
+        return json(req, res, r.error ? 502 : 200, r);
+      }
+      const r = ksadmin.staffCreate(b, user.username, String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim(), (u) => !!extra.getCust(u) || customers().some((c) => String(c.u).toLowerCase() === u));
+      return json(req, res, r.error ? 400 : 200, r);
     }
     if (p === '/api/ks/auto' && req.method === 'POST') { // ban kho: kien chua co don, tren kien co username / ma khach
       if (!['admin', 'kho'].includes(user.role)) return json(req, res, 403, { error: 'forbidden' });

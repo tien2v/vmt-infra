@@ -8,7 +8,7 @@ Trước khi sửa, tự trả lời và xử lý luôn (không chắc thì hỏ
 - Admin (`app/`) và trang khách (`khach/`) có cùng chỗ cần sửa theo không?
 - Tiền, ví, sổ cái, trạng thái đơn, thông báo, log lịch sử đơn có bị ảnh hưởng không?
 - Phân quyền (kho không thấy tiền), sao lưu, test có cần cập nhật không?
-- Các file `lib/` đang có 2 bản ở `app/lib` và `khach/lib` (ledger, tth, price, cnshared, vietqr, mail): sửa một bản thì phải sửa bản kia y hệt.
+- Các file `lib/` đang có 2 bản ở `app/lib` và `khach/lib` (ledger, tth, price, cnshared, vietqr, mail, ks, ai): sửa một bản thì phải sửa bản kia y hệt.
 
 ## Bàn Kho TQ (`app/kho*.html`, `app/lib/kho.js`)
 - Sửa / thêm tính năng bàn kho thì **sửa luôn tài liệu hướng dẫn** `app/kho-help.html` (song ngữ Trung–Việt) cho khớp; tính năng chưa chạy để ở mục "即将上线 · Sắp có", không mô tả như đã có.

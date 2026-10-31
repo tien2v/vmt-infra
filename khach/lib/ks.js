@@ -16,7 +16,7 @@ const LINES = { TC: 'standard_shipping', TK: 'eco_shipping', UT: 'express_shippi
 const SVCS = ['insurance', 'wood_brace', 'counting', 'paper_brace', 'bubble_wrapping'];
 const SVC_NAME = { insurance: 'Bảo hiểm', wood_brace: 'Đóng gỗ', counting: 'Kiểm đếm', paper_brace: 'Nẹp giấy', bubble_wrapping: 'Cuốn bọt khí' };
 // Kho TQ mac dinh (dia chi anh gui 31/10) — admin sua o saas.7zone.net/ky-gui -> Kho Trung Quoc (kv 'cn_warehouses').
-// {MA} = ky hieu khach ghi tren kien: "HN-username" / "SG-username" (username = ten dang nhap web khach dang quen dung).
+// {MA} = ky hieu khach ghi tren kien: "HN-<ma khach>" / "SG-<ma khach>".
 const DEFAULT_WH = [
   { id: 'T3GZ', name: 'Kho Quảng Châu (T3)', short: 'QC', type: 'tieu', recv: '{MA}', addr: '广州市，花都区，花东镇，{MA}花都大道东129号6号仓库101房(2号武越仓）', zip: '510890', phone: '13719002017', phoneAgent: '13060999201', phoneOrder: '18566814214', active: true },
   { id: 'T3BT', name: 'Kho Bằng Tường chính ngạch (T3)', short: 'BT', type: 'chinh', recv: '{MA}李高翔', addr: '广西壮族自治区, 崇左市, 凭祥市, 凭祥镇 {MA}南山希望小学坡底DGVMT443仓库DG', zip: '532699', phone: '13878623546', phoneAgent: '', phoneOrder: '', active: true },
@@ -53,8 +53,10 @@ function pickWh(mode, estW) {
 }
 // Nhom khach dai ly dung SDT kho rieng (kv 'cn_agent_groups', vd "kghn28,tango")
 function agentGroups() { return String(adminKv('cn_agent_groups') || '').toLowerCase().split(/[\s,;]+/).filter(Boolean); }
-// Ky hieu khach tren kien: HN-username / SG-username
+// Ky hieu khach tren kien: HN-<ma khach> / SG-<ma khach> (anh chot 31/10 16h17: dung MA KHACH; khach ghi username van nhan duoc)
 const markOf = (dest, kh) => (dest === 'HCM' ? 'SG' : 'HN') + '-' + String(kh || '');
+// Ma khach (bang cust_codes, cung ma nap tien); chua co thi tam dung username
+function custCodeOf(owner) { try { const r = db.prepare('SELECT code FROM cust_codes WHERE owner = ?').get(String(owner || '').toLowerCase()); if (r) return r.code; } catch {} return String(owner || ''); }
 // Dia chi kho hien cho khach. mark = ky hieu (null: de nguyen {MA} cho trinh duyet tu thay theo kho nhan khach chon)
 function whView(w, mark, group) {
   if (!w) return null;
@@ -125,7 +127,7 @@ function rowOf(r, ctx) {
     fees: [{ t: ship, prov: null, act: null, q: null, p: null, free: false }].concat((d.svcs || []).map((t) => ({ t, prov: null, act: null, q: null, p: null, free: false }))),
     ms: (d.ms || []).map((m) => ({ t: m.t, s: m.s })),
     items: d.items || [], svcs: d.svcs || [], svcOther: d.svcOther || '', note2: d.note2 || '', mode: d.mode, line: d.line, estW: d.estW,
-    whCnName: d.whCnName, mark: markOf(d.wh, r.gobiz || r.username), whAddr: whView(w, markOf(d.wh, r.gobiz || r.username), ctx && ctx.group),
+    whCnName: d.whCnName, mark: markOf(d.wh, custCodeOf(r.gobiz || r.username)), whAddr: whView(w, markOf(d.wh, custCodeOf(r.gobiz || r.username)), ctx && ctx.group), brand: !!d.brand, auto: !!d.auto, canEdit: ['MERCHANT_DELIVERING', 'PUTAWAY'].includes(r.status),
   };
 }
 
@@ -176,6 +178,31 @@ function cancel(username, gobiz, code, ip, ctx) {
   } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
 }
 
+// Khach doi dich vu khi don con o "Cho tiep nhan" / "Kho China" (don tu tao khi kien ve kho TQ). Ban kho doc lai svcs truoc khi vao bao.
+function setSvcs(username, gobiz, code, b, by, ip) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const r = db.prepare('SELECT * FROM ks_orders WHERE code = ? AND (username = ? OR (gobiz IS NOT NULL AND lower(gobiz) = lower(?)))').get(code, username, gobiz || '');
+    if (!r) { db.exec('ROLLBACK'); return { error: 'Không tìm thấy đơn', code: 404 }; }
+    if (!['MERCHANT_DELIVERING', 'PUTAWAY'].includes(r.status)) { db.exec('ROLLBACK'); return { error: 'Hàng đã đóng bao / vận chuyển, không đổi dịch vụ được nữa. Liên hệ CSKH', code: 409 }; }
+    const d = JSON.parse(r.data);
+    const svcs = Array.isArray(b.svcs) ? [...new Set(b.svcs.filter((x) => SVCS.includes(x)))] : [];
+    if (svcs.includes('insurance') && !((d.items || []).length && d.value > 0)) { db.exec('ROLLBACK'); return { error: 'Bảo hiểm cần khai hàng và giá trị — liên hệ CSKH để bổ sung hàng', code: 400 }; }
+    if (svcs.includes('counting') && !(d.items || []).length) { db.exec('ROLLBACK'); return { error: 'Kiểm đếm cần danh sách hàng — liên hệ CSKH để bổ sung hàng', code: 400 }; }
+    const brand = b.brand == null ? !!d.brand : !!b.brand;
+    const ch = [];
+    const nm = (a) => a.map((x) => SVC_NAME[x]).join(', ') || 'Không';
+    if ((d.svcs || []).join(',') !== svcs.join(',')) ch.push(['Dịch vụ', nm(d.svcs || []), nm(svcs)]);
+    if (!!d.brand !== brand) ch.push(['Hàng thương hiệu', d.brand ? 'Có' : 'Không', brand ? 'Có' : 'Không']);
+    if (!ch.length) { db.exec('ROLLBACK'); return { order: rowOf(r) }; }
+    d.svcs = svcs; d.brand = brand; d.svcsAt = new Date().toISOString();
+    db.prepare('UPDATE ks_orders SET data = ?, updated_at = ? WHERE code = ?').run(JSON.stringify(d), d.svcsAt, code);
+    db.prepare('INSERT INTO ks_log (code, username, action, detail) VALUES (?, ?, ?, ?)').run(code, by, 'Đổi dịch vụ', JSON.stringify({ changes: ch, ip: ip || null }));
+    db.exec('COMMIT');
+    return { order: rowOf(db.prepare('SELECT * FROM ks_orders WHERE code = ?').get(code)) };
+  } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
+}
+
 // ---- Cai dat ky gui mac dinh (anh chot 31/10 16h): kien khach KHONG tao don, tren kien chi co username / ma khach
 // -> kho TQ quet nhap kho, he thong tu tao don theo cai dat nay. Muon dich vu khac thi khach tao don truoc khi kho nhap / vao bao.
 // Chi gom dich vu khong can khai hang: dong go, nep giay, cuon bot khi. Kiem dem / bao hiem can khai hang -> phai tao don.
@@ -206,4 +233,4 @@ function setDefault(owner, b, by, ip) {
   return { ok: true, def: getDefault(owner) };
 }
 
-module.exports = { getDefault, setDefault, DEF_SVCS, init, validate, create, list, cancel, existing, countRecent, warehouses, pickWh, whView, markOf, agentGroups, parseWbs, DEFAULT_WH, SVC_NAME, LINES, CHINH_B1_KG };
+module.exports = { setSvcs, custCodeOf, getDefault, setDefault, DEF_SVCS, init, validate, create, list, cancel, existing, countRecent, warehouses, pickWh, whView, markOf, agentGroups, parseWbs, DEFAULT_WH, SVC_NAME, LINES, CHINH_B1_KG };

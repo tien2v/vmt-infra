@@ -24,7 +24,7 @@ a{color:#4f46e5}
 <p><a href="/">← Về trang quản trị</a></p>
 <h1>Ký gửi về VN</h1>
 <p class="sub">Đơn khách tạo trên hệ thống mới (mã 84…), mỗi đơn 1 mã vận đơn. Chưa có trên Gobiz.</p>
-<div class="tabs"><button class="on" data-t="don">Đơn ký gửi</button><button data-t="kho">Kho Trung Quốc</button></div>
+<div class="tabs"><button class="on" data-t="don">Đơn ký gửi</button><button data-t="tao">Tạo đơn giúp khách</button><button data-t="kho">Kho Trung Quốc</button></div>
 
 <section id="tDon">
   <div class="card">
@@ -34,9 +34,38 @@ a{color:#4f46e5}
   </div>
 </section>
 
+<section id="tTao" hidden>
+  <div class="card">
+    <p class="muted" style="margin:0 0 10px;font-size:13px">Khách gửi mã vận đơn qua Zalo mà chưa tạo đơn: dán nguyên tin (hoặc ảnh) vào ô dưới, bấm <b>Đọc</b> để AI tách mã vận đơn + hàng, kiểm tra rồi <b>Tạo đơn</b>. Mỗi mã vận đơn 1 đơn. Khách nhận thông báo, thanh toán vẫn do khách.</p>
+    <label>Khách (username hoặc mã khách)</label><input class="f" id="tCust" placeholder="VD: lethanh000 hoặc 3HK7Q25">
+    <label>Tin nhắn / ảnh của khách</label><textarea class="f" id="tText" rows="3" placeholder="Dán tin Zalo; dán ảnh bằng Ctrl+V vào ô này"></textarea>
+    <div id="tImgs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>
+    <div style="margin-top:8px"><button class="s" type="button" id="tRead">Đọc bằng AI</button> <span id="tAiMsg" class="muted" style="font-size:13px"></span></div>
+    <label>Mã vận đơn <span class="muted">(mỗi mã 1 dòng)</span></label><textarea class="f" id="tWbs" rows="3"></textarea>
+    <div class="wh" style="margin-top:10px"><div class="g">
+      <div><label>Tên gợi nhớ</label><input class="f" id="tLot"></div><div><label>Shop</label><input class="f" id="tShop"></div>
+      <div><label>Hình thức</label><select class="f" id="tMode"><option value="tieu">Thương mại điện tử</option><option value="chinh">Chính ngạch</option></select></div>
+      <div><label>Kho nhận VN</label><select class="f" id="tWh"><option value="HN">Hà Nội</option><option value="HCM">TP.HCM</option></select></div>
+      <div><label>Vận chuyển</label><select class="f" id="tLine"><option value="TC">Tiêu chuẩn</option><option value="TK">Tiết kiệm</option><option value="UT">Ưu tiên (chỉ HCM)</option></select></div>
+      <div><label>Cân ước tính (kg)</label><input class="f" id="tEstW" inputmode="decimal" placeholder="bắt buộc với chính ngạch"></div>
+    </div>
+    <label>Hàng <span class="muted">(mỗi dòng: tên | số lượng | đơn giá ¥ — chỉ khi 1 mã vận đơn)</span></label><textarea class="f" id="tItems" rows="3" placeholder="Áo khoác | 2 | 89.5"></textarea>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:14px" id="tSvcs">
+      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" value="insurance"> Bảo hiểm</label>
+      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" value="wood_brace"> Đóng gỗ</label>
+      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" value="counting"> Kiểm đếm</label>
+      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" value="paper_brace"> Nẹp giấy</label>
+      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" value="bubble_wrapping"> Cuốn bọt khí</label>
+    </div>
+    <label>Ghi chú</label><input class="f" id="tNote">
+    <div style="margin-top:12px"><button class="p" type="button" id="tGo">Tạo đơn</button></div>
+    <div id="tMsg"></div>
+  </div>
+</section>
+
 <section id="tKho" hidden>
   <div class="card">
-    <p class="muted" style="margin:0 0 10px;font-size:13px">Địa chỉ hiện cho khách ở form ký gửi và trong đơn. Ghi <b>{MA}</b> ở chỗ cần chèn ký hiệu khách, hệ thống tự thay bằng <b>HN-username</b> hoặc <b>SG-username</b> theo kho nhận khách chọn.<br>Chính ngạch: hệ thống tự chia theo cân ước tính — từ 100kg đi kho mã bắt đầu <b>B1</b>, dưới 100kg đi kho <b>T3</b>.</p>
+    <p class="muted" style="margin:0 0 10px;font-size:13px">Địa chỉ hiện cho khách ở form ký gửi và trong đơn. Ghi <b>{MA}</b> ở chỗ cần chèn ký hiệu khách, hệ thống tự thay bằng <b>HN-mã khách</b> hoặc <b>SG-mã khách</b> theo kho nhận khách chọn (khách ghi username vẫn nhận được).<br>Chính ngạch: hệ thống tự chia theo cân ước tính — từ 100kg đi kho mã bắt đầu <b>B1</b>, dưới 100kg đi kho <b>T3</b>.</p>
     <label>Nhóm khách đại lý dùng SĐT đại lý <span class="muted">(tên nhóm Gobiz, cách nhau dấu phẩy, vd kghn28, tango)</span></label><input class="f" id="agentGroups" placeholder="để trống = mọi khách dùng SĐT chính">
     <div id="whs" style="margin-top:12px"></div>
     <div id="whAct" style="display:flex;gap:10px;flex-wrap:wrap"><button class="s" id="whAdd" type="button">+ Thêm kho</button><button class="p" id="whSave" type="button">Lưu</button></div>
@@ -53,7 +82,7 @@ async function api(u, o) { const r = await fetch(u, Object.assign({ headers: { '
 const LINE = { TC: 'Tiêu chuẩn', TK: 'Tiết kiệm', UT: 'Ưu tiên', CN: 'Chính ngạch' };
 const SVC = { insurance: 'Bảo hiểm', wood_brace: 'Đóng gỗ', counting: 'Kiểm đếm', paper_brace: 'Nẹp giấy', bubble_wrapping: 'Cuốn bọt khí' };
 let DATA = [], ROLE = '', OPEN = null;
-document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => { document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b)); $('#tDon').hidden = b.dataset.t !== 'don'; $('#tKho').hidden = b.dataset.t !== 'kho'; if (b.dataset.t === 'kho') loadWh(); });
+document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => { document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b)); $('#tDon').hidden = b.dataset.t !== 'don'; $('#tTao').hidden = b.dataset.t !== 'tao'; $('#tKho').hidden = b.dataset.t !== 'kho'; if (b.dataset.t === 'kho') loadWh(); });
 
 async function load() {
   const j = await api('/api/ks?q=' + encodeURIComponent($('#q').value) + '&status=' + encodeURIComponent($('#st').value));
@@ -95,6 +124,30 @@ $('#whSave').onclick = async () => {
   $('#whMsg').innerHTML = ''; const j = await api('/api/ks/warehouses', { method: 'POST', body: JSON.stringify({ items: whRead(), agentGroups: $('#agentGroups').value }) });
   if (j.error) { $('#whMsg').innerHTML = '<div class="err">' + esc(j.error) + '</div>'; return; }
   WH = j.items; $('#agentGroups').value = j.agentGroups || ''; whRender(j.log); $('#whMsg').innerHTML = '<div class="ok">Đã lưu. Khách thấy địa chỉ mới ngay khi tải lại trang.</div>';
+};
+
+// ---- Tao don giup khach ----
+let TIMG = [];
+function shrink(file) { return new Promise((ok, no) => { const u = URL.createObjectURL(file); const im = new Image(); im.onload = () => { const k = Math.min(1, 1600 / Math.max(im.width, im.height)); const c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(u); ok(c.toDataURL('image/jpeg', 0.82).split(',')[1]); }; im.onerror = no; im.src = u; }); }
+function tImgR() { $('#tImgs').innerHTML = TIMG.map((b, i) => '<span style="position:relative"><img src="data:image/jpeg;base64,' + b + '" style="width:56px;height:56px;object-fit:cover;border-radius:8px"><button type="button" data-ti="' + i + '" style="position:absolute;top:0;right:0;border:0;border-radius:50%;background:#000a;color:#fff;width:18px;height:18px;line-height:18px;padding:0;cursor:pointer">×</button></span>').join(''); }
+$('#tImgs').onclick = (e) => { const b = e.target.closest('[data-ti]'); if (b) { TIMG.splice(+b.dataset.ti, 1); tImgR(); } };
+$('#tText').addEventListener('paste', async (e) => { const fs = [...((e.clipboardData && e.clipboardData.items) || [])].filter((i) => i.kind === 'file' && /^image\//.test(i.type)).map((i) => i.getAsFile()); if (!fs.length) return; e.preventDefault(); for (const f of fs) if (TIMG.length < 4) TIMG.push(await shrink(f)); tImgR(); });
+$('#tRead').onclick = async () => {
+  $('#tAiMsg').textContent = 'Đang đọc…'; const j = await api('/api/ks/ai', { method: 'POST', body: JSON.stringify({ text: $('#tText').value, images: TIMG }) });
+  if (j.error || !j.data) { $('#tAiMsg').textContent = j.error || 'Không đọc được'; return; }
+  const d = j.data; const cur = $('#tWbs').value.split(/[\s,;]+/).filter(Boolean);
+  $('#tWbs').value = [...new Set(cur.concat(d.wbs))].join('\n'); if (d.lot && !$('#tLot').value) $('#tLot').value = d.lot; if (d.shop && !$('#tShop').value) $('#tShop').value = d.shop;
+  if (d.items.length && d.wbs.length <= 1) $('#tItems').value = d.items.map((i) => [i.name + (i.nameZh ? ' / ' + i.nameZh : ''), i.qty, i.price ?? ''].join(' | ')).join('\n');
+  $('#tAiMsg').textContent = 'Đã đọc: ' + d.wbs.length + ' mã vận đơn, ' + d.items.length + ' dòng hàng' + (d.warnings.length ? ' · ' + d.warnings.join(' · ') : '');
+};
+$('#tGo').onclick = async () => {
+  $('#tMsg').innerHTML = '';
+  const items = $('#tItems').value.split('\n').map((l) => l.split('|').map((x) => x.trim())).filter((a) => a[0]).map((a) => { const [n, zh] = a[0].split(' / '); return { name: n, nameZh: zh || '', qty: +a[1] || 1, price: +String(a[2] || '').replace(',', '.') || 0 }; });
+  const body = { cust: $('#tCust').value, wbs: $('#tWbs').value, lot: $('#tLot').value, shop: $('#tShop').value, mode: $('#tMode').value, wh: $('#tWh').value, line: $('#tLine').value, estW: $('#tEstW').value, items, svcs: [...document.querySelectorAll('#tSvcs input:checked')].map((x) => x.value), note: $('#tNote').value };
+  const j = await api('/api/ks/create', { method: 'POST', body: JSON.stringify(body) });
+  if (j.error) { $('#tMsg').innerHTML = '<div class="err">' + esc(j.error) + '</div>'; return; }
+  $('#tMsg').innerHTML = '<div class="ok">Đã tạo ' + j.orders.length + ' đơn cho ' + esc(j.owner) + ': ' + j.orders.map((o) => esc(o.wb) + ' (' + o.code + ')').join(', ') + '</div>';
+  ['#tWbs', '#tText', '#tItems', '#tLot', '#tShop', '#tNote'].forEach((x) => $(x).value = ''); TIMG = []; tImgR(); load();
 };
 load();
 </script>

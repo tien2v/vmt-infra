@@ -204,7 +204,8 @@ function payload(user) {
   if (me.walletOn) { me.wallet = ledger.walletView(store.rawDb(), owner(user)); me.hasPin = ledger.hasPin(store.rawDb(), owner(user)); }
   const cn = store.cnList(user.username, user.gobiz).map((o) => Object.assign(o, { mine: true }));
   // Ky gui he thong moi (ma 84…) gop vao danh sach ky gui cung don Gobiz; dia chi kho TQ kem ma khach
-  me.grp = (c && c.grp) || ''; me.kh = owner(user); me.ksDef = ks.getDefault(me.kh); // ky hieu tren kien: HN-/SG- + username web khach dang dung
+  me.grp = (c && c.grp) || ''; me.kh = me.code || owner(user); // ky hieu tren kien: HN-/SG- + MA KHACH (khach ghi username van nhan duoc)
+  me.khUser = owner(user); me.ksDef = ks.getDefault(me.khUser);
   const ksNew = ks.list(user.username, user.gobiz, { group: me.grp });
   me.whCn = ks.warehouses().filter((w) => w.active !== false).map((w) => Object.assign(ks.whView(w, null, me.grp), { type: w.type }));
   const companies = store.coList(user.username);
@@ -449,6 +450,15 @@ async function handle(req, res) {
     let b; try { b = JSON.parse((await readBody(req, 20000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
     const { wbs } = ks.parseWbs(b.wbs);
     return json(req, res, 200, { dup: ks.existing(user.username, wbs.slice(0, 200)) });
+  }
+  const mkv = p.match(/^\/api\/ks\/(84\d{10})\/svcs$/);
+  if (mkv && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 5000)).toString()); } catch { return json(req, res, 400, { error: 'Dữ liệu không hợp lệ' }); }
+    const r = ks.setSvcs(user.username, user.gobiz, mkv[1], b, 'khach:' + user.username, clientIp(req));
+    if (r.error) return json(req, res, r.code || 400, { error: r.error });
+    return json(req, res, 200, { ok: true, order: r.order });
   }
   const mks = p.match(/^\/api\/ks\/(84\d{10})\/cancel$/);
   if (mks && req.method === 'POST') {

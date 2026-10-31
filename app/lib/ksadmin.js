@@ -100,6 +100,21 @@ function resolveOwner(d, key, isKnown) {
   try { if (d.prepare('SELECT 1 FROM users WHERE lower(username) = ? OR lower(gobiz) = ?').get(key, key)) return key; } catch {}
   return null;
 }
+// Nhan vien (sale / CSKH) tao don ky gui giup khach: dung chung ks.js voi trang khach (app/lib/ks.js = khach/lib/ks.js)
+const ks = require('./ks');
+let ksReady = false;
+function ksLib() { const d = open(); if (!d) return null; if (!ksReady) { ks.init(d, (k) => store.kvGet(k)); ksReady = true; } return ks; }
+function staffCreate(b, staff, ip, isKnown) {
+  const k = ksLib(); if (!k) return { error: 'Chưa có dữ liệu trang khách' };
+  const pm = parseMark(b.cust); const own = resolveOwner(open(), pm.key, isKnown);
+  if (!own) return { error: 'Không tìm thấy khách (nhập username hoặc mã khách)' };
+  const v = k.validate(b); if (v.error) return v;
+  const r = k.create(own, own, false, v, ip, {}, 'nv:' + staff);
+  if (r.error) return r;
+  try { const d = open(); for (const o of r.orders) d.prepare('INSERT INTO notif (username, code, text) VALUES (?, ?, ?)').run(own, o.code, 'Nhân viên VMT đã tạo đơn ký gửi ' + o.wb + ' giúp anh/chị.'); } catch {}
+  return { ok: true, owner: own, orders: r.orders };
+}
+
 function autoCreate(o) {
   const d = open(); if (!d || !hasTable(d)) return { error: 'Chưa có dữ liệu ký gửi' };
   const wb = String(o.wb || '').trim().toUpperCase();
@@ -128,4 +143,4 @@ function autoCreate(o) {
   } catch (e) { try { d.exec('ROLLBACK'); } catch {} throw e; }
 }
 
-module.exports = { autoCreate, parseMark, init, list, log, warehouses, setWarehouses, warehousesLog, agentGroups, setAgentGroups, LABEL };
+module.exports = { staffCreate, ksLib, autoCreate, parseMark, init, list, log, warehouses, setWarehouses, warehousesLog, agentGroups, setAgentGroups, LABEL };
