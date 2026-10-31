@@ -169,7 +169,7 @@ function coDelete(username, id, ip) {
   coLog(username, r.id, 'Xoá', { co: coRow(r), ip });
   return { ok: true };
 }
-function notifList(username) { return db.prepare('SELECT id, code, text, read, created_at FROM notif WHERE username = ? ORDER BY id DESC LIMIT 50').all(username); }
+function notifList(username) { return db.prepare('SELECT * FROM notif WHERE username = ? ORDER BY id DESC LIMIT 100').all(username).map((n) => ({ id: n.id, code: n.code, text: n.text, read: n.read, created_at: n.created_at, kind: n.kind || null })); }
 function notifRead(username) { db.prepare('UPDATE notif SET read = 1 WHERE username = ? AND read = 0').run(username); }
 function rawDb() { return db; }
 // Tai khoan nhan nap tien do admin cai (doc tu DB admin, chi doc)

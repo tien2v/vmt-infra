@@ -92,6 +92,46 @@ const BRAND = {
 };
 const hostBrand = (req) => (/vmtglobal/i.test(req.headers.host || '') ? 'yellow' : 'green');
 
+// ---------- cai app (PWA) ----------
+const PWA_COLOR = { green: { bg: '#e2e9df', theme: '#0f1922' }, yellow: { bg: '#eee9df', theme: '#172530' } };
+function manifest(b) {
+  return JSON.stringify({
+    id: '/', name: BRAND[b].name, short_name: BRAND[b].name, description: 'Đặt hàng, ký gửi, thanh toán hộ, theo dõi đơn',
+    lang: 'vi', start_url: '/?src=app', scope: '/', display: 'standalone', orientation: 'portrait',
+    background_color: PWA_COLOR[b].bg, theme_color: PWA_COLOR[b].theme,
+    icons: [
+      { src: '/pwa/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/pwa/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/pwa/icon-mask-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ],
+  });
+}
+function pwaFile(req, res, name) {
+  const b = hostBrand(req);
+  const map = { 'icon-192.png': '192', 'icon-512.png': '512', 'icon-mask-512.png': 'mask-512', 'apple-touch-icon.png': '180' };
+  if (!map[name]) return send(res, 404, 'Not found');
+  fs.readFile(path.join(__dirname, 'pwa', b + '-' + map[name] + '.png'), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=604800' }));
+}
+const PWA_EVENTS = new Set(['shown', 'install_click', 'installed', 'dismissed', 'later', 'standalone', 'open_browser']);
+function pwaInit() {
+  store.rawDb().exec("CREATE TABLE IF NOT EXISTS pwa_log (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, event TEXT NOT NULL, platform TEXT, ua TEXT, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))");
+}
+pwaInit();
+try { store.rawDb().exec('ALTER TABLE notif ADD COLUMN kind TEXT'); } catch {} // loai thong bao ghi thang (neu noi ghi co truyen)
+// Phan loai thong bao cho cac tab: order | money | support | system; act = can khach lam gi do
+function notifKind(n) {
+  const t = String(n.text || '').toLowerCase();
+  const act = /cần thanh toán|thanh toán thêm|chưa thanh toán|xem và thanh toán|cần anh\/chị|xác nhận|đồng ý|lấy hàng tại kho/.test(t);
+  let kind = n.kind;
+  if (!kind) {
+    if (/phiếu hỗ trợ|khiếu nại|ticket/.test(t)) kind = 'support';
+    else if (/^đã nhận .*vào ví|rút tiền|nạp tiền|khoản chuyển|^đã thanh toán|được hoàn|hoàn .* về ví|mã giao dịch|tín dụng|số dư/.test(t)) kind = 'money';
+    else if (n.code) kind = 'order';
+    else kind = 'system';
+  }
+  return { kind, act };
+}
+
 const owner = (user) => String(user.gobiz || user.username).toLowerCase();
 function gobizNames() { const ix = index(); return ix ? [...ix.byUser.keys()] : []; }
 function payload(user) {
@@ -106,6 +146,7 @@ function payload(user) {
   // Ma khach moi (= ma nap tien), tach khoi Gobiz. Vi moi: tam thoi chi bat cho tai khoan test.
   me.code = ledger.codeOf(store.rawDb(), owner(user), gobizNames());
   me.walletOn = me.test;
+  me.appInstalled = !!store.rawDb().prepare("SELECT 1 FROM pwa_log WHERE username = ? AND event IN ('standalone','installed') LIMIT 1").get(user.username);
   if (me.walletOn) { me.wallet = ledger.walletView(store.rawDb(), owner(user)); me.hasPin = ledger.hasPin(store.rawDb(), owner(user)); }
   const cn = store.cnList(user.username, user.gobiz).map((o) => Object.assign(o, { mine: true }));
   const companies = store.coList(user.username);
@@ -156,6 +197,12 @@ async function handle(req, res) {
   }
   if (p === '/api/logout') { setCookie(res, '', 0); res.writeHead(302, { Location: '/login' }); return res.end(); }
   if (p === '/login') return loginPage(req, res);
+  if (p === '/manifest.webmanifest') return send(res, 200, manifest(hostBrand(req)), { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+  if (p === '/sw.js') return fs.readFile(path.join(__dirname, 'sw.js'), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'text/javascript; charset=utf-8', 'Service-Worker-Allowed': '/' }));
+  if (p === '/offline.html') return fs.readFile(path.join(__dirname, 'offline.html'), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=86400' }));
+  if (p === '/apple-touch-icon.png') return pwaFile(req, res, 'apple-touch-icon.png');
+  const mp = p.match(/^\/pwa\/([a-z0-9-]+\.png)$/);
+  if (mp) return pwaFile(req, res, mp[1]);
   if (p.startsWith('/assets/') || p === '/icons.js' || p === '/manifest.json') return serveFile(req, res, p.slice(1), true);
 
   const user = readSession(req);
@@ -326,10 +373,22 @@ async function handle(req, res) {
     else { const co = store.coGet(user.username, mco[1]); if (!co) return json(req, res, 404, { error: 'Không tìm thấy công ty' }); store.coSave(user.username, Object.assign(co, { isDefault: true }), clientIp(req)); }
     return json(req, res, 200, { ok: true, items: store.coList(user.username) });
   }
+  if (p === '/api/pwa' && req.method === 'POST') {
+    if (!user) return json(req, res, 401, { error: 'login' });
+    if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' });
+    let b; try { b = JSON.parse((await readBody(req, 2000)).toString()); } catch { return json(req, res, 400, { error: 'bad' }); }
+    const ev = String(b.event || '');
+    if (!PWA_EVENTS.has(ev)) return json(req, res, 400, { error: 'bad' });
+    const db = store.rawDb();
+    // 'standalone' (dang mo bang app) chi ghi 1 lan/ngay/khach de khong phinh bang
+    if (ev === 'standalone' && db.prepare("SELECT 1 FROM pwa_log WHERE username = ? AND event = 'standalone' AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day')").get(user.username)) return json(req, res, 200, { ok: true });
+    db.prepare('INSERT INTO pwa_log (username, event, platform, ua) VALUES (?, ?, ?, ?)').run(user.username, ev, String(b.platform || '').slice(0, 20), String(req.headers['user-agent'] || '').slice(0, 300));
+    return json(req, res, 200, { ok: true });
+  }
   if (p === '/api/notif') {
     if (!user) return json(req, res, 401, { error: 'login' });
     if (req.method === 'POST') { if (!sameOrigin(req)) return json(req, res, 403, { error: 'origin' }); store.notifRead(user.username); return json(req, res, 200, { ok: true }); }
-    return json(req, res, 200, { items: store.notifList(user.username) });
+    return json(req, res, 200, { items: store.notifList(user.username).map((n) => Object.assign(n, notifKind(n))) });
   }
   if (p === '/api/cn/quote' && req.method === 'POST') {
     if (!user) return json(req, res, 401, { error: 'login' });
