@@ -21,3 +21,10 @@ Sau mỗi lần làm, rà và xoá:
 - `node --check` các file đã sửa; chạy test (`node --test app/test/*.test.js`).
 - Chạy thử server tại máy (DATA_DIR tạm) cho phần vừa sửa.
 - Commit ghi bằng tiếng Việt, nói rõ đã sửa gì và đã đồng bộ những chỗ nào.
+
+## Giao diện mã hoá (`app/ui.tar.gz.enc`, `khach/ui.tar.gz.enc`) — nhiều phiên cùng sửa
+File mã hoá không ghép được bằng git: đóng gói từ bản cũ sẽ **đè mất** phần phiên khác vừa làm.
+Trước khi mã hoá lại để push:
+1. `git fetch origin main`; nếu file `.enc` trên `origin/main` khác bản mình bắt đầu sửa → giải mã bản đó ra thư mục riêng.
+2. Ghép 3 chiều từng file (`git merge-file mine base theirs`), sửa xung đột nếu có, chạy thử lại.
+3. Mã hoá bản đã ghép rồi mới push. Commit ghi rõ đã ghép với commit nào.
