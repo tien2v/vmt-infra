@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="{{NAME}}: đặt hàng Taobao, 1688, ký gửi về Việt Nam, thanh toán hộ, ship hàng sang Trung Quốc. Theo dõi đơn và nhận thông báo mọi lúc.">
+<meta property="og:type" content="website"><meta property="og:site_name" content="{{NAME}}"><meta property="og:locale" content="vi_VN">
+<meta property="og:title" content="{{NAME}} {{TAGOG}}– Đặt hàng & theo dõi đơn"><meta property="og:description" content="Đặt hàng Taobao, 1688, ký gửi về Việt Nam, thanh toán hộ, ship hàng sang Trung Quốc. Theo dõi đơn và nhận thông báo mọi lúc.">
+<meta property="og:url" content="https://{{HOST}}/"><meta property="og:image" content="https://{{HOST}}/og.jpg"><meta property="og:image:type" content="image/jpeg"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="{{NAME}}">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://{{HOST}}/og.jpg">
+<link rel="icon" type="image/png" href="/pwa/icon-192.png">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="apple-mobile-web-app-title" content="{{NAME}}"><meta name="theme-color" content="#eee9df">
 <title>Đăng nhập · {{NAME}}</title>
 <style>
@@ -81,20 +87,20 @@ document.getElementById('fidBtn').onclick=async function(){var e=document.getEle
  try{var c=await post('/api/passkey/login-challenge',{username:fidUser});if(!c._ok)throw new Error(c.error||'Lỗi');
   var a;try{a=await navigator.credentials.get({publicKey:{challenge:B(c.challenge),rpId:c.rpId,allowCredentials:c.creds.map(function(id){return {type:'public-key',id:B(id)}}),userVerification:'required',timeout:60000}});}catch(x){throw new Error(x&&x.name==='NotAllowedError'?'Đã huỷ hoặc hết thời gian, thử lại':'Máy không xác thực được, dùng mật khẩu');}
   var r=await post('/api/passkey/login',{username:fidUser,challenge:c.challenge,cred:{id:a.id,clientDataJSON:U(a.response.clientDataJSON),authenticatorData:U(a.response.authenticatorData),signature:U(a.response.signature)}});
-  if(!r._ok)throw new Error(r.error||'Không đăng nhập được');location.href='/';return;
+  if(!r._ok)throw new Error(r.error||'Không đăng nhập được');location.href='/'+(location.pathname==='/'?location.hash:'');return;
  }catch(x){e.textContent=x.message;if(/không còn hiệu lực|chưa bật/.test(x.message)){LS.s('vmt_fid_user','');}}bt.disabled=false;};
 // Sau khi dang nhap bang mat khau: hoi bat Face ID cho lan sau (may co Face ID / van tay, chua bat cho tai khoan nay)
 async function offer(username,password){
  if(!hasPK||LS.g('vmt_fid_user')===username||LS.g('vmt_fid_no_'+username))return false;
  try{if(!(await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()))return false;}catch(x){return false;}
  document.getElementById('f').hidden=true;document.querySelector('h1').hidden=true;document.querySelector('p.sub').hidden=true;document.getElementById('askBox').hidden=false;
- document.getElementById('askNo').onclick=function(){LS.s('vmt_fid_no_'+username,'1');location.href='/';};
+ document.getElementById('askNo').onclick=function(){LS.s('vmt_fid_no_'+username,'1');location.href='/'+(location.pathname==='/'?location.hash:'');};
  document.getElementById('askYes').onclick=async function(){var e=document.getElementById('ae'),bt=this;e.textContent='';bt.disabled=true;
   try{var c=await post('/api/passkey/reg-challenge',{});if(!c._ok)throw new Error(c.error||'Lỗi');
    var cr;try{cr=await navigator.credentials.create({publicKey:{challenge:B(c.challenge),rp:{id:c.rpId,name:document.title.replace(/^.*· /,'')},user:{id:B(c.user.id),name:c.user.name,displayName:c.user.name},pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],excludeCredentials:(c.exclude||[]).map(function(id){return {type:'public-key',id:B(id)}}),authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'discouraged'},attestation:'none',timeout:60000}});}catch(x){throw new Error(x&&x.name==='InvalidStateError'?'Máy này đã bật rồi':'Đã huỷ, có thể bật lại trong Tài khoản');}
    var r=await post('/api/passkey/register',{challenge:c.challenge,password:password,label:devName(),cred:{clientDataJSON:U(cr.response.clientDataJSON),attestationObject:U(cr.response.attestationObject)}});
    if(!r._ok&&r.error!=='Máy này đã bật rồi')throw new Error(r.error||'Không bật được');
-   LS.s('vmt_fid_user',username);location.href='/';return;
+   LS.s('vmt_fid_user',username);location.href='/'+(location.pathname==='/'?location.hash:'');return;
   }catch(x){e.textContent=x.message;}bt.disabled=false;};
  return true;}
 var $=function(i){return document.getElementById(i)};
@@ -107,7 +113,7 @@ $('nf').addEventListener('submit',async function(ev){ev.preventDefault();var b=$
  catch(x){e.textContent='Mất kết nối, thử lại'}b.disabled=false;});
 document.getElementById('f').addEventListener('submit',async function(ev){ev.preventDefault();var b=document.getElementById('b'),e=document.getElementById('e');b.disabled=true;e.textContent='';
  try{var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});
-  var j=await r.json().catch(function(){return {}});if(r.ok){var un=j.username||document.getElementById('u').value.trim().toLowerCase();if(await offer(un,document.getElementById('p').value))return;location.href='/';return}e.textContent=j.error||'Không đăng nhập được, thử lại sau';if(j.first)showNew(document.getElementById('u').value.trim());}
+  var j=await r.json().catch(function(){return {}});if(r.ok){var un=j.username||document.getElementById('u').value.trim().toLowerCase();if(await offer(un,document.getElementById('p').value))return;location.href='/'+(location.pathname==='/'?location.hash:'');return}e.textContent=j.error||'Không đăng nhập được, thử lại sau';if(j.first)showNew(document.getElementById('u').value.trim());}
  catch(x){e.textContent='Mất kết nối, thử lại'}b.disabled=false;});
 </script>
 </body>

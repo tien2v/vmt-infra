@@ -231,7 +231,8 @@ function loginPage(req, res, file) {
   fs.readFile(path.join(__dirname, file || 'login.html'), 'utf8', (err, html) => {
     if (err) return send(res, 500, 'Server error');
     const b = hostBrand(req);
-    send(res, 200, html.replaceAll('{{BRAND}}', b).replaceAll('{{NAME}}', BRAND[b].name).replaceAll('{{TAG}}', BRAND[b].tag), { 'Content-Type': 'text/html; charset=utf-8' });
+    const B = BRAND[b];
+    send(res, 200, html.replaceAll('{{BRAND}}', b).replaceAll('{{NAME}}', B.name).replaceAll('{{TAGOG}}', b === 'green' ? 'Logistics ' : '').replaceAll('{{TAG}}', B.tag).replaceAll('{{HOST}}', B.host), { 'Content-Type': 'text/html; charset=utf-8' });
   });
 }
 
@@ -394,6 +395,8 @@ async function handle(req, res) {
   if (p === '/sw.js') return fs.readFile(path.join(__dirname, 'sw.js'), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'text/javascript; charset=utf-8', 'Service-Worker-Allowed': '/' }));
   if (p === '/offline.html') return fs.readFile(path.join(__dirname, 'offline.html'), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=86400' }));
   if (p === '/apple-touch-icon.png') return pwaFile(req, res, 'apple-touch-icon.png');
+  // Anh xem truoc khi chia se link (Zalo, Facebook, Messenger…): 1200x630 theo thuong hieu
+  if (p === '/og.jpg') return fs.readFile(path.join(__dirname, 'pwa', hostBrand(req) + '-og.jpg'), (err, buf) => err ? send(res, 404, 'Not found') : send(res, 200, buf, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=604800' }));
   const mp = p.match(/^\/pwa\/([a-z0-9-]+\.png)$/);
   if (mp) return pwaFile(req, res, mp[1]);
   if (p.startsWith('/assets/') || p === '/icons.js' || p === '/manifest.json') return serveFile(req, res, p.slice(1), true);
@@ -684,7 +687,7 @@ async function handle(req, res) {
     return json(req, res, 200, { ok: true, order: Object.assign(r.order, { mine: true }) });
   }
   if (p === '/' || p === '/index.html') {
-    if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
+    if (!user) return loginPage(req, res); // tra thang trang dang nhap (khong chuyen huong) de Zalo / Facebook doc duoc anh xem truoc
     return serveFile(req, res, 'index.html', false);
   }
   return send(res, 404, 'Not found');
